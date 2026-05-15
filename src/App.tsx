@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+// @ts-ignore
+import autoTable from "jspdf-autotable";
 import {
   Shield,
   AlertTriangle,
@@ -8,17 +11,26 @@ import {
   Filter,
   Download,
   Upload,
-  Users,
   Flame,
   ArrowRight,
   Activity,
   FileText,
-  Sparkles,
   ChevronDown,
   ChevronUp,
-  RotateCcw,
   Database,
   Trash2,
+  Terminal,
+  Server,
+  Wrench,
+  Link as LinkIcon,
+  CheckSquare,
+  Square,
+  Layers,
+  Search,
+  Users,
+  Bot,
+  X,
+  Send,
 } from "lucide-react";
 import {
   PieChart,
@@ -60,14 +72,22 @@ const CustomTimelineTooltip = ({ active, payload, label }: any) => {
 const App = () => {
   const [allIssues, setAllIssues] = useState<any[]>([]);
   const [batches, setBatches] = useState<string[]>([]);
-  const [selectedBatch, setSelectedBatch] = useState<string>("Latest");
-
+  const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
+  const [isBatchDropdownOpen, setIsBatchDropdownOpen] = useState(false);
   const [filter, setFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [selectedOwner, setSelectedOwner] = useState("All");
+  const [uploadProgress, setUploadProgress] = useState<string>("");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [selectedDepartment, setSelectedDepartment] = useState("All");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // --- AI MODAL STATE ---
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [aiRecipient, setAiRecipient] = useState("");
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const API_URL =
     "https://cuume980nf.execute-api.us-east-1.amazonaws.com/default/SecurityDataFetcher";
@@ -93,24 +113,55 @@ const App = () => {
         }
 
         if (Array.isArray(rawArray) && rawArray.length > 0) {
-          const safeData = rawArray.map((item) => ({
-            IssueID: String(item?.IssueID ?? "NA"),
-            UploadBatch: String(item?.UploadBatch ?? "NA"),
-            Severity: String(item?.Severity ?? "NA"),
-            Status: String(item?.Status ?? "Open"),
-            Owner: String(item?.Owner ?? "NA"),
-            Type: String(item?.Type ?? "NA"),
-            AI_Summary:
-              typeof item?.AI_Summary === "string" &&
-              item.AI_Summary.trim() !== ""
-                ? item.AI_Summary
-                : "No description provided.",
-            DiscoveredDate: String(item?.DiscoveredDate ?? "NA"),
-            DueDate: String(item?.DueDate ?? "NA"),
-          }));
+          const safeData = rawArray.map((item) => {
+            let finalDept = String(item?.Department ?? "NA");
+            let finalAssigned = String(item?.AssignedTo ?? "NA");
+            const oldOwner = String(item?.Owner ?? "");
+
+            if (
+              (finalDept === "NA" || finalDept === "undefined") &&
+              (finalAssigned === "NA" || finalAssigned === "undefined") &&
+              oldOwner !== "" &&
+              oldOwner !== "NA" &&
+              oldOwner !== "undefined"
+            ) {
+              if (oldOwner.includes("(") && oldOwner.endsWith(")")) {
+                const parts = oldOwner.split("(");
+                finalDept = parts[0].trim();
+                finalAssigned = parts[1].replace(")", "").trim();
+              } else {
+                finalAssigned = oldOwner;
+              }
+            }
+
+            return {
+              IssueID: String(item?.IssueID ?? "NA"),
+              DisplayID: String(item?.DisplayID || item?.IssueID || "NA"),
+              UploadBatch: String(item?.UploadBatch ?? "NA"),
+              Severity: String(item?.Severity ?? "NA"),
+              Status: String(item?.Status ?? "Open"),
+              Department: finalDept,
+              AssignedTo: finalAssigned,
+              Type: String(item?.Type ?? "NA"),
+              Category: String(item?.Category ?? "Uncategorized"),
+              DueDate: String(item?.DueDate ?? "NA"),
+              DiscoveredDate: String(item?.DiscoveredDate ?? "NA"),
+              Description:
+                typeof item?.Description === "string" &&
+                item.Description.trim() !== ""
+                  ? item.Description
+                  : item?.AI_Summary || "No description provided.",
+              AffectedAsset: String(item?.AffectedAsset ?? "NA"),
+              Evidence: String(item?.Evidence ?? "No evidence provided."),
+              RecommendedAction: String(
+                item?.RecommendedAction ?? "No remediation steps provided.",
+              ),
+              ReferenceLinks: String(item?.ReferenceLinks ?? "NA"),
+            };
+          });
 
           const sortedData = safeData.sort((a, b) => {
-            return a.IssueID.localeCompare(b.IssueID, undefined, {
+            return a.DisplayID.localeCompare(b.DisplayID, undefined, {
               numeric: true,
               sensitivity: "base",
             });
@@ -126,6 +177,8 @@ const App = () => {
 
           setBatches(uniqueBatches);
           setAllIssues(sortedData);
+
+          if (uniqueBatches.length > 0) setSelectedBatches(uniqueBatches);
         } else {
           setAllIssues([]);
         }
@@ -133,16 +186,28 @@ const App = () => {
       .catch((err) => console.error("API Fetch Error:", err));
   }, []);
 
-  const activeBatch =
-    selectedBatch === "Latest" && batches.length > 0
-      ? batches[0]
-      : selectedBatch;
-  const activeIssues =
-    selectedBatch === "All"
-      ? allIssues
-      : batches.length > 0
-        ? allIssues.filter((i) => i.UploadBatch === activeBatch)
-        : allIssues;
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsBatchDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const activeIssues = allIssues.filter((i) =>
+    selectedBatches.includes(i.UploadBatch),
+  );
+
+  const toggleBatch = (batch: string) => {
+    setSelectedBatches((prev) =>
+      prev.includes(batch) ? prev.filter((b) => b !== batch) : [...prev, batch],
+    );
+  };
 
   const isResolved = (status: string) => {
     const s = String(status || "").toLowerCase();
@@ -150,7 +215,9 @@ const App = () => {
       s.includes("resolved") ||
       s.includes("closed") ||
       s.includes("fixed") ||
-      s.includes("mitigated")
+      s.includes("mitigated") ||
+      s.includes("accepted") ||
+      s.includes("false positive")
     );
   };
 
@@ -159,25 +226,6 @@ const App = () => {
     return (
       s.includes("progress") || s.includes("pending") || s.includes("review")
     );
-  };
-
-  const updateIssueStatus = async (issue: any, newStatus: string) => {
-    const updatedIssue = { ...issue, Status: newStatus };
-    setAllIssues((prev) =>
-      prev.map((i) => (i.IssueID === issue.IssueID ? updatedIssue : i)),
-    );
-    try {
-      await fetch(API_URL, {
-        method: "POST",
-        mode: "cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: [updatedIssue] }),
-      });
-    } catch (err) {
-      setAllIssues((prev) =>
-        prev.map((i) => (i.IssueID === issue.IssueID ? issue : i)),
-      );
-    }
   };
 
   const filteredBySeverity =
@@ -191,16 +239,38 @@ const App = () => {
       .trim();
     if (!s) return true;
 
-    const id = String(issue.IssueID || "").toLowerCase();
-    const owner = String(issue.Owner || "")
+    const id = String(issue.DisplayID || "").toLowerCase();
+    const assigned = String(issue.AssignedTo || "")
       .toLowerCase()
       .trim();
-    const summary = String(issue.AI_Summary || "").toLowerCase();
+    const remediation = String(issue.RecommendedAction || "")
+      .toLowerCase()
+      .trim();
+    const category = String(issue.Category || "").toLowerCase();
+    const type = String(issue.Type || "").toLowerCase();
 
     return (
-      owner === s || id.includes(s) || owner.includes(s) || summary.includes(s)
+      assigned.includes(s) ||
+      remediation.includes(s) ||
+      id.includes(s) ||
+      category.includes(s) ||
+      type.includes(s)
     );
   });
+
+  const rowSpanMap: Record<string, number> = {};
+  displayedIssues.forEach((issue) => {
+    rowSpanMap[issue.DisplayID] = (rowSpanMap[issue.DisplayID] || 0) + 1;
+  });
+
+  const activeSpanMap: Record<string, number> = { ...rowSpanMap };
+  displayedIssues.forEach((issue) => {
+    if (expandedRow === issue.IssueID) {
+      activeSpanMap[issue.DisplayID] += 1;
+    }
+  });
+
+  const renderedIdHeads = new Set();
 
   const checkBreach = (issue: any) => {
     if (!issue.DueDate || issue.DueDate === "NA" || isResolved(issue.Status))
@@ -229,9 +299,11 @@ const App = () => {
 
   const typeMap: Record<string, number> = {};
   displayedIssues.forEach((issue) => {
-    const type =
-      issue.Type && issue.Type !== "NA" ? String(issue.Type) : "Unclassified";
-    typeMap[type] = (typeMap[type] || 0) + 1;
+    const cat =
+      issue.Category && issue.Category !== "Uncategorized"
+        ? String(issue.Category)
+        : "Other";
+    typeMap[cat] = (typeMap[cat] || 0) + 1;
   });
 
   const typeChartData = Object.keys(typeMap)
@@ -248,7 +320,7 @@ const App = () => {
         const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
         if (!timelineMap[dateStr]) timelineMap[dateStr] = { count: 0, ids: [] };
         timelineMap[dateStr].count += 1;
-        timelineMap[dateStr].ids.push(issue.IssueID);
+        timelineMap[dateStr].ids.push(issue.DisplayID);
       }
     }
   });
@@ -261,66 +333,168 @@ const App = () => {
       Vulnerabilities: timelineMap[date].ids.join(", "),
     }));
 
-  const uniqueOwners = Array.from(
-    new Set(activeIssues.map((i) => String(i.Owner || "NA"))),
-  ).sort();
-  const ownerSpecificIssues =
-    selectedOwner === "All"
-      ? activeIssues
-      : activeIssues.filter((i) => String(i.Owner || "NA") === selectedOwner);
-
-  const ownerStats = {
-    total: ownerSpecificIssues.length,
-    resolved: ownerSpecificIssues.filter((i) => isResolved(i.Status)).length,
-    progress: ownerSpecificIssues.filter((i) => isInProgress(i.Status)).length,
-    open: ownerSpecificIssues.filter(
-      (i) => !isResolved(i.Status) && !isInProgress(i.Status),
-    ).length,
-    criticalOpen: ownerSpecificIssues.filter(
-      (i) => i.Severity === "Critical" && !isResolved(i.Status),
-    ).length,
-  };
-
   const pieChartData = [
     { name: "Resolved", value: pipeline.resolved, color: "#10b981" },
     { name: "In Progress", value: pipeline.progress, color: "#3b82f6" },
     { name: "Open", value: pipeline.open, color: "#ef4444" },
   ].filter((d) => d.value > 0);
 
-  const ownerPieData = [
-    { name: "Resolved", value: ownerStats.resolved, color: "#10b981" },
-    { name: "In Progress", value: ownerStats.progress, color: "#3b82f6" },
-    { name: "Open", value: ownerStats.open, color: "#ef4444" },
+  const topRemediations = useMemo(() => {
+    const actionMap: Record<string, number> = {};
+    displayedIssues
+      .filter((i) => !isResolved(i.Status))
+      .forEach((issue) => {
+        const action = issue.RecommendedAction || "No Action Provided";
+        actionMap[action] = (actionMap[action] || 0) + 1;
+      });
+
+    return Object.entries(actionMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([action, count]) => ({ action, count }));
+  }, [displayedIssues]);
+
+  const uniqueDepartments = Array.from(
+    new Set(activeIssues.map((i) => String(i.Department || "NA"))),
+  ).sort();
+  const deptSpecificIssues =
+    selectedDepartment === "All"
+      ? activeIssues
+      : activeIssues.filter(
+          (i) => String(i.Department || "NA") === selectedDepartment,
+        );
+
+  const deptStats = {
+    total: deptSpecificIssues.length,
+    resolved: deptSpecificIssues.filter((i) => isResolved(i.Status)).length,
+    progress: deptSpecificIssues.filter((i) => isInProgress(i.Status)).length,
+    open: deptSpecificIssues.filter(
+      (i) => !isResolved(i.Status) && !isInProgress(i.Status),
+    ).length,
+    criticalOpen: deptSpecificIssues.filter(
+      (i) => i.Severity === "Critical" && !isResolved(i.Status),
+    ).length,
+  };
+
+  const deptPieData = [
+    { name: "Resolved", value: deptStats.resolved, color: "#10b981" },
+    { name: "In Progress", value: deptStats.progress, color: "#3b82f6" },
+    { name: "Open", value: deptStats.open, color: "#ef4444" },
   ].filter((d) => d.value > 0);
 
-  const handleDeleteBatch = async () => {
-    const target = selectedBatch === "Latest" ? activeBatch : selectedBatch;
-    if (!target) return;
+  // --- STRICT AI EMAIL LOGIC WITH PDF & SUMMARY COUNTS ---
+  const handleAiEmailSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!aiRecipient || !aiPrompt) return;
 
-    const confirmMsg =
-      target === "All"
-        ? "🚨 URGENT WARNING: Are you sure you want to DELETE ALL HISTORICAL DATA?\n\nThis will permanently wipe the entire AWS database and cannot be undone."
-        : `🗑️ Are you sure you want to permanently delete the dataset:\n\n"${target}"?`;
+    setIsGenerating(true);
 
+    setTimeout(() => {
+      // 1. Generate the PDF Report using jsPDF
+      const doc = new jsPDF();
+      doc.setFontSize(18);
+      doc.text("Security Vulnerability Report", 14, 20);
+
+      doc.setFontSize(11);
+      doc.setTextColor(100);
+      doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 28);
+
+      const splitPrompt = doc.splitTextToSize(`Instructions: ${aiPrompt}`, 180);
+      doc.text(splitPrompt, 14, 38);
+
+      const openIssues = displayedIssues.filter((i) => !isResolved(i.Status));
+
+      const tableData = openIssues.map((i) => [
+        i.DisplayID,
+        i.Category,
+        i.Severity,
+        i.RecommendedAction,
+        i.AssignedTo,
+        i.DueDate,
+      ]);
+
+      autoTable(doc, {
+        startY: 40 + splitPrompt.length * 5,
+        head: [
+          [
+            "Issue ID",
+            "Category",
+            "Severity",
+            "Remediation Action",
+            "Assigned To",
+            "Due Date",
+          ],
+        ],
+        body: tableData,
+        theme: "grid",
+        headStyles: { fillColor: [30, 41, 59] }, // Slate-800 color
+        styles: { fontSize: 8 },
+        columnStyles: {
+          3: { cellWidth: 50 }, // Give remediation column more space
+        },
+      });
+
+      // Save the PDF locally
+      doc.save("Security_Action_Report.pdf");
+
+      setIsGenerating(false);
+
+      // --- CALCULATE ISSUE COUNTS ---
+      const criticalCount = openIssues.filter(
+        (i) => String(i.Severity).toLowerCase() === "critical",
+      ).length;
+      const highCount = openIssues.filter(
+        (i) => String(i.Severity).toLowerCase() === "high",
+      ).length;
+      const mediumCount = openIssues.filter(
+        (i) => String(i.Severity).toLowerCase() === "medium",
+      ).length;
+      const lowCount = openIssues.filter(
+        (i) => String(i.Severity).toLowerCase() === "low",
+      ).length;
+
+      // 2. Open Email Client with Instructions + Counts
+      const subject = encodeURIComponent(
+        `Security Action Required: Pending Vulnerabilities`,
+      );
+
+      let body = `${aiPrompt}\n\n`;
+      body += `--- Report Summary ---\n`;
+      body += `Total Pending Issues: ${openIssues.length}\n`;
+      if (criticalCount > 0) body += `- Critical: ${criticalCount}\n`;
+      if (highCount > 0) body += `- High: ${highCount}\n`;
+      if (mediumCount > 0) body += `- Medium: ${mediumCount}\n`;
+      if (lowCount > 0) body += `- Low: ${lowCount}\n`;
+
+      body += `\n[Please find the detailed PDF report attached to this email.]`;
+
+      window.location.href = `mailto:${aiRecipient}?subject=${subject}&body=${encodeURIComponent(body)}`;
+
+      setIsAiModalOpen(false);
+      setAiPrompt("");
+      setAiRecipient("");
+    }, 1500);
+  };
+
+  const handleDeleteSelectedBatches = async () => {
+    if (selectedBatches.length === 0) return;
+    const confirmMsg = `🗑️ Are you sure you want to delete ${selectedBatches.length} dataset(s)?`;
     if (!window.confirm(confirmMsg)) return;
 
     setIsProcessing(true);
     try {
-      const response = await fetch(API_URL, {
-        method: "DELETE",
-        mode: "cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ UploadBatch: target }),
-      });
-
-      if (!response.ok) throw new Error("AWS blocked the delete request.");
-
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      for (const batch of selectedBatches) {
+        await fetch(API_URL, {
+          method: "DELETE",
+          mode: "cors",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ UploadBatch: batch }),
+        });
+      }
       window.location.reload();
-    } catch (err: any) {
+    } catch (err) {
       setIsProcessing(false);
-      console.error("Delete Error:", err);
-      alert(`Delete Failed: ${err.message}`);
+      alert("Delete failed");
     }
   };
 
@@ -328,28 +502,29 @@ const App = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // --- FIX: CANCEL BUTTON SAFELY ABORTS EVERYTHING ---
     const datasetName = window.prompt(
       "💾 NAME YOUR DATASET\n\nPlease enter a name to save this dataset (e.g., 'May 2026 Audit').\n\nClick 'Cancel' to safely abort this upload.",
     );
 
-    // If user clicked Cancel, immediately stop everything.
     if (datasetName === null) {
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
     setIsProcessing(true);
+    setUploadProgress("Reading Excel...");
 
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: "array" });
+        const workbook = XLSX.read(data, { type: "array", cellDates: true });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rawJson: any[] = XLSX.utils.sheet_to_json(sheet, { raw: false });
+        const rawJson: any[] = XLSX.utils.sheet_to_json(sheet, {
+          raw: false,
+          dateNF: "yyyy-mm-dd",
+        });
 
-        // If they leave it blank but click OK, generate a safe default timestamp name.
         const finalBatchName =
           datasetName.trim() === ""
             ? `Upload - ${new Date().toLocaleString()}`
@@ -372,92 +547,132 @@ const App = () => {
 
         for (let i = 0; i < rawJson.length; i++) {
           const row = rawJson[i];
+
           const rawSla = getFuzzy(row, "sla");
           const parsedSla = rawSla ? parseInt(String(rawSla)) : null;
-          const fallbackId = Object.keys(row)[0];
 
-          const bestId =
+          const fallbackId = Object.keys(row)[0];
+          const rawId =
             getFuzzy(row, "vulnerabilityid") ||
             getFuzzy(row, "id") ||
             row[fallbackId] ||
-            `VULN-UPLOAD-${i}`;
+            "NA";
+
+          const personVal =
+            getFuzzy(row, "assigned") ||
+            getFuzzy(row, "assignee") ||
+            getFuzzy(row, "name") ||
+            getFuzzy(row, "owner") ||
+            getFuzzy(row, "person") ||
+            getFuzzy(row, "lead") ||
+            "NA";
+
+          const severity =
+            getFuzzy(row, "severity") ||
+            (parsedSla !== null
+              ? parsedSla <= 3
+                ? "Critical"
+                : "High"
+              : "NA");
+          const category =
+            getFuzzy(row, "category") ||
+            getFuzzy(row, "source") ||
+            getFuzzy(row, "domain") ||
+            "Uncategorized";
 
           const extractedDescription =
             getFuzzy(row, "description") ||
             getFuzzy(row, "summary") ||
             getFuzzy(row, "issue") ||
             getFuzzy(row, "title") ||
-            getFuzzy(row, "detail") ||
-            getFuzzy(row, "vulnerability") ||
             "No description provided.";
+          const affectedAsset =
+            getFuzzy(row, "asset") ||
+            getFuzzy(row, "system") ||
+            getFuzzy(row, "url") ||
+            getFuzzy(row, "endpoint") ||
+            getFuzzy(row, "image") ||
+            "NA";
+          const evidence =
+            getFuzzy(row, "evidence") ||
+            getFuzzy(row, "proof") ||
+            getFuzzy(row, "reproduce") ||
+            getFuzzy(row, "steps") ||
+            "No evidence provided.";
+          const recommendedAction =
+            getFuzzy(row, "remediation") ||
+            getFuzzy(row, "action") ||
+            getFuzzy(row, "fix") ||
+            getFuzzy(row, "solution") ||
+            "No remediation action provided.";
+          const referenceLinks =
+            getFuzzy(row, "reference") ||
+            getFuzzy(row, "link") ||
+            getFuzzy(row, "cve") ||
+            "NA";
 
-          const rawDept = getFuzzy(row, "department") || getFuzzy(row, "team");
-          const rawPerson =
-            getFuzzy(row, "assigned") ||
-            getFuzzy(row, "assignee") ||
-            getFuzzy(row, "name") ||
-            getFuzzy(row, "owner") ||
-            getFuzzy(row, "person") ||
-            getFuzzy(row, "lead");
-
-          let deptVal = rawDept || "NA";
-          let personVal = rawPerson || "NA";
-
-          if (
-            deptVal !== "NA" &&
-            personVal !== "NA" &&
-            String(deptVal).toLowerCase() === String(personVal).toLowerCase()
-          ) {
-            personVal = "NA";
-          }
-
-          let finalCombinedOwner = "NA";
-          if (deptVal !== "NA" && personVal !== "NA") {
-            finalCombinedOwner = `${deptVal} (${personVal})`;
-          } else if (deptVal !== "NA") {
-            finalCombinedOwner = deptVal;
-          } else if (personVal !== "NA") {
-            finalCombinedOwner = personVal;
-          }
+          const discoveredDateVal =
+            getFuzzy(row, "discovereddate") ||
+            getFuzzy(row, "discovered") ||
+            getFuzzy(row, "date") ||
+            getFuzzy(row, "datefound") ||
+            "NA";
+          const dueDateVal =
+            getFuzzy(row, "duedate") ||
+            getFuzzy(row, "due") ||
+            getFuzzy(row, "deadline") ||
+            getFuzzy(row, "target") ||
+            "NA";
 
           itemsToUpload.push({
-            IssueID: String(bestId),
+            IssueID: `${finalBatchName}-${rawId === "NA" ? i : rawId}-row${i}`,
+            DisplayID: rawId === "NA" ? `VULN-${i}` : String(rawId),
             UploadBatch: finalBatchName,
-            Severity:
-              parsedSla !== null
-                ? parsedSla <= 3
-                  ? "Critical"
-                  : "High"
-                : "NA",
+            Severity: severity,
             Status: getFuzzy(row, "status") || "Open",
-            Owner: finalCombinedOwner,
+            AssignedTo: personVal,
             Type:
               getFuzzy(row, "vulnerabilitytype") ||
               getFuzzy(row, "type") ||
               "NA",
-            AI_Summary: extractedDescription,
-            DiscoveredDate: getFuzzy(row, "discovereddate") || "NA",
-            DueDate: getFuzzy(row, "duedate") || "NA",
+            Category: category,
+            DueDate: String(dueDateVal),
+            DiscoveredDate: String(discoveredDateVal),
+            Description: extractedDescription,
+            AffectedAsset: affectedAsset,
+            Evidence: evidence,
+            RecommendedAction: recommendedAction,
+            ReferenceLinks: referenceLinks,
           });
         }
 
-        const response = await fetch(API_URL, {
-          method: "POST",
-          mode: "cors",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: itemsToUpload }),
-        });
+        const CHUNK_SIZE = 50;
+        const totalChunks = Math.ceil(itemsToUpload.length / CHUNK_SIZE);
 
-        if (!response.ok) {
-          throw new Error(`AWS blocked the request. Try again.`);
+        for (let i = 0; i < itemsToUpload.length; i += CHUNK_SIZE) {
+          const chunk = itemsToUpload.slice(i, i + CHUNK_SIZE);
+          const currentChunkNum = Math.floor(i / CHUNK_SIZE) + 1;
+          setUploadProgress(
+            `Uploading part ${currentChunkNum} of ${totalChunks}...`,
+          );
+
+          const response = await fetch(API_URL, {
+            method: "POST",
+            mode: "cors",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ items: chunk }),
+          });
+
+          if (!response.ok)
+            throw new Error(`AWS Blocked upload at part ${currentChunkNum}`);
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-
-        setIsProcessing(false);
+        setUploadProgress("Done!");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
         window.location.reload();
       } catch (err: any) {
         setIsProcessing(false);
+        setUploadProgress("");
         console.error("Upload Error:", err);
         alert(`Upload Failed: ${err.message}`);
       }
@@ -466,40 +681,79 @@ const App = () => {
   };
 
   const exportToExcel = () => {
-    const headers = [
-      "IssueID",
-      "Upload Batch",
-      "Severity",
-      "Status",
-      "Owner",
-      "Issue Description",
-      "Due Date",
+    const fileNameInput = window.prompt(
+      "💾 NAME YOUR EXPORT FILE\n\nPlease enter a name for this report (e.g., 'May_Audit_Report'):",
+      "Wynk_Security_Report",
+    );
+
+    if (fileNameInput === null) return;
+
+    let finalFileName =
+      fileNameInput.trim() === ""
+        ? "Wynk_Security_Report"
+        : fileNameInput.trim();
+    if (!finalFileName.toLowerCase().endsWith(".xlsx")) {
+      finalFileName += ".xlsx";
+    }
+
+    const exportData = displayedIssues.map((i) => ({
+      "Issue ID": i.DisplayID,
+      Category: i.Category,
+      Type: i.Type,
+      Severity: i.Severity,
+      Status: i.Status,
+      "Remediation Action": i.RecommendedAction,
+      "Assigned To": i.AssignedTo,
+      "Discovered Date": i.DiscoveredDate,
+      "Due Date": i.DueDate,
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+
+    const merges = [];
+    let startIdx = 0;
+
+    for (let i = 1; i <= exportData.length; i++) {
+      if (
+        i === exportData.length ||
+        exportData[i]["Issue ID"] !== exportData[startIdx]["Issue ID"]
+      ) {
+        const spanCount = i - startIdx;
+
+        if (spanCount > 1) {
+          merges.push({
+            s: { r: startIdx + 1, c: 0 },
+            e: { r: i, c: 0 },
+          });
+        }
+        startIdx = i;
+      }
+    }
+
+    if (merges.length > 0) {
+      ws["!merges"] = merges;
+    }
+
+    const wscols = [
+      { wch: 15 },
+      { wch: 20 },
+      { wch: 30 },
+      { wch: 15 },
+      { wch: 15 },
+      { wch: 40 },
+      { wch: 25 },
+      { wch: 20 },
+      { wch: 20 },
     ];
-    const rows = [headers.join(",")];
-    displayedIssues.forEach((i) => {
-      rows.push(
-        [
-          i.IssueID,
-          i.UploadBatch,
-          i.Severity,
-          i.Status,
-          i.Owner,
-          `"${i.AI_Summary}"`,
-          i.DueDate,
-        ].join(","),
-      );
-    });
-    const blob = new Blob([rows.join("\n")], { type: "text/csv" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "Wynk_Security_Report.csv";
-    a.click();
+    ws["!cols"] = wscols;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Security Report");
+    XLSX.writeFile(wb, finalFileName);
   };
 
   return (
     <div className="min-h-screen bg-[#f8fafc] p-6 lg:p-8 font-sans text-slate-800">
-      {/* ENTERPRISE HEADER */}
       <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between bg-white px-6 py-4 rounded-sm shadow-sm border border-slate-200">
         <div className="flex items-center gap-4">
           <Shield size={24} className="text-blue-600" />
@@ -513,7 +767,6 @@ const App = () => {
         </div>
       </header>
 
-      {/* KPI METRICS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <Card
           title="Active Backlog"
@@ -549,7 +802,6 @@ const App = () => {
         </div>
       </div>
 
-      {/* RESOLUTION PIPELINE */}
       <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
         <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
           <h2 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
@@ -608,11 +860,10 @@ const App = () => {
         </div>
       </div>
 
-      {/* DASHBOARDS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm">
           <h2 className="font-semibold text-slate-800 text-sm mb-4 border-b border-slate-100 pb-2">
-            Resolution Health
+            Asset Category Distribution
           </h2>
           <div className="h-64 flex items-center justify-center">
             {stats.total > 0 ? (
@@ -651,7 +902,7 @@ const App = () => {
         </div>
         <div className="lg:col-span-2 bg-white p-5 rounded-sm border border-slate-200 shadow-sm">
           <h2 className="font-semibold text-slate-800 text-sm mb-4 border-b border-slate-100 pb-2">
-            Vulnerability Distribution
+            Vulnerability Types
           </h2>
           <div className="h-64 flex items-center justify-center">
             {typeChartData.length > 0 ? (
@@ -701,7 +952,6 @@ const App = () => {
         </div>
       </div>
 
-      {/* DISCOVERY TIMELINE */}
       <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
         <h2 className="font-semibold text-slate-800 text-sm mb-4 border-b border-slate-100 pb-2">
           Discovery Timeline
@@ -758,7 +1008,6 @@ const App = () => {
         </div>
       </div>
 
-      {/* DEPARTMENT ACCOUNTABILITY */}
       <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
@@ -768,14 +1017,14 @@ const App = () => {
             </h2>
           </div>
           <select
-            value={selectedOwner}
-            onChange={(e) => setSelectedOwner(e.target.value)}
+            value={selectedDepartment}
+            onChange={(e) => setSelectedDepartment(e.target.value)}
             className="px-3 py-1.5 bg-white border border-slate-300 rounded-sm text-sm font-medium focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-slate-700 min-w-[200px]"
           >
             <option value="All">All Departments</option>
-            {uniqueOwners.map((owner) => (
-              <option key={owner} value={owner}>
-                {owner}
+            {uniqueDepartments.map((dept) => (
+              <option key={dept} value={dept}>
+                {dept}
               </option>
             ))}
           </select>
@@ -787,7 +1036,7 @@ const App = () => {
                 Total Assigned
               </p>
               <p className="text-xl font-bold text-slate-800">
-                {ownerStats.total}
+                {deptStats.total}
               </p>
             </div>
             <div className="p-4 bg-red-50/50 rounded-sm border border-red-100 flex justify-between items-center">
@@ -795,22 +1044,22 @@ const App = () => {
                 Critical Risks
               </p>
               <p className="text-xl font-bold text-red-700">
-                {ownerStats.criticalOpen}
+                {deptStats.criticalOpen}
               </p>
             </div>
           </div>
           <div className="md:col-span-2 h-48 flex items-center justify-center">
-            {ownerStats.total > 0 ? (
+            {deptStats.total > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={ownerPieData}
+                    data={deptPieData}
                     innerRadius={50}
                     outerRadius={70}
                     paddingAngle={2}
                     dataKey="value"
                   >
-                    {ownerPieData.map((entry, index) => (
+                    {deptPieData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
@@ -836,54 +1085,122 @@ const App = () => {
         </div>
       </div>
 
-      {/* ENTERPRISE DATA TABLE */}
-      <div className="bg-white rounded-sm border border-slate-200 shadow-sm flex flex-col">
+      {/* --- PRIORITY REMEDIATION ACTIONS ONLY --- */}
+      <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
+        <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-3">
+          <Wrench className="text-slate-500" size={18} />
+          <h2 className="font-semibold text-slate-800 text-sm">
+            Top Priority Remediation Actions
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
+          {topRemediations.length > 0 ? (
+            topRemediations.map((rem, index) => (
+              <div
+                key={index}
+                className="flex items-center justify-between bg-slate-50 p-3 rounded-sm border border-slate-100"
+              >
+                <div className="flex-1 pr-4">
+                  <p
+                    className="text-xs font-semibold text-slate-700 line-clamp-2"
+                    title={rem.action}
+                  >
+                    {rem.action}
+                  </p>
+                </div>
+                <div className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-1 rounded-sm whitespace-nowrap">
+                  {rem.count} Issues
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-slate-500">
+              No open remediations required.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-sm border border-slate-200 shadow-sm flex flex-col z-30 overflow-visible">
         <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           <div className="flex items-center gap-4 flex-1">
             <div className="flex items-center gap-2 text-slate-800 font-semibold text-sm border-r border-slate-300 pr-4">
-              <Filter size={16} className="text-slate-500" /> Vulnerability Log
+              <Filter size={16} className="text-slate-500" /> Issue Tracking Log
             </div>
             <input
               type="text"
-              placeholder="Filter by ID, Owner, or Description..."
+              placeholder="Search ID, Remediation, Category..."
               className="px-3 py-1.5 rounded-sm border border-slate-300 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none w-full max-w-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {/* --- SMART DATASET SELECTOR WITH DELETE BUTTON --- */}
-            {batches.length > 0 && (
-              <div className="flex items-center gap-1 mr-2 bg-white px-2 py-1 rounded-sm border border-slate-300 shadow-sm">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide mr-1">
-                  Dataset:
-                </span>
-                <select
-                  value={selectedBatch}
-                  onChange={(e) => setSelectedBatch(e.target.value)}
-                  className="px-1 py-1 bg-transparent text-xs font-semibold focus:outline-none text-slate-800 cursor-pointer"
-                >
-                  <option value="Latest">Latest Upload</option>
-                  <option value="All">All Historical Data</option>
-                  {batches.map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))}
-                </select>
-                <div className="h-4 w-[1px] bg-slate-200 mx-1"></div>
-                <button
-                  onClick={handleDeleteBatch}
-                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                  title="Delete this dataset"
-                  disabled={isProcessing}
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            )}
 
-            <div className="flex rounded-sm border border-slate-300 overflow-hidden bg-white">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setIsBatchDropdownOpen(!isBatchDropdownOpen)}
+                className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 rounded-sm text-xs font-semibold hover:bg-slate-50 transition-colors shadow-sm"
+              >
+                <Layers size={14} className="text-blue-600" />
+                <span>Datasets ({selectedBatches.length})</span>
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform ${isBatchDropdownOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {isBatchDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 shadow-xl rounded-md z-[9999] overflow-hidden">
+                  <div className="p-2 border-b border-slate-100 bg-slate-50 flex justify-between gap-2">
+                    <button
+                      onClick={() => setSelectedBatches(batches)}
+                      className="text-[10px] uppercase font-bold text-blue-600 hover:text-blue-800 px-2 py-1"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      onClick={() =>
+                        batches.length > 0 && setSelectedBatches([batches[0]])
+                      }
+                      className="text-[10px] uppercase font-bold text-slate-500 hover:text-slate-800 px-2 py-1"
+                    >
+                      Latest Only
+                    </button>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto py-1">
+                    {batches.map((batch) => (
+                      <div
+                        key={batch}
+                        onClick={() => toggleBatch(batch)}
+                        className="flex items-center gap-3 px-4 py-2 hover:bg-blue-50 cursor-pointer transition-colors border-b border-slate-50 last:border-0"
+                      >
+                        {selectedBatches.includes(batch) ? (
+                          <CheckSquare size={16} className="text-blue-600" />
+                        ) : (
+                          <Square size={16} className="text-slate-300" />
+                        )}
+                        <span
+                          className={`text-xs ${selectedBatches.includes(batch) ? "font-bold text-slate-900" : "text-slate-600"}`}
+                        >
+                          {batch}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="p-2 bg-slate-50 border-t border-slate-100">
+                    <button
+                      onClick={handleDeleteSelectedBatches}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-50 text-red-700 rounded text-[10px] font-bold uppercase hover:bg-red-100 transition-colors"
+                    >
+                      <Trash2 size={12} /> Delete Selected
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex rounded-sm border border-slate-300 bg-white">
               <button
                 onClick={() => setFilter("All")}
                 className={`px-4 py-1.5 text-xs font-medium transition-colors ${filter === "All" ? "bg-slate-200 text-slate-800" : "text-slate-600 hover:bg-slate-100"}`}
@@ -898,6 +1215,7 @@ const App = () => {
                 Critical
               </button>
             </div>
+
             <input
               type="file"
               ref={fileInputRef}
@@ -910,13 +1228,23 @@ const App = () => {
               className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-blue-600 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-50"
             >
               <Upload size={14} />{" "}
-              {isProcessing ? "Processing..." : "Upload Dataset"}
+              {isProcessing
+                ? uploadProgress || "Processing..."
+                : "Upload Dataset"}
             </button>
+
+            <button
+              onClick={() => setIsAiModalOpen(true)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-purple-600 text-xs font-medium bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors"
+            >
+              <Bot size={14} /> Send Mail
+            </button>
+
             <button
               onClick={exportToExcel}
               className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-slate-800 text-xs font-medium bg-slate-800 text-white hover:bg-slate-900 transition-colors"
             >
-              <Download size={14} /> Export CSV
+              <Download size={14} /> Export
             </button>
           </div>
         </div>
@@ -925,141 +1253,191 @@ const App = () => {
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="w-10 px-4 py-3"></th>
-                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                <th className="w-12 px-4 py-3 border-r border-slate-200"></th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase border-r border-slate-200">
                   Issue ID
                 </th>
-                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">
+                  Category
+                </th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">
                   Severity
                 </th>
-                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">
                   Status
                 </th>
-                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Owner
+                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">
+                  Remediation
                 </th>
-                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Type
+                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">
+                  Assigned To
                 </th>
-                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">
                   Due Date
-                </th>
-                <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider text-center">
-                  Action
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
+            <tbody className="bg-white">
               {displayedIssues.map((issue, index) => {
                 const breached = checkBreach(issue);
                 const resolved = isResolved(issue.Status);
-                const isExpanded = expandedRow === issue.IssueID;
+
+                const rowKey = issue.IssueID;
+                const isExpanded = expandedRow === rowKey;
+                const isGrouped = rowSpanMap[issue.DisplayID] > 1;
+
+                const rowSpanToUse = activeSpanMap[issue.DisplayID];
+
+                const showMergeHead = !renderedIdHeads.has(issue.DisplayID);
+                if (showMergeHead) renderedIdHeads.add(issue.DisplayID);
 
                 return (
-                  <React.Fragment key={`${issue.IssueID}-${index}`}>
+                  <React.Fragment key={rowKey}>
                     <tr
-                      onClick={() =>
-                        setExpandedRow(isExpanded ? null : issue.IssueID)
-                      }
-                      className={`transition-colors hover:bg-slate-50/80 cursor-pointer ${breached && !resolved ? "border-l-[3px] border-l-red-500 bg-red-50/10" : ""}`}
+                      className={`border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors ${breached && !resolved ? "bg-red-50/20" : ""}`}
                     >
-                      <td className="px-4 py-3 text-slate-400">
-                        {isExpanded ? (
-                          <ChevronUp size={16} />
-                        ) : (
-                          <ChevronDown size={16} />
-                        )}
+                      {showMergeHead && (
+                        <>
+                          <td
+                            rowSpan={rowSpanToUse}
+                            onClick={() =>
+                              setExpandedRow(
+                                isExpanded ? null : issue.DisplayID,
+                              )
+                            }
+                            className="px-4 py-3 border-r border-slate-200 bg-slate-50/50 text-center cursor-pointer align-top pt-4"
+                          >
+                            {!isGrouped && (
+                              <div className="text-slate-400 transition-colors">
+                                {isExpanded ? (
+                                  <ChevronUp
+                                    size={16}
+                                    className="mx-auto text-blue-600"
+                                  />
+                                ) : (
+                                  <ChevronDown size={16} className="mx-auto" />
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td
+                            rowSpan={rowSpanToUse}
+                            className={`px-4 py-3 border-r border-slate-200 bg-slate-50/50 font-bold text-sm align-top pt-4 whitespace-nowrap text-blue-900 ${breached && !resolved ? "border-l-4 border-l-red-500" : ""}`}
+                          >
+                            {issue.DisplayID}
+                          </td>
+                        </>
+                      )}
+
+                      <td
+                        className="px-4 py-3 text-xs font-medium text-slate-600"
+                        onClick={() =>
+                          setExpandedRow(isExpanded ? null : rowKey)
+                        }
+                      >
+                        <div className="flex items-center gap-2">
+                          {isGrouped && (
+                            <div className="text-slate-400 transition-colors">
+                              {isExpanded ? (
+                                <ChevronUp
+                                  size={14}
+                                  className="text-blue-600"
+                                />
+                              ) : (
+                                <ChevronDown size={14} />
+                              )}
+                            </div>
+                          )}
+                          {issue.Category}
+                        </div>
                       </td>
-                      <td className="px-4 py-3 font-medium text-slate-900 text-sm whitespace-nowrap">
-                        {issue.IssueID}
-                      </td>
+
                       <td className="px-4 py-3">
                         <span
-                          className={`px-2 py-0.5 rounded-sm border text-[11px] font-medium ${issue.Severity === "Critical" ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}
+                          className={`px-2 py-0.5 rounded-sm text-[10px] font-bold border ${issue.Severity === "Critical" ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}
                         >
                           {issue.Severity}
                         </span>
                       </td>
-                      <td
-                        className="px-4 py-3"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <select
-                          value={issue.Status}
-                          onChange={(e) =>
-                            updateIssueStatus(issue, e.target.value)
-                          }
-                          className={`block w-full px-2 py-1 text-xs border rounded-sm transition-colors focus:ring-1 focus:ring-blue-500 focus:outline-none ${resolved ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"}`}
-                        >
-                          <option value="Open">Open</option>
-                          <option value="In Progress">In Progress</option>
-                          <option value="Under Review">Under Review</option>
-                          <option value="Mitigated">Mitigated</option>
-                          <option value="Resolved">Resolved</option>
-                        </select>
-                      </td>
-                      <td className="px-4 py-3 text-slate-700 text-sm">
-                        {issue.Owner}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700 text-sm">
-                        {issue.Type}
-                      </td>
-
-                      <td className="px-4 py-3 text-sm whitespace-nowrap">
+                      <td className="px-4 py-3">
                         <span
-                          className={`${breached && !resolved ? "text-red-600 font-medium" : "text-slate-600"}`}
+                          className={`px-2 py-0.5 rounded-sm text-[10px] font-bold ${isResolved(issue.Status) ? "bg-emerald-50 text-emerald-700" : isInProgress(issue.Status) ? "bg-blue-50 text-blue-700" : "bg-slate-100"}`}
                         >
-                          {issue.DueDate}
+                          {issue.Status}
                         </span>
+                      </td>
+                      <td
+                        className="px-4 py-3 text-xs text-slate-600 truncate max-w-[150px]"
+                        title={issue.RecommendedAction}
+                      >
+                        {issue.RecommendedAction}
+                      </td>
+                      <td className="px-4 py-3 text-xs">{issue.AssignedTo}</td>
+                      <td className="px-4 py-3 text-xs text-slate-500 font-mono">
+                        {issue.DueDate}{" "}
                         {breached && !resolved && (
                           <Flame
-                            size={14}
-                            className="inline ml-1.5 text-red-500 mb-0.5"
-                            title="SLA Breached"
+                            size={12}
+                            className="inline text-red-500 ml-1"
                           />
                         )}
                       </td>
-                      <td
-                        className="px-4 py-3 flex justify-center"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <button
-                          onClick={() =>
-                            updateIssueStatus(
-                              issue,
-                              resolved ? "Open" : "Resolved",
-                            )
-                          }
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-sm transition-colors text-xs font-medium border ${resolved ? "bg-white text-slate-600 border-slate-300 hover:bg-slate-50" : "bg-white text-slate-700 border-slate-300 hover:border-emerald-500 hover:text-emerald-700 shadow-sm"}`}
-                        >
-                          {resolved ? (
-                            <>
-                              <RotateCcw size={12} /> Undo
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle size={12} /> Resolve
-                            </>
-                          )}
-                        </button>
-                      </td>
                     </tr>
 
-                    {/* --- THE EXPANDABLE AI DESCRIPTION SECTION --- */}
                     {isExpanded && (
-                      <tr className="bg-indigo-50/40 border-b border-slate-200">
-                        <td colSpan={8} className="px-8 py-5">
-                          <div className="flex items-start gap-3 bg-white p-4 rounded-md border border-indigo-100 shadow-sm">
-                            <div className="p-2 bg-indigo-100 rounded-md text-indigo-600 shrink-0 mt-0.5">
-                              <Sparkles size={18} />
+                      <tr className="bg-blue-50/10 border-b border-slate-200 shadow-inner">
+                        <td colSpan={6} className="p-6">
+                          <div className="bg-white p-6 rounded-sm border border-blue-200 shadow-sm grid grid-cols-2 gap-8">
+                            <div>
+                              <h4 className="flex items-center gap-2 text-[10px] font-black uppercase text-blue-900 mb-3">
+                                <FileText size={14} /> Issue Description
+                              </h4>
+                              <p className="text-sm leading-relaxed text-slate-700 bg-slate-50 p-3 border rounded-sm">
+                                {issue.Description}
+                              </p>
+                              <h4 className="flex items-center gap-2 text-[10px] font-black uppercase text-blue-900 mt-6 mb-3">
+                                <Server size={14} /> Affected Asset
+                              </h4>
+                              <code className="text-xs bg-slate-800 text-blue-300 p-2 rounded block">
+                                {issue.AffectedAsset}
+                              </code>
                             </div>
                             <div>
-                              <h4 className="text-xs font-bold text-indigo-900 uppercase tracking-wide mb-1.5">
-                                Issue Description
+                              <h4 className="flex items-center gap-2 text-[10px] font-black uppercase text-emerald-900 mb-3">
+                                <Wrench size={14} /> Remediation Action
                               </h4>
-                              <p className="text-sm text-slate-700 leading-relaxed max-w-4xl">
-                                {issue.AI_Summary}
+                              <p className="text-sm italic text-slate-700 border-l-4 border-emerald-400 pl-4">
+                                {issue.RecommendedAction}
                               </p>
+                              <h4 className="flex items-center gap-2 text-[10px] font-black uppercase text-blue-900 mt-6 mb-3">
+                                <Terminal size={14} /> Evidence Log
+                              </h4>
+                              <pre className="bg-slate-900 text-green-400 p-4 rounded text-[11px] font-mono overflow-x-auto max-h-40">
+                                {issue.Evidence}
+                              </pre>
+                              {issue.ReferenceLinks !== "NA" && (
+                                <div className="mt-4">
+                                  <h4 className="text-[10px] font-bold uppercase text-slate-400 mb-1">
+                                    <LinkIcon
+                                      size={12}
+                                      className="inline mr-1"
+                                    />
+                                    Reference Links
+                                  </h4>
+                                  <a
+                                    href={
+                                      issue.ReferenceLinks.startsWith("http")
+                                        ? issue.ReferenceLinks
+                                        : `https://${issue.ReferenceLinks}`
+                                    }
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm text-blue-600 hover:underline break-all"
+                                  >
+                                    {issue.ReferenceLinks}
+                                  </a>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -1068,20 +1446,91 @@ const App = () => {
                   </React.Fragment>
                 );
               })}
-              {displayedIssues.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={8}
-                    className="px-4 py-12 text-center text-slate-500 text-sm"
-                  >
-                    No vulnerability records found.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* --- AI EMAIL MODAL --- */}
+      {isAiModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+            <div className="bg-slate-800 p-4 flex justify-between items-center text-white">
+              <div className="flex items-center gap-2">
+                <Bot size={18} className="text-purple-400" />
+                <h3 className="font-bold text-sm">Generate Email via AI</h3>
+              </div>
+              <button
+                onClick={() => setIsAiModalOpen(false)}
+                className="text-slate-300 hover:text-white transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleAiEmailSubmit}
+              className="p-6 flex flex-col gap-4"
+            >
+              <div>
+                <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
+                  Recipient Email
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="team.lead@company.com"
+                  className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-purple-500 outline-none text-sm"
+                  value={aiRecipient}
+                  onChange={(e) => setAiRecipient(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
+                  Instructions for AI
+                </label>
+                <textarea
+                  required
+                  placeholder="e.g., Please review the attached PDF and patch the critical compliance risks by Friday."
+                  className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-purple-500 outline-none text-sm min-h-[100px] resize-none"
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                />
+                <p className="text-[10px] text-slate-400 mt-2 font-medium flex items-start gap-1.5">
+                  <Download size={12} className="shrink-0 mt-0.5" />
+                  <span>
+                    The AI will append an issue count summary and download a PDF
+                    containing all currently visible open issues.
+                  </span>
+                </p>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-3 mt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAiModalOpen(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isGenerating}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded text-xs font-bold hover:bg-purple-700 transition-colors disabled:bg-purple-400"
+                >
+                  {isGenerating ? (
+                    <Activity size={14} className="animate-spin" />
+                  ) : (
+                    <Send size={14} />
+                  )}
+                  {isGenerating ? "Generating..." : "Generate PDF & Open Email"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
