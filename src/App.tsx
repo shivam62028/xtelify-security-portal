@@ -83,14 +83,16 @@ const App = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // --- AI MODAL STATE ---
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiRecipient, setAiRecipient] = useState("");
   const [aiPrompt, setAiPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const API_URL =
-    "https://cuume980nf.execute-api.us-east-1.amazonaws.com/default/SecurityDataFetcher";
+  // --- NEW: RBAC State ---
+  const [userRole, setUserRole] = useState("Admin");
+
+  // --- UPDATED: Using the .env variable instead of the hardcoded string ---
+  const API_URL = import.meta.env.VITE_API_URL;
 
   useEffect(() => {
     fetch(API_URL)
@@ -382,7 +384,6 @@ const App = () => {
     { name: "Open", value: deptStats.open, color: "#ef4444" },
   ].filter((d) => d.value > 0);
 
-  // --- STRICT AI EMAIL LOGIC WITH PDF & SUMMARY COUNTS ---
   const handleAiEmailSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!aiRecipient || !aiPrompt) return;
@@ -390,7 +391,6 @@ const App = () => {
     setIsGenerating(true);
 
     setTimeout(() => {
-      // 1. Generate the PDF Report using jsPDF
       const doc = new jsPDF();
       doc.setFontSize(18);
       doc.text("Security Vulnerability Report", 14, 20);
@@ -427,19 +427,17 @@ const App = () => {
         ],
         body: tableData,
         theme: "grid",
-        headStyles: { fillColor: [30, 41, 59] }, // Slate-800 color
+        headStyles: { fillColor: [30, 41, 59] },
         styles: { fontSize: 8 },
         columnStyles: {
-          3: { cellWidth: 50 }, // Give remediation column more space
+          3: { cellWidth: 50 },
         },
       });
 
-      // Save the PDF locally
       doc.save("Security_Action_Report.pdf");
 
       setIsGenerating(false);
 
-      // --- CALCULATE ISSUE COUNTS ---
       const criticalCount = openIssues.filter(
         (i) => String(i.Severity).toLowerCase() === "critical",
       ).length;
@@ -453,7 +451,6 @@ const App = () => {
         (i) => String(i.Severity).toLowerCase() === "low",
       ).length;
 
-      // 2. Open Email Client with Instructions + Counts
       const subject = encodeURIComponent(
         `Security Action Required: Pending Vulnerabilities`,
       );
@@ -752,6 +749,45 @@ const App = () => {
     XLSX.writeFile(wb, finalFileName);
   };
 
+  const exportToPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text("Security Vulnerability Report", 14, 20);
+
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Exported on: ${new Date().toLocaleDateString()}`, 14, 28);
+
+    const tableData = displayedIssues.map((i) => [
+      i.DisplayID,
+      i.Category,
+      i.Severity,
+      i.Status,
+      i.AssignedTo,
+      i.DueDate,
+    ]);
+
+    autoTable(doc, {
+      startY: 35,
+      head: [
+        [
+          "Issue ID",
+          "Category",
+          "Severity",
+          "Status",
+          "Assigned To",
+          "Due Date",
+        ],
+      ],
+      body: tableData,
+      theme: "grid",
+      headStyles: { fillColor: [30, 41, 59] },
+      styles: { fontSize: 8 },
+    });
+
+    doc.save("Wynk_Security_Report.pdf");
+  };
+
   return (
     <div className="min-h-screen bg-[#f8fafc] p-6 lg:p-8 font-sans text-slate-800">
       <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between bg-white px-6 py-4 rounded-sm shadow-sm border border-slate-200">
@@ -762,8 +798,23 @@ const App = () => {
             Wynk Security Leadership Portal
           </h1>
         </div>
-        <div className="flex items-center gap-2 mt-4 md:mt-0 text-xs font-medium text-slate-500 bg-slate-100 px-3 py-1.5 rounded border border-slate-200">
-          <Database size={14} className="text-slate-600" /> Live Database Linked
+        <div className="flex items-center gap-4 mt-4 md:mt-0">
+          {/* --- NEW: RBAC View Switcher --- */}
+          <div className="flex items-center gap-2 text-sm bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-sm">
+            <span className="text-slate-500 font-medium">View As:</span>
+            <select
+              value={userRole}
+              onChange={(e) => setUserRole(e.target.value)}
+              className="bg-transparent font-bold text-blue-700 outline-none cursor-pointer"
+            >
+              <option value="Admin">Admin (Lead)</option>
+              <option value="Viewer">Viewer (Dev)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-500 bg-slate-100 px-3 py-1.5 rounded border border-slate-200">
+            <Database size={14} className="text-slate-600" /> Live DB Linked
+          </div>
         </div>
       </header>
 
@@ -1085,7 +1136,6 @@ const App = () => {
         </div>
       </div>
 
-      {/* --- PRIORITY REMEDIATION ACTIONS ONLY --- */}
       <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
         <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-3">
           <Wrench className="text-slate-500" size={18} />
@@ -1188,14 +1238,17 @@ const App = () => {
                       </div>
                     ))}
                   </div>
-                  <div className="p-2 bg-slate-50 border-t border-slate-100">
-                    <button
-                      onClick={handleDeleteSelectedBatches}
-                      className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-50 text-red-700 rounded text-[10px] font-bold uppercase hover:bg-red-100 transition-colors"
-                    >
-                      <Trash2 size={12} /> Delete Selected
-                    </button>
-                  </div>
+                  {/* --- NEW: RBAC Check for Delete Button --- */}
+                  {userRole === "Admin" && (
+                    <div className="p-2 bg-slate-50 border-t border-slate-100">
+                      <button
+                        onClick={handleDeleteSelectedBatches}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-50 text-red-700 rounded text-[10px] font-bold uppercase hover:bg-red-100 transition-colors"
+                      >
+                        <Trash2 size={12} /> Delete Selected
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1216,36 +1269,53 @@ const App = () => {
               </button>
             </div>
 
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isProcessing}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-blue-600 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-50"
-            >
-              <Upload size={14} />{" "}
-              {isProcessing
-                ? uploadProgress || "Processing..."
-                : "Upload Dataset"}
-            </button>
+            {/* --- NEW: RBAC Check for Upload Button --- */}
+            {userRole === "Admin" && (
+              <>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isProcessing}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-blue-600 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-50"
+                >
+                  <Upload size={14} />{" "}
+                  {isProcessing
+                    ? uploadProgress || "Processing..."
+                    : "Upload Dataset"}
+                </button>
+              </>
+            )}
 
-            <button
-              onClick={() => setIsAiModalOpen(true)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-purple-600 text-xs font-medium bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors"
-            >
-              <Bot size={14} /> Send Mail
-            </button>
+            {/* --- NEW: RBAC Check for Send Mail Button --- */}
+            {userRole === "Admin" && (
+              <button
+                onClick={() => setIsAiModalOpen(true)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-purple-600 text-xs font-medium bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors"
+              >
+                <Bot size={14} /> Send Mail
+              </button>
+            )}
 
-            <button
-              onClick={exportToExcel}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-slate-800 text-xs font-medium bg-slate-800 text-white hover:bg-slate-900 transition-colors"
-            >
-              <Download size={14} /> Export
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={exportToExcel}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-emerald-600 text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+              >
+                <Download size={14} /> Excel
+              </button>
+
+              <button
+                onClick={exportToPDF}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-red-600 text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+              >
+                <FileText size={14} /> PDF
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1451,7 +1521,6 @@ const App = () => {
         </div>
       </div>
 
-      {/* --- AI EMAIL MODAL --- */}
       {isAiModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
