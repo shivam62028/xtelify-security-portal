@@ -91,8 +91,8 @@ const App = () => {
   // --- NEW: RBAC State ---
   const [userRole, setUserRole] = useState("Admin");
 
-  // --- UPDATED: Using the .env variable instead of the hardcoded string ---
-  const API_URL = import.meta.env.VITE_API_URL;
+  // --- UPDATED: Hardcoded API URL for testing ---
+  const API_URL = "http://98.81.101.212";
 
   useEffect(() => {
     fetch(API_URL)
