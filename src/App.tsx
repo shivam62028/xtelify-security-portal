@@ -226,7 +226,7 @@ const AppContent: React.FC = () => {
 
   // UI Dynamic Table States
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
-  const defaultTableCols = ["DisplayID", "Category", "Severity", "Status", "RecommendedAction", "Impact", "DueDate"];
+  const defaultTableCols = ["DisplayID", "AssignedTo", "Description", "Status", "RecommendedAction", "Severity", "DueDate"];
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
 
   const [filter, setFilter] = useState<string>("All");
@@ -280,9 +280,13 @@ const AppContent: React.FC = () => {
 
   const colHeaderMap: Record<string, string> = {
     DisplayID: "Vulnerability",
-    RecommendedAction: "Remediation Action",
+    AssignedTo: "Assigned To",
+    Description: "Vulnerability Description",
+    RecommendedAction: "Vulnerability Remediation Step",
     DueDate: "Due Date",
-    IssueID: "Tracking ID"
+    IssueID: "Tracking ID",
+    AffectedAsset: "Affected Asset",
+    DiscoveredDate: "Discovered Date"
   };
 
   useEffect(() => {
