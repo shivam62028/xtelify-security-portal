@@ -250,6 +250,9 @@ const AppContent: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [datasetName, setDatasetName] = useState<string>("");
   const [saveToDevice, setSaveToDevice] = useState<boolean>(false);
+  const [availableSheets, setAvailableSheets] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string>("");
+  const [isSheetSelectMode, setIsSheetSelectMode] = useState<boolean>(false);
 
   const [userRole, setUserRole] = useState<string>("Admin");
 
@@ -964,6 +967,9 @@ const AppContent: React.FC = () => {
       setSelectedFile(file);
       setDatasetName(`Upload - ${new Date().toLocaleString()}`);
       setSaveToDevice(false);
+      setAvailableSheets([]);
+      setSelectedSheet("");
+      setIsSheetSelectMode(false);
       setIsUploadModalOpen(true);
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -986,19 +992,49 @@ const AppContent: React.FC = () => {
       formData.append("file", selectedFile);
       formData.append("datasetName", finalBatchName);
 
+      // If sheet is already selected, use the sheet-specific endpoint
+      if (isSheetSelectMode && selectedSheet) {
+        formData.append("sheetName", selectedSheet);
+        const response = await fetch(`${BACKEND_URL}/api/upload-report-with-sheet`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const textResponse = await response.text();
+          try {
+            const err = JSON.parse(textResponse);
+            throw new Error(err.error || "Upload failed");
+          } catch (e) {
+            throw new Error(`Network blocked the upload (Status: ${response.status}).`);
+          }
+        }
+
+        setUploadProgress("AI Processing Complete!");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        window.location.reload();
+        return;
+      }
+
       const response = await fetch(`${BACKEND_URL}/api/upload-report`, {
         method: "POST",
         body: formData,
       });
 
+      const data = await response.json();
+
+      // Handle sheet selection required case
+      if (data.status === "select_sheet" && data.sheets) {
+        setAvailableSheets(data.sheets);
+        setSelectedSheet(data.sheets[0] || "");
+        setIsSheetSelectMode(true);
+        setIsProcessing(false);
+        setUploadProgress("");
+        return;
+      }
+
       if (!response.ok) {
-        const textResponse = await response.text();
-        try {
-          const err = JSON.parse(textResponse);
-          throw new Error(err.error || "Upload failed");
-        } catch (e) {
-          throw new Error(`Network blocked the upload (Status: ${response.status}).`);
-        }
+        throw new Error(data.error || "Upload failed");
       }
 
       setUploadProgress("AI Processing Complete!");
@@ -2176,7 +2212,12 @@ const AppContent: React.FC = () => {
               </div>
               <button
                 onClick={() => {
-                  if (!isProcessing) setIsUploadModalOpen(false);
+                  if (!isProcessing) {
+                    setIsUploadModalOpen(false);
+                    setAvailableSheets([]);
+                    setSelectedSheet("");
+                    setIsSheetSelectMode(false);
+                  }
                 }}
                 className="text-blue-200 hover:text-white transition-colors disabled:opacity-50"
                 disabled={isProcessing}
@@ -2211,7 +2252,30 @@ const AppContent: React.FC = () => {
                   disabled={isProcessing}
                 />
 
-                <label className="flex items-center gap-2 cursor-pointer mt-1">
+                {isSheetSelectMode && availableSheets.length > 0 && (
+                  <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded">
+                    <label className="block text-xs font-bold text-amber-700 uppercase mb-2">
+                      Select Worksheet
+                    </label>
+                    <p className="text-xs text-amber-600 mb-2">
+                      Multiple worksheets detected. Please select the one containing vulnerability data:
+                    </p>
+                    <select
+                      value={selectedSheet}
+                      onChange={(e) => setSelectedSheet(e.target.value)}
+                      disabled={isProcessing}
+                      className="w-full px-3 py-2 border border-amber-300 rounded focus:ring-2 focus:ring-amber-500 outline-none text-sm bg-white"
+                    >
+                      {availableSheets.map((sheet) => (
+                        <option key={sheet} value={sheet}>
+                          {sheet}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <label className="flex items-center gap-2 cursor-pointer mt-3">
                   <input
                     type="checkbox"
                     checked={saveToDevice}
@@ -2228,7 +2292,12 @@ const AppContent: React.FC = () => {
               <div className="pt-2 flex justify-end gap-3 mt-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsUploadModalOpen(false)}
+                  onClick={() => {
+                    setIsUploadModalOpen(false);
+                    setAvailableSheets([]);
+                    setSelectedSheet("");
+                    setIsSheetSelectMode(false);
+                  }}
                   disabled={isProcessing}
                   className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors disabled:opacity-50"
                 >
@@ -2246,7 +2315,7 @@ const AppContent: React.FC = () => {
                   )}
                   {isProcessing
                     ? uploadProgress || "Processing..."
-                    : "Confirm Upload"}
+                    : isSheetSelectMode ? "Upload Selected Sheet" : "Confirm Upload"}
                 </button>
               </div>
             </form>

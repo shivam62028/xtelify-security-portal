@@ -10,8 +10,169 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from dotenv import load_dotenv
 from langsmith import traceable
+from openpyxl import load_workbook
 
 load_dotenv()
+
+EXPECTED_COLUMNS = {
+    "id", "name", "severity", "findingstatus", "score", "wizurl",
+    "vendorseverity", "cvssseverity", "hasexploit", "hascisakeknownexploit",
+    "firstdetected", "lastdetected", "resolvedat", "resolution", "remediation",
+    "locationpath", "detailedname", "version", "fixedversion", "status",
+    "cvss", "cve", "asset", "assetname", "assignedto", "duedate", "category"
+}
+
+HIGH_SCORE_COLS = {"id", "name", "severity", "findingstatus"}
+MED_SCORE_COLS = {"score", "cvssseverity", "wizurl"}
+NEGATIVE_PATTERNS = ["grand total", "count of", "pivot"]
+
+
+def detect_header_row(ws, max_rows=15):
+    """Search first max_rows rows to find the header row with most expected columns."""
+    best_row = 1
+    best_count = 0
+    best_cols = []
+
+    for row_idx in range(1, min(max_rows + 1, ws.max_row + 1)):
+        row_values = []
+        for col_idx in range(1, min(ws.max_column + 1, 50)):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            if cell.value is not None:
+                row_values.append(str(cell.value).strip().lower())
+            else:
+                row_values.append("")
+
+        matched_cols = [v for v in row_values if v and v.replace(" ", "").replace("_", "") in EXPECTED_COLUMNS]
+
+        if len(matched_cols) > best_count:
+            best_count = len(matched_cols)
+            best_row = row_idx
+            best_cols = matched_cols
+
+    return best_row, best_count, best_cols
+
+
+def score_sheet(ws, sheet_name):
+    """Score a worksheet based on expected columns and data characteristics."""
+    score = 0
+    details = []
+
+    header_row, col_count, matched_cols = detect_header_row(ws)
+
+    # Check for negative patterns in sheet name
+    sheet_name_lower = sheet_name.lower()
+    for pattern in NEGATIVE_PATTERNS:
+        if pattern in sheet_name_lower:
+            score -= 5
+            details.append(f"-5 (sheet name contains '{pattern}')")
+
+    # Get header values
+    header_values = set()
+    for col_idx in range(1, min(ws.max_column + 1, 50)):
+        cell = ws.cell(row=header_row, column=col_idx)
+        if cell.value is not None:
+            header_values.add(str(cell.value).strip().lower().replace(" ", "").replace("_", ""))
+
+    # Check for negative patterns in headers
+    for col in header_values:
+        for pattern in NEGATIVE_PATTERNS:
+            if pattern.replace(" ", "") in col:
+                score -= 5
+                details.append(f"-5 (header contains '{pattern}')")
+
+    # Score high-value columns
+    for col in HIGH_SCORE_COLS:
+        if col in header_values:
+            score += 3
+            details.append(f"+3 ({col})")
+
+    # Score medium-value columns
+    for col in MED_SCORE_COLS:
+        if col in header_values:
+            score += 2
+            details.append(f"+2 ({col})")
+
+    # Score other expected columns
+    other_cols = EXPECTED_COLUMNS - HIGH_SCORE_COLS - MED_SCORE_COLS
+    for col in other_cols:
+        if col in header_values:
+            score += 1
+            details.append(f"+1 ({col})")
+
+    # Row count scoring
+    data_rows = ws.max_row - header_row
+    if data_rows > 100:
+        score += 5
+        details.append(f"+5 (>100 rows: {data_rows})")
+    elif data_rows > 50:
+        score += 3
+        details.append(f"+3 (>50 rows: {data_rows})")
+    elif data_rows < 20:
+        score -= 3
+        details.append(f"-3 (<20 rows: {data_rows})")
+
+    return {
+        "sheet_name": sheet_name,
+        "score": score,
+        "header_row": header_row,
+        "data_rows": data_rows,
+        "matched_columns": col_count,
+        "details": details
+    }
+
+
+def find_best_worksheet(file_bytes):
+    """Find the best worksheet containing vulnerability data."""
+    print("Scanning workbook for vulnerability data...")
+
+    wb = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
+    sheet_scores = []
+
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+
+        # Skip empty sheets
+        if ws.max_row is None or ws.max_row < 2:
+            print(f"  Skipping '{sheet_name}': empty or single row")
+            continue
+
+        result = score_sheet(ws, sheet_name)
+        sheet_scores.append(result)
+
+        print(f"  Checking worksheet: {sheet_name}")
+        print(f"    Score: {result['score']} | Header row: {result['header_row']} | Data rows: {result['data_rows']} | Matched cols: {result['matched_columns']}")
+
+    wb.close()
+
+    if not sheet_scores:
+        return None, []
+
+    # Sort by score descending
+    sheet_scores.sort(key=lambda x: x["score"], reverse=True)
+    best = sheet_scores[0]
+
+    print(f"  Best worksheet: {best['sheet_name']} (score: {best['score']})")
+
+    # Confidence check: if best has fewer than 5 matched columns, flag for manual selection
+    if best["matched_columns"] < 5 and len(sheet_scores) > 1:
+        print(f"  Low confidence: only {best['matched_columns']} expected columns found")
+        return None, sheet_scores
+
+    return best, sheet_scores
+
+
+def read_selected_sheet(file_bytes, sheet_name, header_row):
+    """Read the selected worksheet starting from the detected header row."""
+    print(f"  Reading worksheet '{sheet_name}' from header row {header_row}...")
+
+    df = pd.read_excel(
+        BytesIO(file_bytes),
+        sheet_name=sheet_name,
+        header=header_row - 1  # pandas uses 0-based index
+    )
+
+    print(f"  Rows loaded: {len(df)}")
+    return df
 
 app = FastAPI()
 app.add_middleware(
@@ -124,19 +285,26 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
             if fn.endswith('.csv'):
                 df = pd.read_csv(BytesIO(fendralis), on_bad_lines='skip', low_memory=False)
             elif fn.endswith('.xlsx') or fn.endswith('.xls'):
-                xlsx = pd.ExcelFile(BytesIO(fendralis))
-                sheets = xlsx.sheet_names
-                print(f"Excel sheets found: {sheets}")
-                dfs = []
-                for sheet in sheets:
-                    sheet_df = pd.read_excel(xlsx, sheet_name=sheet)
-                    if not sheet_df.empty:
-                        print(f"Sheet '{sheet}': {len(sheet_df)} rows")
-                        dfs.append(sheet_df)
-                if dfs:
-                    df = pd.concat(dfs, ignore_index=True)
+                # Smart worksheet detection
+                best_sheet, all_scores = find_best_worksheet(fendralis)
+
+                if best_sheet is None and all_scores:
+                    # Low confidence - return sheet list for manual selection
+                    sheet_names = [s["sheet_name"] for s in all_scores]
+                    print(f"  Returning sheet list for manual selection: {sheet_names}")
+                    return JSONResponse(status_code=200, content={
+                        "status": "select_sheet",
+                        "sheets": sheet_names,
+                        "message": "Multiple worksheets found. Please select the one containing vulnerability data."
+                    })
+                elif best_sheet is None:
+                    # No valid sheets found, fallback to first sheet
+                    print("  No scored sheets, falling back to first sheet")
+                    df = pd.read_excel(BytesIO(fendralis))
                 else:
-                    df = pd.DataFrame()
+                    # Read the best worksheet from detected header row
+                    df = read_selected_sheet(fendralis, best_sheet["sheet_name"], best_sheet["header_row"])
+
             elif fn.endswith('.json'):
                 df = pd.read_json(BytesIO(fendralis))
             else:
@@ -312,6 +480,158 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
         import traceback
         print(traceback.format_exc())
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/upload-report-with-sheet")
+async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(...), sheetName: str = Form(...)):
+    """Upload with manually selected sheet name."""
+    t_start = time.time()
+    try:
+        dsn = datasetName
+
+        db = ldb()
+        if any(i.get("UploadBatch") == dsn for i in db):
+            return JSONResponse(status_code=400, content={"error": "Duplicate: Dataset already exists."})
+
+        fendralis = await file.read()
+        fn = file.filename.lower()
+
+        print(f"Manual sheet selection: {sheetName}")
+
+        # Detect header row for the selected sheet
+        wb = load_workbook(BytesIO(fendralis), read_only=True, data_only=True)
+        ws = wb[sheetName]
+        header_row, _, _ = detect_header_row(ws)
+        wb.close()
+
+        df = read_selected_sheet(fendralis, sheetName, header_row)
+
+        # Continue with the same processing as main upload
+        df = df.fillna("").astype(str).replace(["nan", "NaN", "NaT", "<NA>", "None", "NA"], "").dropna(how='all')
+        if df.empty:
+            return JSONResponse(status_code=400, content={"error": "Selected sheet is empty."})
+
+        rc = df.columns.tolist()
+        rc_lower = {c.lower(): c for c in rc}
+
+        def find_col(patterns):
+            for p in patterns:
+                p_lower = p.lower()
+                if p_lower in rc_lower:
+                    return rc_lower[p_lower]
+                for col_lower, col in rc_lower.items():
+                    if p_lower in col_lower or col_lower in p_lower:
+                        return col
+            return None
+
+        mp = {
+            "IssueID": find_col(["ID", "IssueID", "VulnID", "CVE", "VulnerabilityID"]),
+            "DisplayID": find_col(["ID", "Name", "DisplayID", "CVE", "VulnerabilityName", "Title"]),
+            "Severity": find_col(["Severity", "CVSSSeverity", "VendorSeverity", "NvdSeverity", "Risk", "RiskLevel"]),
+            "Status": find_col(["Status", "State", "FindingStatus"]),
+            "Department": find_col(["Department", "AssignedTeam", "Team", "Owner"]),
+            "AssignedTo": find_col(["AssignedTo", "Assignee", "Owner"]),
+            "Category": find_col(["Category", "Type", "VulnType", "VulnerabilityType"]),
+            "DueDate": find_col(["DueDate", "Due", "Deadline", "TargetDate"]),
+            "DiscoveredDate": find_col(["DiscoveredDate", "FirstDetected", "DetectedDate", "FoundDate", "CreatedDate", "LastDetected"]),
+            "Description": find_col(["Description", "DetailedName", "Name", "Summary", "Details", "VulnerabilityDescription"]),
+            "AffectedAsset": find_col(["AffectedAsset", "AssetName", "Asset", "Host", "Hostname", "Target", "Resource"]),
+            "RecommendedAction": find_col(["RecommendedAction", "Remediation", "Resolution", "Fix", "Mitigation", "RemediationAction"]),
+            "Version": find_col(["Version", "CurrentVersion", "InstalledVersion", "AffectedVersion"]),
+            "FixedVersion": find_col(["FixedVersion", "PatchedVersion", "RemediatedVersion", "SafeVersion"]),
+            "CVSS": find_col(["CVSS", "CVSSScore", "Score", "CVSSv3", "CVSSv2"]),
+            "Projects": find_col(["Projects", "Project", "Application", "App"]),
+            "Link": find_col(["Link", "URL", "WizURL", "Reference", "ReferenceLink"]),
+        }
+        mp = {k: v for k, v in mp.items() if v is not None}
+
+        ni = []
+        ri = df.to_dict(orient="records")
+
+        def gv(row, target_key):
+            mapped_col = mp.get(target_key)
+            if mapped_col and mapped_col in row:
+                val = str(row[mapped_col]).strip()
+                if val and val.lower() not in ["", "nan", "none", "na", "null"]:
+                    return val
+            return ""
+
+        for idx, row in enumerate(ri):
+            rec = {}
+            for k, v in row.items():
+                rec[k] = str(v).strip() if v is not None else ""
+
+            rec["UploadBatch"] = dsn
+            issue_id = gv(row, "IssueID")
+            rec["IssueID"] = issue_id if issue_id else f"VULN-{idx}"
+
+            display_id = gv(row, "DisplayID")
+            if display_id and display_id.upper().startswith("CVE"):
+                rec["DisplayID"] = display_id
+            elif issue_id and issue_id.upper().startswith("CVE"):
+                rec["DisplayID"] = issue_id
+            elif display_id:
+                rec["DisplayID"] = display_id
+            else:
+                rec["DisplayID"] = rec["IssueID"]
+
+            sev = gv(row, "Severity")
+            if sev:
+                sev_lower = sev.lower()
+                if "critical" in sev_lower:
+                    rec["Severity"] = "Critical"
+                elif "high" in sev_lower:
+                    rec["Severity"] = "High"
+                elif "medium" in sev_lower or "moderate" in sev_lower:
+                    rec["Severity"] = "Medium"
+                elif "low" in sev_lower:
+                    rec["Severity"] = "Low"
+                elif "info" in sev_lower:
+                    rec["Severity"] = "Info"
+                else:
+                    rec["Severity"] = sev
+            else:
+                rec["Severity"] = "Medium"
+
+            status = gv(row, "Status")
+            rec["Status"] = status if status else "Open"
+            category = gv(row, "Category")
+            rec["Category"] = category if category else "Uncategorized"
+            rec["Department"] = gv(row, "Department")
+            rec["AssignedTo"] = gv(row, "AssignedTo")
+            rec["DiscoveredDate"] = gv(row, "DiscoveredDate")
+
+            due = gv(row, "DueDate")
+            if due:
+                rec["DueDate"] = due
+            elif rec["DiscoveredDate"]:
+                try:
+                    dt = pd.to_datetime(rec["DiscoveredDate"], errors='coerce')
+                    if pd.notna(dt):
+                        dys = 7 if rec["Severity"] == "Critical" else (30 if rec["Severity"] == "High" else 60)
+                        rec["DueDate"] = (dt + pd.Timedelta(days=dys)).strftime("%Y-%m-%d")
+                except:
+                    rec["DueDate"] = ""
+            else:
+                rec["DueDate"] = ""
+
+            rec["Description"] = gv(row, "Description")
+            rec["AffectedAsset"] = gv(row, "AffectedAsset")
+            rem = gv(row, "RecommendedAction")
+            rec["RecommendedAction"] = rem if rem else "No action provided"
+            rec["ReferenceLinks"] = gv(row, "Link")
+
+            ni.append(rec)
+
+        db.extend(ni)
+        sdb(db)
+
+        print(f"Processed {len(ni)} rows from sheet '{sheetName}'")
+        return {"status": "success", "processed_rows": len(ni)}
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 
 @app.post("/api/analyze")
 async def av(req: Request):
