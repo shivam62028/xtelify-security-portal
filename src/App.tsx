@@ -317,6 +317,40 @@ const AppContent: React.FC = () => {
     LOB: "Line of Business"
   };
 
+  const getShortAssetName = (fullName: string): string => {
+    if (!fullName || fullName === "NA" || fullName === "Unknown Asset") return fullName;
+    const lastPart = fullName.split("/").pop() || fullName;
+    return lastPart;
+  };
+
+  const [expandedAsset, setExpandedAsset] = useState<string | null>(null);
+
+  const AssetNameCell: React.FC<{ fullName: string }> = ({ fullName }) => {
+    const shortName = getShortAssetName(fullName);
+    const isExpanded = expandedAsset === fullName;
+    const needsTruncate = fullName !== shortName;
+
+    return (
+      <div
+        className={`cursor-pointer ${needsTruncate ? 'hover:bg-blue-50' : ''}`}
+        onClick={() => needsTruncate && setExpandedAsset(isExpanded ? null : fullName)}
+        title={fullName}
+      >
+        {isExpanded ? (
+          <div className="text-xs text-slate-600 break-all bg-blue-50 p-1 rounded border border-blue-200">
+            {fullName}
+            <span className="text-blue-500 ml-2 text-[10px]">(click to collapse)</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            <span className="font-mono">{shortName}</span>
+            {needsTruncate && <span className="text-blue-400 text-[10px]">...</span>}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   useEffect(() => {
     fetch(`${BACKEND_URL}/api/db`, { mode: "cors" })
       .then((res) => {
@@ -1117,7 +1151,11 @@ const AppContent: React.FC = () => {
     const mexwf = activeIssues.map(issue => {
       let row: Record<string, any> = {};
       exportCols.forEach(col => {
-        row[col] = issue[col] !== undefined && issue[col] !== null ? issue[col] : "";
+        let val = issue[col] !== undefined && issue[col] !== null ? issue[col] : "";
+        if ((col === "AffectedAsset" || col === "AssetName") && val) {
+          val = getShortAssetName(String(val));
+        }
+        row[col] = val;
       });
       return row;
     });
@@ -1264,7 +1302,10 @@ const AppContent: React.FC = () => {
                   return (
                     <tr key={mexwf} className="hover:bg-slate-50 transition-colors">
                       {exportCols.map(col => {
-                        const fendralis = issue[col] !== undefined && issue[col] !== null ? String(issue[col]) : "";
+                        let fendralis = issue[col] !== undefined && issue[col] !== null ? String(issue[col]) : "";
+                        if ((col === "AffectedAsset" || col === "AssetName") && fendralis) {
+                          fendralis = getShortAssetName(fendralis);
+                        }
                         return (
                           <td key={col} className="p-3 border-r border-slate-100 text-slate-600 min-w-[120px] whitespace-normal">
                             {fendralis}
@@ -2015,6 +2056,15 @@ const AppContent: React.FC = () => {
                                 return <td key={col} className="px-4 py-3 text-xs text-slate-500 font-mono whitespace-nowrap">{group.DueDate} {breached && !resolved && <Flame size={12} className="inline text-red-500 ml-1" />}</td>;
                               }
 
+                              if (col === "AffectedAsset" || col === "AssetName") {
+                                const assetVal = rawIssue && rawIssue[col] ? String(rawIssue[col]) : "—";
+                                return (
+                                  <td key={col} className="px-4 py-3 text-xs text-slate-600 min-w-[150px]">
+                                    <AssetNameCell fullName={assetVal} />
+                                  </td>
+                                );
+                              }
+
                               const val = rawIssue && rawIssue[col] !== undefined && rawIssue[col] !== null ? rawIssue[col] : "—";
                               return (
                                 <td key={col} className="px-4 py-3 text-xs text-slate-600 min-w-[120px] whitespace-normal">
@@ -2076,9 +2126,7 @@ const AppContent: React.FC = () => {
                                                   key={idx}
                                                   className="hover:bg-slate-50"
                                                 >
-                                                  <td
-                                                    className="p-2 font-mono text-slate-700 whitespace-normal"
-                                                  >
+                                                  <td className="p-2 text-xs font-mono text-slate-700 break-all">
                                                     {asset.AssetName}
                                                   </td>
                                                   <td className="p-2 text-slate-600 font-semibold">
