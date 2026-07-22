@@ -226,7 +226,7 @@ const AppContent: React.FC = () => {
 
   // UI Dynamic Table States
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
-  const defaultTableCols = ["DisplayID", "AssignedTo", "Description", "Status", "RecommendedAction", "Severity", "DueDate"];
+  const defaultTableCols = ["Name", "DisplayID", "Projects", "AssignedTo", "AffectedAsset", "DetailedName", "Description", "RecommendedAction", "AssetType", "Severity", "Status", "Score", "Version", "FixedVersion", "FirstDetected", "DueDate"];
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
 
   const [filter, setFilter] = useState<string>("All");
@@ -279,14 +279,42 @@ const AppContent: React.FC = () => {
   ]), []);
 
   const colHeaderMap: Record<string, string> = {
-    DisplayID: "Vulnerability",
+    Name: "Vulnerability Name",
+    DisplayID: "Vulnerability ID",
+    Projects: "Project ID",
     AssignedTo: "Assigned To",
+    AffectedAsset: "Asset Name",
+    AssetName: "Asset Name",
+    DetailedName: "Detailed Name",
     Description: "Vulnerability Description",
     RecommendedAction: "Vulnerability Remediation Step",
+    AssetType: "Asset Type",
+    Severity: "Severity",
+    Status: "Status",
+    Score: "CVSS Score",
+    Version: "Current Version",
+    FixedVersion: "Fixed Version",
+    FirstDetected: "First Detected",
+    LastDetected: "Last Detected",
     DueDate: "Due Date",
     IssueID: "Tracking ID",
-    AffectedAsset: "Affected Asset",
-    DiscoveredDate: "Discovered Date"
+    DiscoveredDate: "Discovered Date",
+    CVSSSeverity: "CVSS Severity",
+    VendorSeverity: "Vendor Severity",
+    NvdSeverity: "NVD Severity",
+    HasExploit: "Has Exploit",
+    HasCisaKev: "CISA KEV",
+    FindingStatus: "Finding Status",
+    Resolution: "Resolution",
+    Remediation: "Remediation",
+    LocationPath: "Location Path",
+    Link: "Reference Link",
+    WizURL: "Wiz URL",
+    CloudProvider: "Cloud Provider",
+    CloudPlatform: "Cloud Platform",
+    Namespaces: "Namespaces",
+    Clusters: "Clusters",
+    LOB: "Line of Business"
   };
 
   useEffect(() => {

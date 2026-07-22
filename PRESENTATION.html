@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xtelify Security Portal - Technical Presentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+
+        .slide {
+            min-height: 100vh;
+            padding: 60px 80px;
+            display: flex;
+            flex-direction: column;
+            border-bottom: 2px solid #334155;
+        }
+
+        .slide-title {
+            background: linear-gradient(135deg, #0ea5e9 0%, #8b5cf6 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .slide-title h1 {
+            font-size: 4rem;
+            font-weight: 800;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .slide-title h2 {
+            font-size: 1.8rem;
+            font-weight: 400;
+            opacity: 0.9;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            color: #38bdf8;
+            margin-bottom: 40px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid #0ea5e9;
+        }
+
+        h2 {
+            font-size: 1.8rem;
+            color: #a78bfa;
+            margin: 30px 0 20px 0;
+        }
+
+        h3 {
+            font-size: 1.3rem;
+            color: #67e8f9;
+            margin: 20px 0 15px 0;
+        }
+
+        p {
+            font-size: 1.2rem;
+            line-height: 1.8;
+            margin-bottom: 20px;
+            color: #cbd5e1;
+        }
+
+        ul {
+            margin-left: 30px;
+            margin-bottom: 20px;
+        }
+
+        li {
+            font-size: 1.15rem;
+            line-height: 2;
+            color: #cbd5e1;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: #1e293b;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th {
+            background: #0ea5e9;
+            color: white;
+            padding: 15px 20px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 12px 20px;
+            border-bottom: 1px solid #334155;
+        }
+
+        tr:hover {
+            background: #334155;
+        }
+
+        .code-block {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 25px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            overflow-x: auto;
+            margin: 20px 0;
+            color: #a5f3fc;
+        }
+
+        .code-block .comment {
+            color: #6b7280;
+        }
+
+        .code-block .keyword {
+            color: #c084fc;
+        }
+
+        .code-block .string {
+            color: #86efac;
+        }
+
+        .architecture-box {
+            background: #1e293b;
+            border: 2px solid #334155;
+            border-radius: 12px;
+            padding: 30px;
+            margin: 20px 0;
+            font-family: 'Consolas', monospace;
+            white-space: pre;
+            line-height: 1.4;
+            font-size: 0.9rem;
+            overflow-x: auto;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin: 30px 0;
+        }
+
+        .card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 25px;
+        }
+
+        .card h3 {
+            margin-top: 0;
+        }
+
+        .highlight {
+            background: linear-gradient(135deg, #0ea5e9 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin: 3px;
+        }
+
+        .badge-blue { background: #0ea5e9; color: white; }
+        .badge-purple { background: #8b5cf6; color: white; }
+        .badge-green { background: #10b981; color: white; }
+        .badge-orange { background: #f59e0b; color: white; }
+
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 30px 0;
+        }
+
+        .flow-box {
+            background: #1e293b;
+            border: 2px solid #0ea5e9;
+            border-radius: 8px;
+            padding: 15px 20px;
+            text-align: center;
+            min-width: 150px;
+        }
+
+        .flow-arrow {
+            font-size: 2rem;
+            color: #0ea5e9;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .stat-card .number {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: #0ea5e9;
+        }
+
+        .stat-card .label {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            margin-top: 10px;
+        }
+
+        .nav {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            gap: 10px;
+            z-index: 1000;
+        }
+
+        .nav button {
+            background: #0ea5e9;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .nav button:hover {
+            background: #0284c7;
+            transform: scale(1.05);
+        }
+
+        .slide-number {
+            position: fixed;
+            bottom: 30px;
+            left: 30px;
+            background: #1e293b;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            color: #94a3b8;
+        }
+
+        @media print {
+            .slide {
+                page-break-after: always;
+            }
+            .nav, .slide-number {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Slide 1: Title -->
+<div class="slide slide-title" id="slide1">
+    <h1>Xtelify Security Portal</h1>
+    <h2>Enterprise Vulnerability Management Dashboard</h2>
+    <p style="margin-top: 60px; opacity: 0.7;">Technical Architecture & Implementation</p>
+</div>
+
+<!-- Slide 2: Overview -->
+<div class="slide" id="slide2">
+    <h1>Project Overview</h1>
+    <p><strong>Xtelify Security Portal</strong> is a comprehensive web-based vulnerability management platform designed for enterprise security teams to track, analyze, and remediate security vulnerabilities across their infrastructure.</p>
+
+    <h3>Key Capabilities</h3>
+    <ul>
+        <li>Upload and process vulnerability scan reports (Excel, CSV, JSON)</li>
+        <li>Smart worksheet detection for multi-sheet Excel files</li>
+        <li>Real-time vulnerability tracking and status management</li>
+        <li>Team performance leaderboard and MTTR metrics</li>
+        <li>Export capabilities (Excel, PDF)</li>
+        <li>Role-based access (Admin/Viewer)</li>
+    </ul>
+</div>
+
+<!-- Slide 3: Tech Stack -->
+<div class="slide" id="slide3">
+    <h1>Tech Stack</h1>
+
+    <div class="grid-2">
+        <div class="card">
+            <h3>Frontend</h3>
+            <p>
+                <span class="badge badge-blue">React 19</span>
+                <span class="badge badge-blue">TypeScript</span>
+                <span class="badge badge-blue">Vite 8</span>
+                <span class="badge badge-purple">TailwindCSS 4</span>
+                <span class="badge badge-purple">Recharts</span>
+                <span class="badge badge-purple">Lucide Icons</span>
+                <span class="badge badge-green">XLSX (SheetJS)</span>
+                <span class="badge badge-green">jsPDF</span>
+            </p>
+        </div>
+
+        <div class="card">
+            <h3>Backend</h3>
+            <p>
+                <span class="badge badge-orange">Python 3.x</span>
+                <span class="badge badge-orange">FastAPI</span>
+                <span class="badge badge-green">Pandas</span>
+                <span class="badge badge-green">openpyxl</span>
+                <span class="badge badge-purple">httpx</span>
+                <span class="badge badge-purple">LangSmith</span>
+            </p>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top: 30px;">
+        <h3>Infrastructure</h3>
+        <p>
+            <span class="badge badge-blue">Docker</span>
+            <span class="badge badge-blue">Nginx</span>
+            <span class="badge badge-green">JSON File Database</span>
+        </p>
+    </div>
+</div>
+
+<!-- Slide 4: Architecture -->
+<div class="slide" id="slide4">
+    <h1>System Architecture</h1>
+
+    <div class="architecture-box">
++------------------------------------------------------------------+
+|                         BROWSER (Client)                          |
+|  +----------------------------------------------------------+    |
+|  |                    React Application                      |    |
+|  |  +----------------+  +----------------+  +--------------+ |    |
+|  |  | Dashboard View |  | Upload Modal   |  | Export Modal | |    |
+|  |  +----------------+  +----------------+  +--------------+ |    |
+|  +----------------------------------------------------------+    |
++------------------------------------------------------------------+
+                               |
+                      HTTP REST API Calls
+                               |
++------------------------------------------------------------------+
+|                      FastAPI Backend (app.py)                     |
+|  +------------------+  +------------------+  +----------------+   |
+|  | /api/upload-     |  | /api/db          |  | /api/          |   |
+|  | report           |  | (CRUD)           |  | leaderboard    |   |
+|  +------------------+  +------------------+  +----------------+   |
+|           |                    |                                  |
+|           v                    v                                  |
+|  +------------------+  +------------------+                       |
+|  | Smart Worksheet  |  | xtelify_db.json  |                       |
+|  | Detection        |  | (Persistence)    |                       |
+|  +------------------+  +------------------+                       |
++------------------------------------------------------------------+
+    </div>
+</div>
+
+<!-- Slide 5: API Endpoints -->
+<div class="slide" id="slide5">
+    <h1>API Endpoints</h1>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Method</th>
+                <th>Endpoint</th>
+                <th>Purpose</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><span class="badge badge-green">GET</span></td>
+                <td>/api/db</td>
+                <td>Fetch all vulnerability records</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-blue">POST</span></td>
+                <td>/api/db</td>
+                <td>Add new vulnerability items</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-orange">DELETE</span></td>
+                <td>/api/db</td>
+                <td>Delete a dataset by UploadBatch</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-blue">POST</span></td>
+                <td>/api/upload-report</td>
+                <td>Upload & process Excel/CSV/JSON</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-blue">POST</span></td>
+                <td>/api/upload-report-with-sheet</td>
+                <td>Upload with manual sheet selection</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-green">GET</span></td>
+                <td>/api/leaderboard</td>
+                <td>Get team performance rankings</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- Slide 6: Upload Flow -->
+<div class="slide" id="slide6">
+    <h1>Data Flow: Upload Process</h1>
+
+    <div class="flow-diagram">
+        <div class="flow-box">User Selects<br>Excel File</div>
+        <span class="flow-arrow">&#8594;</span>
+        <div class="flow-box">FormData to<br>/api/upload-report</div>
+        <span class="flow-arrow">&#8594;</span>
+        <div class="flow-box">Smart Worksheet<br>Detection</div>
+        <span class="flow-arrow">&#8594;</span>
+        <div class="flow-box">Header Row<br>Detection</div>
+    </div>
+
+    <div class="flow-diagram">
+        <div class="flow-box">Pandas Reads<br>Selected Sheet</div>
+        <span class="flow-arrow">&#8594;</span>
+        <div class="flow-box">Column<br>Mapping</div>
+        <span class="flow-arrow">&#8594;</span>
+        <div class="flow-box">Normalize<br>Records</div>
+        <span class="flow-arrow">&#8594;</span>
+        <div class="flow-box">Save to<br>JSON DB</div>
+    </div>
+
+    <h3 style="margin-top: 40px;">Column Auto-Mapping Example</h3>
+    <div class="code-block">
+<span class="comment"># Maps various column names to standard fields</span>
+"ID" / "IssueID" / "VulnID" / "CVE"       <span class="keyword">→</span> <span class="string">IssueID</span>
+"CVSSSeverity" / "VendorSeverity" / "Risk" <span class="keyword">→</span> <span class="string">Severity</span>
+"FirstDetected" / "DetectedDate"           <span class="keyword">→</span> <span class="string">DiscoveredDate</span>
+"WizURL" / "Link" / "Reference"            <span class="keyword">→</span> <span class="string">ReferenceLinks</span>
+    </div>
+</div>
+
+<!-- Slide 7: Smart Worksheet Detection -->
+<div class="slide" id="slide7">
+    <h1>Smart Worksheet Detection</h1>
+
+    <p>When uploading Excel files with multiple sheets, the system automatically identifies the sheet containing vulnerability data:</p>
+
+    <div class="grid-2">
+        <div class="card">
+            <h3>Positive Scoring</h3>
+            <ul>
+                <li><strong>+3 pts:</strong> ID, Name, Severity, FindingStatus</li>
+                <li><strong>+2 pts:</strong> Score, CVSSSeverity, WizURL</li>
+                <li><strong>+1 pt:</strong> Other expected columns</li>
+                <li><strong>+5 pts:</strong> More than 100 data rows</li>
+                <li><strong>+3 pts:</strong> More than 50 data rows</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h3>Negative Scoring</h3>
+            <ul>
+                <li><strong>-5 pts:</strong> "Grand Total" in name</li>
+                <li><strong>-5 pts:</strong> "Count of" in name</li>
+                <li><strong>-5 pts:</strong> "Pivot" in name</li>
+                <li><strong>-3 pts:</strong> Fewer than 20 rows</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="code-block" style="margin-top: 30px;">
+<span class="comment"># Example output:</span>
+Scanning workbook for vulnerability data...
+  Checking worksheet: Count of Impacted Resources
+    Score: <span class="keyword">-2</span> | Header row: 3 | Data rows: 4
+  Checking worksheet: Pixelsmash_20th_July_2026
+    Score: <span class="string">24</span> | Header row: 1 | Data rows: 1843
+  Best worksheet: <span class="string">Pixelsmash_20th_July_2026</span>
+    </div>
+</div>
+
+<!-- Slide 8: Vulnerability Grouping -->
+<div class="slide" id="slide8">
+    <h1>Vulnerability Grouping</h1>
+
+    <p>The frontend groups vulnerabilities by CVE/ID to show multiple affected assets under each vulnerability:</p>
+
+    <div class="code-block">
+<span class="keyword">const</span> groupedIssues = <span class="keyword">useMemo</span>(() => {
+  <span class="keyword">const</span> groups: Record&lt;string, IssueGroup&gt; = {};
+
+  displayedIssues.<span class="keyword">forEach</span>((issue) => {
+    <span class="keyword">const</span> groupKey = issue.DisplayID;  <span class="comment">// CVE-2024-XXXX</span>
+
+    <span class="keyword">if</span> (!groups[groupKey]) {
+      groups[groupKey] = { ...issue, Assets: [] };
+    }
+
+    <span class="comment">// Multiple assets affected by same vulnerability</span>
+    groups[groupKey].Assets.<span class="keyword">push</span>({
+      AssetName: issue.AffectedAsset,
+      AssignedTo: issue.AssignedTo,
+      Status: issue.Status
+    });
+  });
+
+  <span class="keyword">return</span> Object.values(groups);
+}, [displayedIssues]);
+    </div>
+
+    <h3>Result</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Vulnerability</th>
+                <th>Severity</th>
+                <th>Impact</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>CVE-2024-12345</td>
+                <td>Critical</td>
+                <td>5 Assets Affected</td>
+            </tr>
+            <tr>
+                <td>CVE-2024-67890</td>
+                <td>High</td>
+                <td>12 Assets Affected</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- Slide 9: Leaderboard -->
+<div class="slide" id="slide9">
+    <h1>Leaderboard & Gamification</h1>
+
+    <p>Team performance is calculated to encourage fast remediation:</p>
+
+    <div class="grid-2">
+        <div class="card">
+            <h3>Points Calculation</h3>
+            <div class="code-block">
+<span class="comment"># Base Points per Fix</span>
+Critical: <span class="string">100 pts</span>
+High:     <span class="string">50 pts</span>
+Medium:   <span class="string">25 pts</span>
+Low:      <span class="string">25 pts</span>
+
+<span class="comment"># Speed Multiplier</span>
+multiplier = SLA_hours / actual_hours
+
+<span class="comment"># Faster fixes = More points!</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Tier System</h3>
+            <ul style="list-style: none; margin: 0;">
+                <li style="padding: 15px; background: #fbbf24; color: black; border-radius: 8px; margin-bottom: 10px; font-weight: bold;">
+                    Elite Guardian: > 1800 pts
+                </li>
+                <li style="padding: 15px; background: #a855f7; border-radius: 8px; margin-bottom: 10px; font-weight: bold;">
+                    SecOps Specialist: > 1400 pts
+                </li>
+                <li style="padding: 15px; background: #3b82f6; border-radius: 8px; margin-bottom: 10px; font-weight: bold;">
+                    Patch Master: > 1000 pts
+                </li>
+                <li style="padding: 15px; background: #22c55e; border-radius: 8px; font-weight: bold;">
+                    Green Horn: < 1000 pts
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 10: File Structure -->
+<div class="slide" id="slide10">
+    <h1>Project File Structure</h1>
+
+    <div class="code-block">
+xtelify-security-portal-main/
+├── <span class="string">app.py</span>                 <span class="comment"># FastAPI backend (all API logic)</span>
+├── <span class="string">xtelify_db.json</span>        <span class="comment"># JSON database file</span>
+├── package.json           <span class="comment"># Frontend dependencies</span>
+├── vite.config.ts         <span class="comment"># Vite build configuration</span>
+├── Dockerfile             <span class="comment"># Docker build (Node + Nginx)</span>
+├── .env                   <span class="comment"># Environment variables</span>
+│
+├── <span class="keyword">src/</span>
+│   ├── <span class="string">App.tsx</span>            <span class="comment"># Main React application (~2700 lines)</span>
+│   ├── main.tsx           <span class="comment"># React entry point</span>
+│   └── utils/
+│       └── exportUtils.ts <span class="comment"># Export helper functions</span>
+│
+└── <span class="keyword">dist/</span>                  <span class="comment"># Production build output</span>
+    ├── index.html
+    └── assets/
+        ├── index-*.js
+        └── index-*.css
+    </div>
+</div>
+
+<!-- Slide 11: Database Schema -->
+<div class="slide" id="slide11">
+    <h1>Database Schema</h1>
+
+    <p>Each vulnerability record in <code>xtelify_db.json</code>:</p>
+
+    <div class="code-block">
+{
+  <span class="string">"IssueID"</span>: "CVE-2024-12345",
+  <span class="string">"DisplayID"</span>: "CVE-2024-12345",
+  <span class="string">"UploadBatch"</span>: "July 2026 Audit",
+  <span class="string">"Severity"</span>: "Critical",
+  <span class="string">"Status"</span>: "Open",
+  <span class="string">"Category"</span>: "Remote Code Execution",
+  <span class="string">"Department"</span>: "Platform Team",
+  <span class="string">"AssignedTo"</span>: "john.doe@company.com",
+  <span class="string">"DiscoveredDate"</span>: "2026-07-15",
+  <span class="string">"DueDate"</span>: "2026-07-22",
+  <span class="string">"Description"</span>: "Buffer overflow in OpenSSL...",
+  <span class="string">"AffectedAsset"</span>: "api-server-prod-01",
+  <span class="string">"RecommendedAction"</span>: "Upgrade OpenSSL to 3.1.5",
+  <span class="string">"ReferenceLinks"</span>: "https://nvd.nist.gov/vuln/..."
+}
+    </div>
+</div>
+
+<!-- Slide 12: Request Flow -->
+<div class="slide" id="slide12">
+    <h1>How Things Connect</h1>
+
+    <h3>Loading Dashboard</h3>
+    <div class="code-block">
+1. User opens browser <span class="keyword">→</span> React app loads
+2. App.tsx <span class="string">useEffect()</span> fires on mount
+3. <span class="string">fetch(`${BACKEND_URL}/api/db`)</span> called
+4. FastAPI /api/db endpoint returns JSON array
+5. React sets <span class="string">allIssues</span> state
+6. <span class="string">useMemo</span> hooks calculate:
+   - activeIssues (filtered by selected batches)
+   - displayedIssues (filtered by severity/search)
+   - groupedIssues (grouped by CVE)
+   - stats (counts, breaches)
+   - chartData (formatted for Recharts)
+7. Components re-render with data
+    </div>
+
+    <h3>Uploading Dataset</h3>
+    <div class="code-block">
+1. User clicks "Upload Dataset"
+2. <span class="string">handleFileSelect()</span> opens modal
+3. User clicks "Confirm Upload"
+4. <span class="string">processAndUploadFile()</span> creates FormData
+5. POST to <span class="string">/api/upload-report</span>
+6. Backend processes file (detect sheet → map columns → normalize)
+7. Saved to <span class="string">xtelify_db.json</span>
+8. Frontend receives success → <span class="string">window.location.reload()</span>
+    </div>
+</div>
+
+<!-- Slide 13: Deployment -->
+<div class="slide" id="slide13">
+    <h1>Deployment Options</h1>
+
+    <div class="grid-2">
+        <div class="card">
+            <h3>Development Mode</h3>
+            <div class="code-block">
+<span class="comment"># Terminal 1: Backend</span>
+uvicorn app:app --reload \
+  --host 0.0.0.0 --port 8000
+
+<span class="comment"># Terminal 2: Frontend</span>
+npm run dev
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Production (Docker)</h3>
+            <div class="code-block">
+<span class="comment"># Build frontend</span>
+npm run build
+
+<span class="comment"># Build & run container</span>
+docker build -t xtelify-portal .
+docker run -p 80:80 xtelify-portal
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top: 30px;">
+        <h3>Combined Mode (FastAPI serves frontend)</h3>
+        <div class="code-block">
+<span class="comment"># Build frontend first</span>
+npm run build
+
+<span class="comment"># Run backend (serves dist/ folder automatically)</span>
+uvicorn app:app --host 0.0.0.0 --port 8000
+        </div>
+    </div>
+</div>
+
+<!-- Slide 14: Summary -->
+<div class="slide" id="slide14">
+    <h1>Summary</h1>
+
+    <div class="stat-grid">
+        <div class="stat-card">
+            <div class="number">React</div>
+            <div class="label">Frontend Framework</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">FastAPI</div>
+            <div class="label">Backend Framework</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">Pandas</div>
+            <div class="label">Data Processing</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">JSON</div>
+            <div class="label">Data Storage</div>
+        </div>
+    </div>
+
+    <h3>Key Features</h3>
+    <ul>
+        <li><strong>Unified View:</strong> All vulnerabilities in one dashboard</li>
+        <li><strong>Smart Processing:</strong> Auto-detects data format and columns</li>
+        <li><strong>Actionable Insights:</strong> Charts, stats, and remediation priorities</li>
+        <li><strong>Team Accountability:</strong> Leaderboard gamifies security work</li>
+        <li><strong>Flexible Export:</strong> Excel and PDF reports</li>
+        <li><strong>Offline-First:</strong> Works without internet (JSON file storage)</li>
+    </ul>
+</div>
+
+<!-- Slide 15: Thank You -->
+<div class="slide slide-title" id="slide15">
+    <h1>Thank You!</h1>
+    <h2>Questions?</h2>
+    <p style="margin-top: 60px; opacity: 0.7;">Author: richyrik</p>
+</div>
+
+<!-- Navigation -->
+<div class="nav">
+    <button onclick="prevSlide()">Previous</button>
+    <button onclick="nextSlide()">Next</button>
+</div>
+
+<div class="slide-number" id="slideNumber">Slide 1 / 15</div>
+
+<script>
+    let currentSlide = 1;
+    const totalSlides = 15;
+
+    function updateSlideNumber() {
+        document.getElementById('slideNumber').textContent = `Slide ${currentSlide} / ${totalSlides}`;
+    }
+
+    function goToSlide(n) {
+        currentSlide = Math.max(1, Math.min(n, totalSlides));
+        document.getElementById(`slide${currentSlide}`).scrollIntoView({ behavior: 'smooth' });
+        updateSlideNumber();
+    }
+
+    function nextSlide() {
+        goToSlide(currentSlide + 1);
+    }
+
+    function prevSlide() {
+        goToSlide(currentSlide - 1);
+    }
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+            nextSlide();
+        } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+            prevSlide();
+        }
+    });
+
+    // Update slide number on scroll
+    window.addEventListener('scroll', () => {
+        const slides = document.querySelectorAll('.slide');
+        slides.forEach((slide, index) => {
+            const rect = slide.getBoundingClientRect();
+            if (rect.top >= -100 && rect.top <= 200) {
+                currentSlide = index + 1;
+                updateSlideNumber();
+            }
+        });
+    });
+</script>
+
+</body>
+</html>

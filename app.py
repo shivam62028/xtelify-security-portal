@@ -339,22 +339,46 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
 
         mp = {
             "IssueID": find_col(["ID", "IssueID", "VulnID", "CVE", "VulnerabilityID"]),
-            "DisplayID": find_col(["ID", "Name", "DisplayID", "CVE", "VulnerabilityName", "Title"]),
+            "DisplayID": find_col(["ID", "DisplayID", "CVE", "VulnerabilityID"]),
+            "Name": find_col(["Name", "VulnerabilityName", "Title", "Summary"]),
             "Severity": find_col(["Severity", "CVSSSeverity", "VendorSeverity", "NvdSeverity", "Risk", "RiskLevel"]),
             "Status": find_col(["Status", "State", "FindingStatus"]),
-            "Department": find_col(["Department", "AssignedTeam", "Team", "Owner"]),
+            "Department": find_col(["Department", "AssignedTeam", "Team", "Owner", "LOB"]),
             "AssignedTo": find_col(["AssignedTo", "Assignee", "Owner"]),
             "Category": find_col(["Category", "Type", "VulnType", "VulnerabilityType"]),
             "DueDate": find_col(["DueDate", "Due", "Deadline", "TargetDate"]),
-            "DiscoveredDate": find_col(["DiscoveredDate", "FirstDetected", "DetectedDate", "FoundDate", "CreatedDate", "LastDetected"]),
-            "Description": find_col(["Description", "DetailedName", "Name", "Summary", "Details", "VulnerabilityDescription"]),
+            "DiscoveredDate": find_col(["DiscoveredDate", "FirstDetected", "DetectedDate", "FoundDate", "CreatedDate"]),
+            "Description": find_col(["Description", "Summary", "Details", "VulnerabilityDescription"]),
+            "DetailedName": find_col(["DetailedName", "DetailName", "FullName", "LongName"]),
             "AffectedAsset": find_col(["AffectedAsset", "AssetName", "Asset", "Host", "Hostname", "Target", "Resource"]),
+            "AssetID": find_col(["AssetID", "AssetId", "ResourceID"]),
+            "AssetType": find_col(["AssetType", "ResourceType", "TargetType"]),
             "RecommendedAction": find_col(["RecommendedAction", "Remediation", "Resolution", "Fix", "Mitigation", "RemediationAction"]),
             "Version": find_col(["Version", "CurrentVersion", "InstalledVersion", "AffectedVersion"]),
             "FixedVersion": find_col(["FixedVersion", "PatchedVersion", "RemediatedVersion", "SafeVersion"]),
-            "CVSS": find_col(["CVSS", "CVSSScore", "Score", "CVSSv3", "CVSSv2"]),
-            "Projects": find_col(["Projects", "Project", "Application", "App"]),
-            "Link": find_col(["Link", "URL", "WizURL", "Reference", "ReferenceLink"]),
+            "Score": find_col(["Score", "CVSSScore", "CVSS", "CVSSv3", "CVSSv2", "RiskScore"]),
+            "CVSSSeverity": find_col(["CVSSSeverity", "CVSSSev"]),
+            "VendorSeverity": find_col(["VendorSeverity", "VendorSev"]),
+            "NvdSeverity": find_col(["NvdSeverity", "NVDSev"]),
+            "HasExploit": find_col(["HasExploit", "ExploitAvailable", "Exploitable"]),
+            "HasCisaKev": find_col(["HasCisaKev", "HasCisaKnownExploit", "CisaKEV", "CISAKEV"]),
+            "FindingStatus": find_col(["FindingStatus", "FindingStat"]),
+            "FirstDetected": find_col(["FirstDetected", "FirstDetec", "FirstSeen", "DetectedDate"]),
+            "LastDetected": find_col(["LastDetected", "LastDetec", "LastSeen"]),
+            "ResolvedAt": find_col(["ResolvedAt", "ResolvedDate", "FixedDate", "ClosedDate"]),
+            "Resolution": find_col(["Resolution", "ResolutionStatus"]),
+            "LocationPath": find_col(["LocationPath", "Location", "Path", "FilePath"]),
+            "Projects": find_col(["Projects", "Project", "Application", "App", "ProjectName"]),
+            "Link": find_col(["Link", "URL", "WizURL", "Reference", "ReferenceLink", "DetectionLink"]),
+            "WizURL": find_col(["WizURL", "WizLink"]),
+            "CloudProvider": find_col(["CloudProvider", "Provider", "Cloud"]),
+            "CloudPlatform": find_col(["CloudPlatform", "Platform"]),
+            "Namespaces": find_col(["Namespaces", "Namespace", "NS"]),
+            "Clusters": find_col(["Clusters", "Cluster", "K8sCluster"]),
+            "LOB": find_col(["LOB", "LineOfBusiness", "BusinessUnit"]),
+            "SubscriptionId": find_col(["SubscriptionId", "SubscriptionID", "SubID"]),
+            "SubscriptionName": find_col(["SubscriptionName", "SubName"]),
+            "Tags": find_col(["Tags", "Tag", "Labels"]),
         }
         mp = {k: v for k, v in mp.items() if v is not None}
 
@@ -442,17 +466,46 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
             else:
                 rec["DueDate"] = ""
 
+            rec["Name"] = gv(row, "Name")
             rec["Description"] = gv(row, "Description")
+            rec["DetailedName"] = gv(row, "DetailedName")
 
             rec["AffectedAsset"] = gv(row, "AffectedAsset")
+            rec["AssetID"] = gv(row, "AssetID")
+            rec["AssetType"] = gv(row, "AssetType")
 
             rem = gv(row, "RecommendedAction")
             rec["RecommendedAction"] = rem if rem else "No action provided"
 
             rec["ReferenceLinks"] = gv(row, "Link")
+            rec["WizURL"] = gv(row, "WizURL")
+
+            rec["Version"] = gv(row, "Version")
+            rec["FixedVersion"] = gv(row, "FixedVersion")
+            rec["Score"] = gv(row, "Score")
+            rec["CVSSSeverity"] = gv(row, "CVSSSeverity")
+            rec["VendorSeverity"] = gv(row, "VendorSeverity")
+            rec["NvdSeverity"] = gv(row, "NvdSeverity")
+            rec["HasExploit"] = gv(row, "HasExploit")
+            rec["HasCisaKev"] = gv(row, "HasCisaKev")
+            rec["FindingStatus"] = gv(row, "FindingStatus")
+            rec["FirstDetected"] = gv(row, "FirstDetected")
+            rec["LastDetected"] = gv(row, "LastDetected")
+            rec["ResolvedAt"] = gv(row, "ResolvedAt")
+            rec["Resolution"] = gv(row, "Resolution")
+            rec["LocationPath"] = gv(row, "LocationPath")
+            rec["Projects"] = gv(row, "Projects")
+            rec["CloudProvider"] = gv(row, "CloudProvider")
+            rec["CloudPlatform"] = gv(row, "CloudPlatform")
+            rec["Namespaces"] = gv(row, "Namespaces")
+            rec["Clusters"] = gv(row, "Clusters")
+            rec["LOB"] = gv(row, "LOB")
+            rec["SubscriptionId"] = gv(row, "SubscriptionId")
+            rec["SubscriptionName"] = gv(row, "SubscriptionName")
+            rec["Tags"] = gv(row, "Tags")
 
             if idx < 3:
-                print(f"Row {idx}: IssueID={rec['IssueID']}, DisplayID={rec['DisplayID']}, Severity={rec['Severity']}")
+                print(f"Row {idx}: IssueID={rec['IssueID']}, DisplayID={rec['DisplayID']}, Name={rec['Name']}, Severity={rec['Severity']}")
 
             ni.append(rec)
         t_norm_end = time.time()
@@ -525,22 +578,46 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
 
         mp = {
             "IssueID": find_col(["ID", "IssueID", "VulnID", "CVE", "VulnerabilityID"]),
-            "DisplayID": find_col(["ID", "Name", "DisplayID", "CVE", "VulnerabilityName", "Title"]),
+            "DisplayID": find_col(["ID", "DisplayID", "CVE", "VulnerabilityID"]),
+            "Name": find_col(["Name", "VulnerabilityName", "Title", "Summary"]),
             "Severity": find_col(["Severity", "CVSSSeverity", "VendorSeverity", "NvdSeverity", "Risk", "RiskLevel"]),
             "Status": find_col(["Status", "State", "FindingStatus"]),
-            "Department": find_col(["Department", "AssignedTeam", "Team", "Owner"]),
+            "Department": find_col(["Department", "AssignedTeam", "Team", "Owner", "LOB"]),
             "AssignedTo": find_col(["AssignedTo", "Assignee", "Owner"]),
             "Category": find_col(["Category", "Type", "VulnType", "VulnerabilityType"]),
             "DueDate": find_col(["DueDate", "Due", "Deadline", "TargetDate"]),
-            "DiscoveredDate": find_col(["DiscoveredDate", "FirstDetected", "DetectedDate", "FoundDate", "CreatedDate", "LastDetected"]),
-            "Description": find_col(["Description", "DetailedName", "Name", "Summary", "Details", "VulnerabilityDescription"]),
+            "DiscoveredDate": find_col(["DiscoveredDate", "FirstDetected", "DetectedDate", "FoundDate", "CreatedDate"]),
+            "Description": find_col(["Description", "Summary", "Details", "VulnerabilityDescription"]),
+            "DetailedName": find_col(["DetailedName", "DetailName", "FullName", "LongName"]),
             "AffectedAsset": find_col(["AffectedAsset", "AssetName", "Asset", "Host", "Hostname", "Target", "Resource"]),
+            "AssetID": find_col(["AssetID", "AssetId", "ResourceID"]),
+            "AssetType": find_col(["AssetType", "ResourceType", "TargetType"]),
             "RecommendedAction": find_col(["RecommendedAction", "Remediation", "Resolution", "Fix", "Mitigation", "RemediationAction"]),
             "Version": find_col(["Version", "CurrentVersion", "InstalledVersion", "AffectedVersion"]),
             "FixedVersion": find_col(["FixedVersion", "PatchedVersion", "RemediatedVersion", "SafeVersion"]),
-            "CVSS": find_col(["CVSS", "CVSSScore", "Score", "CVSSv3", "CVSSv2"]),
-            "Projects": find_col(["Projects", "Project", "Application", "App"]),
-            "Link": find_col(["Link", "URL", "WizURL", "Reference", "ReferenceLink"]),
+            "Score": find_col(["Score", "CVSSScore", "CVSS", "CVSSv3", "CVSSv2", "RiskScore"]),
+            "CVSSSeverity": find_col(["CVSSSeverity", "CVSSSev"]),
+            "VendorSeverity": find_col(["VendorSeverity", "VendorSev"]),
+            "NvdSeverity": find_col(["NvdSeverity", "NVDSev"]),
+            "HasExploit": find_col(["HasExploit", "ExploitAvailable", "Exploitable"]),
+            "HasCisaKev": find_col(["HasCisaKev", "HasCisaKnownExploit", "CisaKEV", "CISAKEV"]),
+            "FindingStatus": find_col(["FindingStatus", "FindingStat"]),
+            "FirstDetected": find_col(["FirstDetected", "FirstDetec", "FirstSeen", "DetectedDate"]),
+            "LastDetected": find_col(["LastDetected", "LastDetec", "LastSeen"]),
+            "ResolvedAt": find_col(["ResolvedAt", "ResolvedDate", "FixedDate", "ClosedDate"]),
+            "Resolution": find_col(["Resolution", "ResolutionStatus"]),
+            "LocationPath": find_col(["LocationPath", "Location", "Path", "FilePath"]),
+            "Projects": find_col(["Projects", "Project", "Application", "App", "ProjectName"]),
+            "Link": find_col(["Link", "URL", "WizURL", "Reference", "ReferenceLink", "DetectionLink"]),
+            "WizURL": find_col(["WizURL", "WizLink"]),
+            "CloudProvider": find_col(["CloudProvider", "Provider", "Cloud"]),
+            "CloudPlatform": find_col(["CloudPlatform", "Platform"]),
+            "Namespaces": find_col(["Namespaces", "Namespace", "NS"]),
+            "Clusters": find_col(["Clusters", "Cluster", "K8sCluster"]),
+            "LOB": find_col(["LOB", "LineOfBusiness", "BusinessUnit"]),
+            "SubscriptionId": find_col(["SubscriptionId", "SubscriptionID", "SubID"]),
+            "SubscriptionName": find_col(["SubscriptionName", "SubName"]),
+            "Tags": find_col(["Tags", "Tag", "Labels"]),
         }
         mp = {k: v for k, v in mp.items() if v is not None}
 
@@ -614,11 +691,39 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
             else:
                 rec["DueDate"] = ""
 
+            rec["Name"] = gv(row, "Name")
             rec["Description"] = gv(row, "Description")
+            rec["DetailedName"] = gv(row, "DetailedName")
             rec["AffectedAsset"] = gv(row, "AffectedAsset")
+            rec["AssetID"] = gv(row, "AssetID")
+            rec["AssetType"] = gv(row, "AssetType")
             rem = gv(row, "RecommendedAction")
             rec["RecommendedAction"] = rem if rem else "No action provided"
             rec["ReferenceLinks"] = gv(row, "Link")
+            rec["WizURL"] = gv(row, "WizURL")
+            rec["Version"] = gv(row, "Version")
+            rec["FixedVersion"] = gv(row, "FixedVersion")
+            rec["Score"] = gv(row, "Score")
+            rec["CVSSSeverity"] = gv(row, "CVSSSeverity")
+            rec["VendorSeverity"] = gv(row, "VendorSeverity")
+            rec["NvdSeverity"] = gv(row, "NvdSeverity")
+            rec["HasExploit"] = gv(row, "HasExploit")
+            rec["HasCisaKev"] = gv(row, "HasCisaKev")
+            rec["FindingStatus"] = gv(row, "FindingStatus")
+            rec["FirstDetected"] = gv(row, "FirstDetected")
+            rec["LastDetected"] = gv(row, "LastDetected")
+            rec["ResolvedAt"] = gv(row, "ResolvedAt")
+            rec["Resolution"] = gv(row, "Resolution")
+            rec["LocationPath"] = gv(row, "LocationPath")
+            rec["Projects"] = gv(row, "Projects")
+            rec["CloudProvider"] = gv(row, "CloudProvider")
+            rec["CloudPlatform"] = gv(row, "CloudPlatform")
+            rec["Namespaces"] = gv(row, "Namespaces")
+            rec["Clusters"] = gv(row, "Clusters")
+            rec["LOB"] = gv(row, "LOB")
+            rec["SubscriptionId"] = gv(row, "SubscriptionId")
+            rec["SubscriptionName"] = gv(row, "SubscriptionName")
+            rec["Tags"] = gv(row, "Tags")
 
             ni.append(rec)
 
