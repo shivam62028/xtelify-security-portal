@@ -226,7 +226,7 @@ const AppContent: React.FC = () => {
 
   // UI Dynamic Table States
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
-  const defaultTableCols = ["Name", "DisplayID", "Projects", "AssignedTo", "AffectedAsset", "DetailedName", "Description", "RecommendedAction", "AssetType", "Severity", "Status", "Score", "Version", "FixedVersion", "FirstDetected", "DueDate"];
+  const defaultTableCols = ["Name", "DisplayID", "Projects", "AssignedTo", "AffectedAsset", "DetailedName", "Description", "RecommendedAction", "AssetType", "Status", "Version", "FixedVersion", "DueDate"];
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
 
   const [filter, setFilter] = useState<string>("All");
@@ -1266,7 +1266,7 @@ const AppContent: React.FC = () => {
                       {exportCols.map(col => {
                         const fendralis = issue[col] !== undefined && issue[col] !== null ? String(issue[col]) : "";
                         return (
-                          <td key={col} className="p-3 border-r border-slate-100 text-slate-600 max-w-[250px] truncate" title={fendralis}>
+                          <td key={col} className="p-3 border-r border-slate-100 text-slate-600 min-w-[120px] whitespace-normal">
                             {fendralis}
                           </td>
                         );
@@ -2006,7 +2006,7 @@ const AppContent: React.FC = () => {
                                 return <td key={col} className="px-4 py-3"><span className={`px-2 py-0.5 rounded-sm text-[10px] font-bold ${resolved ? "bg-emerald-50 text-emerald-700" : group.Status === "Open" ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>{group.Status}</span></td>;
                               }
                               if (col === "RecommendedAction") {
-                                return <td key={col} className="px-4 py-3 text-xs text-slate-600 truncate max-w-[200px]" title={group.Remediation}>{group.Remediation}</td>;
+                                return <td key={col} className="px-4 py-3 text-xs text-slate-600 min-w-[200px] whitespace-normal">{group.Remediation}</td>;
                               }
                               if (col === "Impact") {
                                 return <td key={col} className="px-4 py-3"><div className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded-sm border border-red-100 inline-block">{group.Assets?.length || 0} Assets</div></td>;
@@ -2017,7 +2017,7 @@ const AppContent: React.FC = () => {
 
                               const val = rawIssue && rawIssue[col] !== undefined && rawIssue[col] !== null ? rawIssue[col] : "—";
                               return (
-                                <td key={col} className="px-4 py-3 text-xs text-slate-600 max-w-[150px] truncate" title={String(val)}>
+                                <td key={col} className="px-4 py-3 text-xs text-slate-600 min-w-[120px] whitespace-normal">
                                   {String(val)}
                                 </td>
                               );
@@ -2077,8 +2077,7 @@ const AppContent: React.FC = () => {
                                                   className="hover:bg-slate-50"
                                                 >
                                                   <td
-                                                    className="p-2 font-mono text-slate-700 max-w-[150px] truncate"
-                                                    title={asset.AssetName}
+                                                    className="p-2 font-mono text-slate-700 whitespace-normal"
                                                   >
                                                     {asset.AssetName}
                                                   </td>
@@ -2089,8 +2088,7 @@ const AppContent: React.FC = () => {
                                                     {asset.Status}
                                                   </td>
                                                   <td
-                                                    className="p-2 text-slate-400 font-mono max-w-[80px] truncate"
-                                                    title={asset.IssueID}
+                                                    className="p-2 text-slate-400 font-mono whitespace-normal"
                                                   >
                                                     {asset.IssueID}
                                                   </td>
