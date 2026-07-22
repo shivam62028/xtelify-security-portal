@@ -7,6 +7,7 @@ import React, {
   Component,
   ErrorInfo,
   ReactNode,
+  useCallback,
 } from "react";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
@@ -27,10 +28,8 @@ import {
   ChevronUp,
   Database,
   Trash2,
-  Terminal,
   Server,
   Wrench,
-  Link as LinkIcon,
   CheckSquare,
   Square,
   Layers,
@@ -43,6 +42,16 @@ import {
   Trophy,
   GripVertical,
   Search,
+  Moon,
+  Sun,
+  TrendingUp,
+  Target,
+  Bookmark,
+  BookmarkCheck,
+  AlertCircle,
+  History,
+  Plus,
+  Zap,
 } from "lucide-react";
 import {
   PieChart,
@@ -140,6 +149,31 @@ interface ChatMessage {
   content: string;
 }
 
+interface SavedFilter {
+  id: string;
+  name: string;
+  filter: string;
+  searchTerm: string;
+  department: string;
+}
+
+interface VulnNote {
+  id: string;
+  vulnId: string;
+  text: string;
+  timestamp: string;
+  author: string;
+}
+
+interface ActivityLog {
+  id: string;
+  vulnId: string;
+  action: string;
+  timestamp: string;
+  user: string;
+  details: string;
+}
+
 class ErrorBoundary extends Component<
   { children: ReactNode },
   { hasError: boolean; error: Error | null; errorInfo: ErrorInfo | null }
@@ -226,7 +260,7 @@ const AppContent: React.FC = () => {
 
   // UI Dynamic Table States
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
-  const defaultTableCols = ["Name", "DisplayID", "Projects", "AssignedTo", "AffectedAsset", "DetailedName", "Description", "RecommendedAction", "AssetType", "Status", "Version", "FixedVersion", "DueDate"];
+  const defaultTableCols = ["Name", "DisplayID", "Projects", "AssignedTo", "AffectedAsset", "DetailedName", "Description", "RecommendedAction", "AssetType", "Status", "Version", "FixedVersion", "DueDate", "SubscriptionId", "LOB"];
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
 
   const [filter, setFilter] = useState<string>("All");
@@ -238,6 +272,38 @@ const AppContent: React.FC = () => {
 
   const [viewMode, setViewMode] = useState<"Optimized" | "Raw">("Optimized");
 
+  // NEW FEATURE STATES
+  // Dark Mode
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
+    const saved = localStorage.getItem("xtelify_dark_mode");
+    return saved === "true";
+  });
+
+  // Saved Filters
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(() => {
+    const saved = localStorage.getItem("xtelify_saved_filters");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
+  const [newFilterName, setNewFilterName] = useState<string>("");
+
+  
+  // Notes & Activity
+  const [vulnNotes, setVulnNotes] = useState<Record<string, VulnNote[]>>(() => {
+    const saved = localStorage.getItem("xtelify_vuln_notes");
+    return saved ? JSON.parse(saved) : {};
+  });
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
+    const saved = localStorage.getItem("xtelify_activity_logs");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [newNoteText, setNewNoteText] = useState<string>("");
+  const [activeNoteVuln, setActiveNoteVuln] = useState<string | null>(null);
+
+  // Quick Filters
+  const [quickFilter, setQuickFilter] = useState<string>("all");
+
+  
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [aiRecipient, setAiRecipient] = useState<string>("");
   const [aiPrompt, setAiPrompt] = useState<string>("");
@@ -271,6 +337,90 @@ const AppContent: React.FC = () => {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const tableColDropdownRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Persist dark mode
+  useEffect(() => {
+    localStorage.setItem("xtelify_dark_mode", String(darkMode));
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [darkMode]);
+
+  // Persist saved filters
+  useEffect(() => {
+    localStorage.setItem("xtelify_saved_filters", JSON.stringify(savedFilters));
+  }, [savedFilters]);
+
+  // Persist notes
+  useEffect(() => {
+    localStorage.setItem("xtelify_vuln_notes", JSON.stringify(vulnNotes));
+  }, [vulnNotes]);
+
+  // Persist activity logs
+  useEffect(() => {
+    localStorage.setItem("xtelify_activity_logs", JSON.stringify(activityLogs));
+  }, [activityLogs]);
+
+  // Add activity log helper
+  const addActivityLog = useCallback((vulnId: string, action: string, details: string) => {
+    const newLog: ActivityLog = {
+      id: `log-${Date.now()}`,
+      vulnId,
+      action,
+      timestamp: new Date().toISOString(),
+      user: "Admin",
+      details,
+    };
+    setActivityLogs(prev => [newLog, ...prev].slice(0, 100));
+  }, []);
+
+  // Save current filter
+  const saveCurrentFilter = () => {
+    if (!newFilterName.trim()) return;
+    const newFilter: SavedFilter = {
+      id: `filter-${Date.now()}`,
+      name: newFilterName.trim(),
+      filter,
+      searchTerm,
+      department: selectedDepartment,
+    };
+    setSavedFilters(prev => [...prev, newFilter]);
+    setNewFilterName("");
+    setIsFilterModalOpen(false);
+  };
+
+  // Apply saved filter
+  const applySavedFilter = (f: SavedFilter) => {
+    setFilter(f.filter);
+    setSearchTerm(f.searchTerm);
+    setSelectedDepartment(f.department);
+  };
+
+  // Delete saved filter
+  const deleteSavedFilter = (id: string) => {
+    setSavedFilters(prev => prev.filter(f => f.id !== id));
+  };
+
+  // Add note to vulnerability
+  const addNoteToVuln = (vulnId: string) => {
+    if (!newNoteText.trim()) return;
+    const newNote: VulnNote = {
+      id: `note-${Date.now()}`,
+      vulnId,
+      text: newNoteText.trim(),
+      timestamp: new Date().toISOString(),
+      author: "Admin",
+    };
+    setVulnNotes(prev => ({
+      ...prev,
+      [vulnId]: [...(prev[vulnId] || []), newNote],
+    }));
+    addActivityLog(vulnId, "Note Added", newNoteText.trim().substring(0, 50) + "...");
+    setNewNoteText("");
+    setActiveNoteVuln(null);
+  };
 
   const aiColSet = useMemo(() => new Set([
     "IssueID", "DisplayID", "UploadBatch", "Severity", "Status", "Department",
@@ -314,7 +464,9 @@ const AppContent: React.FC = () => {
     CloudPlatform: "Cloud Platform",
     Namespaces: "Namespaces",
     Clusters: "Clusters",
-    LOB: "Line of Business"
+    LOB: "Line of Business",
+    SubscriptionId: "Subscription ID",
+    SubscriptionName: "Subscription Name"
   };
 
   const getShortAssetName = (fullName: string): string => {
@@ -847,6 +999,161 @@ const AppContent: React.FC = () => {
     }
   }, [groupedIssues]);
 
+  // SLA Compliance Data
+  const slaComplianceData = useMemo(() => {
+    try {
+      const resolved = (displayedIssues || []).filter(i => isResolved(i.Status));
+      const resolvedOnTime = resolved.filter(i => {
+        if (!i.DueDate || i.DueDate === "NA") return true;
+        const dueDate = new Date(i.DueDate);
+        const resolvedDate = i.ResolvedAt ? new Date(i.ResolvedAt) : new Date();
+        return resolvedDate <= dueDate;
+      });
+      const compliance = resolved.length > 0 ? (resolvedOnTime.length / resolved.length) * 100 : 100;
+      return {
+        total: resolved.length,
+        onTime: resolvedOnTime.length,
+        breached: resolved.length - resolvedOnTime.length,
+        compliance: Math.round(compliance),
+      };
+    } catch {
+      return { total: 0, onTime: 0, breached: 0, compliance: 100 };
+    }
+  }, [displayedIssues]);
+
+  // Age Distribution Data (how long vulns have been open)
+  const ageDistributionData = useMemo(() => {
+    try {
+      const now = new Date();
+      const openIssues = (displayedIssues || []).filter(i => !isResolved(i.Status));
+      const buckets = { "0-7 days": 0, "8-30 days": 0, "31-90 days": 0, "90+ days": 0 };
+
+      openIssues.forEach(issue => {
+        const discovered = issue.DiscoveredDate && issue.DiscoveredDate !== "NA"
+          ? new Date(issue.DiscoveredDate)
+          : now;
+        const days = Math.floor((now.getTime() - discovered.getTime()) / (1000 * 60 * 60 * 24));
+
+        if (days <= 7) buckets["0-7 days"]++;
+        else if (days <= 30) buckets["8-30 days"]++;
+        else if (days <= 90) buckets["31-90 days"]++;
+        else buckets["90+ days"]++;
+      });
+
+      return Object.entries(buckets).map(([name, value]) => ({ name, value }));
+    } catch {
+      return [];
+    }
+  }, [displayedIssues]);
+
+  // Risk Heatmap Data (Severity vs Department)
+  const riskHeatmapData = useMemo(() => {
+    try {
+      const heatmap: Record<string, Record<string, number>> = {};
+      const severities = ["Critical", "High", "Medium", "Low"];
+      const depts = Array.from(new Set((displayedIssues || []).map(i => i.Department || "Unassigned"))).slice(0, 6);
+
+      depts.forEach(dept => {
+        heatmap[dept] = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+      });
+
+      (displayedIssues || []).filter(i => !isResolved(i.Status)).forEach(issue => {
+        const dept = issue.Department || "Unassigned";
+        const sev = severities.includes(issue.Severity) ? issue.Severity : "Medium";
+        if (heatmap[dept]) {
+          heatmap[dept][sev]++;
+        }
+      });
+
+      return { heatmap, depts, severities };
+    } catch {
+      return { heatmap: {}, depts: [], severities: [] };
+    }
+  }, [displayedIssues]);
+
+  // Trend data (last 30 days)
+  const trendData = useMemo(() => {
+    try {
+      const now = new Date();
+      const days: { date: string; discovered: number; resolved: number }[] = [];
+
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split("T")[0];
+
+        const discovered = (displayedIssues || []).filter(issue => {
+          const disc = issue.DiscoveredDate;
+          return disc && disc !== "NA" && disc.startsWith(dateStr);
+        }).length;
+
+        const resolved = (displayedIssues || []).filter(issue => {
+          const res = issue.ResolvedAt;
+          return res && res !== "NA" && res.startsWith(dateStr);
+        }).length;
+
+        days.push({ date: dateStr.slice(5), discovered, resolved });
+      }
+
+      return days;
+    } catch {
+      return [];
+    }
+  }, [displayedIssues]);
+
+  // Due date alerts
+  const dueDateAlerts = useMemo(() => {
+    try {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const nextWeek = new Date(now);
+      nextWeek.setDate(nextWeek.getDate() + 7);
+
+      const openIssues = (groupedIssues || []).filter(g => !isResolved(g.Status));
+
+      const overdue = openIssues.filter(g => {
+        if (!g.DueDate || g.DueDate === "NA") return false;
+        return new Date(g.DueDate) < now;
+      });
+
+      const dueToday = openIssues.filter(g => {
+        if (!g.DueDate || g.DueDate === "NA") return false;
+        const due = new Date(g.DueDate);
+        return due >= now && due < tomorrow;
+      });
+
+      const dueThisWeek = openIssues.filter(g => {
+        if (!g.DueDate || g.DueDate === "NA") return false;
+        const due = new Date(g.DueDate);
+        return due >= tomorrow && due < nextWeek;
+      });
+
+      return { overdue, dueToday, dueThisWeek };
+    } catch {
+      return { overdue: [], dueToday: [], dueThisWeek: [] };
+    }
+  }, [groupedIssues]);
+
+  // Quick filtered issues
+  const quickFilteredIssues = useMemo(() => {
+    if (quickFilter === "all") return groupedIssues;
+    if (quickFilter === "myAssigned") {
+      return groupedIssues.filter(g => g.Assets?.some(a => a.AssignedTo === "Admin"));
+    }
+    if (quickFilter === "overdue") {
+      return dueDateAlerts.overdue;
+    }
+    if (quickFilter === "unassigned") {
+      return groupedIssues.filter(g => g.Assets?.every(a => !a.AssignedTo || a.AssignedTo === "Unassigned" || a.AssignedTo === "NA"));
+    }
+    if (quickFilter === "critical") {
+      return groupedIssues.filter(g => g.Severity === "Critical");
+    }
+    return groupedIssues;
+  }, [groupedIssues, quickFilter, dueDateAlerts]);
+
   const uniqueDepartments = useMemo(() => {
     try {
       return Array.from(
@@ -1216,58 +1523,141 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-6 lg:p-8 font-sans text-slate-800">
-      <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between bg-white px-6 py-4 rounded-sm shadow-sm border border-slate-200">
+    <div className={`min-h-screen p-6 lg:p-8 font-sans transition-colors duration-300 ${darkMode ? "bg-slate-900 text-slate-100" : "bg-[#f8fafc] text-slate-800"}`}>
+      <header className={`mb-6 flex flex-col md:flex-row md:items-center justify-between px-6 py-4 rounded-sm shadow-sm border transition-colors ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
         <div className="flex items-center gap-4">
-          <Shield size={24} className="text-blue-600" />
-          <div className="h-6 w-[1px] bg-slate-300 mx-1"></div>
-          <h1 className="text-lg font-semibold text-slate-800 tracking-tight">
+          <img src="/airtel-logo.svg" alt="Airtel" className="h-10 w-auto rounded-sm" />
+          <div className={`h-6 w-[1px] mx-1 ${darkMode ? "bg-slate-600" : "bg-slate-300"}`}></div>
+          <h1 className={`text-lg font-semibold tracking-tight ${darkMode ? "text-white" : "text-slate-800"}`}>
             Wynk Security Leadership Portal
           </h1>
         </div>
         <div className="flex items-center gap-4 mt-4 md:mt-0">
-          <div className="flex items-center gap-2 text-sm bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-sm">
-            <span className="text-slate-500 font-medium">View As:</span>
+          {/* Dark Mode Toggle */}
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            className={`p-2 rounded-lg transition-colors ${darkMode ? "bg-slate-700 text-yellow-400 hover:bg-slate-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          >
+            {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          <div className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-sm ${darkMode ? "bg-slate-700 border-slate-600" : "bg-slate-50 border-slate-200"} border`}>
+            <span className={`font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>View As:</span>
             <select
               value={userRole}
               onChange={(e) => setUserRole(e.target.value)}
-              className="bg-transparent font-bold text-blue-700 outline-none cursor-pointer"
+              className={`bg-transparent font-bold outline-none cursor-pointer ${darkMode ? "text-blue-400" : "text-blue-700"}`}
             >
               <option value="Admin">Admin (Lead)</option>
               <option value="Viewer">Viewer (Dev)</option>
             </select>
           </div>
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-500 bg-slate-100 px-3 py-1.5 rounded border border-slate-200">
-            <Database size={14} className="text-slate-600" /> Live DB Linked
+          <div className={`flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded border ${darkMode ? "text-slate-400 bg-slate-700 border-slate-600" : "text-slate-500 bg-slate-100 border-slate-200"}`}>
+            <Database size={14} className={darkMode ? "text-slate-500" : "text-slate-600"} /> Live DB Linked
           </div>
         </div>
       </header>
 
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex bg-slate-200 p-1 rounded-md w-fit">
+      {/* Due Date Alerts Banner */}
+      {(dueDateAlerts.overdue.length > 0 || dueDateAlerts.dueToday.length > 0) && (
+        <div className={`mb-4 p-4 rounded-lg border flex items-center justify-between ${darkMode ? "bg-red-900/30 border-red-800" : "bg-red-50 border-red-200"}`}>
+          <div className="flex items-center gap-4">
+            <AlertCircle className="text-red-500" size={20} />
+            <div className="flex gap-6">
+              {dueDateAlerts.overdue.length > 0 && (
+                <span className="text-sm font-bold text-red-600">
+                  {dueDateAlerts.overdue.length} Overdue
+                </span>
+              )}
+              {dueDateAlerts.dueToday.length > 0 && (
+                <span className={`text-sm font-bold ${darkMode ? "text-amber-400" : "text-amber-600"}`}>
+                  {dueDateAlerts.dueToday.length} Due Today
+                </span>
+              )}
+              {dueDateAlerts.dueThisWeek.length > 0 && (
+                <span className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                  {dueDateAlerts.dueThisWeek.length} Due This Week
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => setQuickFilter("overdue")}
+            className="text-xs font-bold text-red-600 hover:text-red-800 underline"
+          >
+            View Overdue
+          </button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
+        <div className={`flex p-1 rounded-md w-fit ${darkMode ? "bg-slate-700" : "bg-slate-200"}`}>
           <button
             onClick={() => setViewMode("Optimized")}
             className={`px-6 py-2 text-sm font-bold rounded-md transition-all ${viewMode === "Optimized"
-              ? "bg-white text-purple-700 shadow-sm"
-              : "text-slate-500 hover:text-slate-700"
+              ? `${darkMode ? "bg-slate-800 text-purple-400" : "bg-white text-purple-700"} shadow-sm`
+              : `${darkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`
               }`}
           >
-            ✨ AI Optimized Dashboard
+            Dashboard
           </button>
           <button
             onClick={() => setViewMode("Raw")}
             className={`px-6 py-2 text-sm font-bold rounded-md transition-all ${viewMode === "Raw"
-              ? "bg-white text-emerald-700 shadow-sm"
-              : "text-slate-500 hover:text-slate-700"
+              ? `${darkMode ? "bg-slate-800 text-emerald-400" : "bg-white text-emerald-700"} shadow-sm`
+              : `${darkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`
               }`}
           >
-            📄 Live Export Preview
+            Live Export Preview
+          </button>
+        </div>
+
+        {/* Quick Filters */}
+        <div className="flex items-center gap-2">
+          <span className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Quick:</span>
+          {[
+            { key: "all", label: "All", icon: Filter },
+            { key: "overdue", label: "Overdue", icon: AlertCircle },
+            { key: "critical", label: "Critical", icon: Flame },
+            { key: "unassigned", label: "Unassigned", icon: Users },
+          ].map(qf => (
+            <button
+              key={qf.key}
+              onClick={() => setQuickFilter(qf.key)}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                quickFilter === qf.key
+                  ? `${darkMode ? "bg-blue-600 text-white" : "bg-blue-100 text-blue-700 border border-blue-300"}`
+                  : `${darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`
+              }`}
+            >
+              <qf.icon size={12} /> {qf.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Saved Filters */}
+        <div className="flex items-center gap-2">
+          {savedFilters.slice(0, 3).map(sf => (
+            <button
+              key={sf.id}
+              onClick={() => applySavedFilter(sf)}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${darkMode ? "bg-purple-900/50 text-purple-300 hover:bg-purple-800/50" : "bg-purple-50 text-purple-600 hover:bg-purple-100"}`}
+            >
+              <BookmarkCheck size={10} /> {sf.name}
+            </button>
+          ))}
+          <button
+            onClick={() => setIsFilterModalOpen(true)}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            title="Save current filter"
+          >
+            <Bookmark size={10} /> Save Filter
           </button>
         </div>
       </div>
 
       {viewMode === "Raw" ? (
-        <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
+        <div className={`p-5 rounded-sm border shadow-sm mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
           <div className="flex justify-between items-center mb-4">
             <div>
               <h2 className="font-semibold text-slate-800 text-sm mb-1">
@@ -1365,10 +1755,157 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
-            <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
-              <h2 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
-                <Activity size={16} className="text-slate-400" /> Asset
+          {/* NEW: SLA Compliance & Age Distribution */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            {/* SLA Compliance Meter */}
+            <div className={`p-5 rounded-sm border shadow-sm ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+              <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+                <Target size={16} className="text-emerald-500" /> SLA Compliance
+              </h2>
+              <div className="flex items-center justify-center mb-4">
+                <div className="relative w-32 h-32">
+                  <svg className="w-full h-full transform -rotate-90">
+                    <circle cx="64" cy="64" r="56" stroke={darkMode ? "#374151" : "#e2e8f0"} strokeWidth="12" fill="none" />
+                    <circle
+                      cx="64" cy="64" r="56"
+                      stroke={slaComplianceData.compliance >= 80 ? "#10b981" : slaComplianceData.compliance >= 60 ? "#f59e0b" : "#ef4444"}
+                      strokeWidth="12"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeDasharray={`${(slaComplianceData.compliance / 100) * 351.86} 351.86`}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center flex-col">
+                    <span className={`text-2xl font-bold ${slaComplianceData.compliance >= 80 ? "text-emerald-600" : slaComplianceData.compliance >= 60 ? "text-amber-600" : "text-red-600"}`}>
+                      {slaComplianceData.compliance}%
+                    </span>
+                    <span className={`text-[10px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Compliance</span>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className={`p-2 rounded ${darkMode ? "bg-slate-700" : "bg-slate-50"}`}>
+                  <p className={`text-lg font-bold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{slaComplianceData.total}</p>
+                  <p className={`text-[10px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Total Resolved</p>
+                </div>
+                <div className={`p-2 rounded ${darkMode ? "bg-emerald-900/30" : "bg-emerald-50"}`}>
+                  <p className="text-lg font-bold text-emerald-600">{slaComplianceData.onTime}</p>
+                  <p className={`text-[10px] ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>On Time</p>
+                </div>
+                <div className={`p-2 rounded ${darkMode ? "bg-red-900/30" : "bg-red-50"}`}>
+                  <p className="text-lg font-bold text-red-600">{slaComplianceData.breached}</p>
+                  <p className={`text-[10px] ${darkMode ? "text-red-400" : "text-red-600"}`}>Breached</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Age Distribution */}
+            <div className={`p-5 rounded-sm border shadow-sm ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+              <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+                <Clock size={16} className="text-blue-500" /> Vulnerability Age Distribution
+              </h2>
+              <div className="h-48 flex items-center justify-center">
+                {ageDistributionData && ageDistributionData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={ageDistributionData} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
+                      <XAxis type="number" hide />
+                      <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
+                      <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #e2e8f0", borderRadius: "4px", backgroundColor: darkMode ? "#1f2937" : "#fff" }} />
+                      <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20}>
+                        {ageDistributionData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={index === 3 ? "#ef4444" : index === 2 ? "#f59e0b" : "#3b82f6"} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>No open vulnerabilities</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* NEW: Trend Chart - Discovered vs Resolved */}
+          <div className={`p-5 rounded-sm border shadow-sm mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+            <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+              <TrendingUp size={16} className="text-purple-500" /> 30-Day Trend: Discovered vs Resolved
+            </h2>
+            <div className="h-64 flex items-center justify-center">
+              {trendData && trendData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trendData} margin={{ bottom: 30, right: 20, top: 10 }}>
+                    <defs>
+                      <linearGradient id="colorDiscovered" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="colorResolved" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: darkMode ? "#9ca3af" : "#64748b" }} angle={-45} textAnchor="end" height={50} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
+                    <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #e2e8f0", borderRadius: "4px", backgroundColor: darkMode ? "#1f2937" : "#fff" }} />
+                    <Legend wrapperStyle={{ fontSize: "12px" }} />
+                    <Area type="monotone" dataKey="discovered" name="Discovered" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorDiscovered)" />
+                    <Area type="monotone" dataKey="resolved" name="Resolved" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorResolved)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>No trend data available</p>
+              )}
+            </div>
+          </div>
+
+          {/* NEW: Risk Heatmap */}
+          <div className={`p-5 rounded-sm border shadow-sm mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+            <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+              <Zap size={16} className="text-amber-500" /> Risk Heatmap: Severity vs Department
+            </h2>
+            {riskHeatmapData.depts.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr>
+                      <th className={`p-2 text-left font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Department</th>
+                      {riskHeatmapData.severities.map(sev => (
+                        <th key={sev} className={`p-2 text-center font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{sev}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {riskHeatmapData.depts.map(dept => (
+                      <tr key={dept} className={darkMode ? "border-t border-slate-700" : "border-t border-slate-100"}>
+                        <td className={`p-2 font-medium ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{dept}</td>
+                        {riskHeatmapData.severities.map(sev => {
+                          const count = riskHeatmapData.heatmap[dept]?.[sev] || 0;
+                          const intensity = count === 0 ? "bg-slate-100" : count <= 2 ? "bg-yellow-100" : count <= 5 ? "bg-orange-200" : "bg-red-300";
+                          const darkIntensity = count === 0 ? "bg-slate-700" : count <= 2 ? "bg-yellow-900/50" : count <= 5 ? "bg-orange-900/50" : "bg-red-900/50";
+                          return (
+                            <td key={sev} className={`p-2 text-center ${darkMode ? darkIntensity : intensity} rounded`}>
+                              <span className={`font-bold ${count > 0 ? (darkMode ? "text-white" : "text-slate-800") : (darkMode ? "text-slate-500" : "text-slate-400")}`}>
+                                {count}
+                              </span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className={`text-xs text-center py-4 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>No data available for heatmap</p>
+            )}
+          </div>
+
+          <div className={`p-5 rounded-sm border shadow-sm mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+            <div className="flex items-center justify-between mb-4 border-b pb-3" style={{ borderColor: darkMode ? "#374151" : "#f1f5f9" }}>
+              <h2 className={`font-semibold text-sm flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+                <Activity size={16} className={darkMode ? "text-slate-500" : "text-slate-400"} /> Asset
                 Resolution Pipeline (MTTR)
               </h2>
               <span className="text-xs font-medium text-slate-500">
@@ -2148,6 +2685,58 @@ const AppContent: React.FC = () => {
                                     </div>
                                   </div>
 
+                                  {/* Notes & Activity Section */}
+                                  <div className="col-span-2 mt-2 pt-4 border-t border-blue-100">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <h4 className="flex items-center gap-2 text-[10px] font-black uppercase text-amber-900">
+                                        <MessageSquare size={14} /> Notes & Activity
+                                      </h4>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setActiveNoteVuln(group.DisplayID); }}
+                                        className="flex items-center gap-2 px-3 py-1.5 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-sm text-xs font-bold transition-colors"
+                                      >
+                                        <Plus size={12} /> Add Note
+                                      </button>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                      {/* Notes */}
+                                      <div className="bg-slate-50 border border-slate-200 rounded-sm p-3">
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">Notes ({vulnNotes[group.DisplayID]?.length || 0})</p>
+                                        {vulnNotes[group.DisplayID]?.length > 0 ? (
+                                          <div className="space-y-2 max-h-24 overflow-y-auto">
+                                            {vulnNotes[group.DisplayID].slice(-3).map(note => (
+                                              <div key={note.id} className="text-xs text-slate-600 bg-white p-2 rounded border border-slate-100">
+                                                <p className="line-clamp-2">{note.text}</p>
+                                                <p className="text-[10px] text-slate-400 mt-1">{note.author} - {new Date(note.timestamp).toLocaleDateString()}</p>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <p className="text-xs text-slate-400 italic">No notes yet</p>
+                                        )}
+                                      </div>
+                                      {/* Activity Log */}
+                                      <div className="bg-slate-50 border border-slate-200 rounded-sm p-3">
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">Recent Activity</p>
+                                        {activityLogs.filter(l => l.vulnId === group.DisplayID).length > 0 ? (
+                                          <div className="space-y-2 max-h-24 overflow-y-auto">
+                                            {activityLogs.filter(l => l.vulnId === group.DisplayID).slice(0, 3).map(log => (
+                                              <div key={log.id} className="text-xs text-slate-600 flex items-start gap-2">
+                                                <History size={10} className="text-slate-400 mt-0.5 shrink-0" />
+                                                <div>
+                                                  <span className="font-semibold">{log.action}</span>: {log.details}
+                                                  <p className="text-[10px] text-slate-400">{new Date(log.timestamp).toLocaleString()}</p>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <p className="text-xs text-slate-400 italic">No activity recorded</p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
                                   <div className="col-span-2 mt-2 pt-4 border-t border-blue-100">
                                     <div className="flex items-center justify-between mb-3">
                                       <h4 className="flex items-center gap-2 text-[10px] font-black uppercase text-purple-900">
@@ -2510,6 +3099,114 @@ const AppContent: React.FC = () => {
                 <button onClick={() => setIsExportModalOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors">Cancel</button>
                 <button onClick={doDynamicExport} className="flex items-center gap-2 px-6 py-2 bg-emerald-600 text-white rounded text-xs font-bold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled={exportCols.length === 0}>
                   <Download size={14} /> Export Dataset
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Saved Filter Modal */}
+      {isFilterModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
+          <div className={`rounded-lg shadow-2xl w-full max-w-md overflow-hidden ${darkMode ? "bg-slate-800" : "bg-white"}`}>
+            <div className="bg-purple-600 p-4 flex justify-between items-center text-white">
+              <div className="flex items-center gap-2">
+                <Bookmark size={18} />
+                <h3 className="font-bold text-sm">Save Current Filter</h3>
+              </div>
+              <button onClick={() => setIsFilterModalOpen(false)} className="text-purple-200 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="mb-4">
+                <label className={`block text-xs font-bold uppercase mb-1 ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
+                  Filter Name
+                </label>
+                <input
+                  type="text"
+                  value={newFilterName}
+                  onChange={(e) => setNewFilterName(e.target.value)}
+                  placeholder="e.g., Critical Overdue"
+                  className={`w-full px-3 py-2 border rounded focus:ring-2 focus:ring-purple-500 outline-none text-sm ${darkMode ? "bg-slate-700 border-slate-600 text-white" : "border-slate-300"}`}
+                />
+              </div>
+              <div className={`p-3 rounded text-xs mb-4 ${darkMode ? "bg-slate-700" : "bg-slate-50"}`}>
+                <p className={`font-semibold mb-1 ${darkMode ? "text-slate-300" : "text-slate-600"}`}>Current Filter Settings:</p>
+                <p className={darkMode ? "text-slate-400" : "text-slate-500"}>Severity: {filter}</p>
+                <p className={darkMode ? "text-slate-400" : "text-slate-500"}>Search: {searchTerm || "(none)"}</p>
+                <p className={darkMode ? "text-slate-400" : "text-slate-500"}>Department: {selectedDepartment}</p>
+              </div>
+              {savedFilters.length > 0 && (
+                <div className="mb-4">
+                  <p className={`text-xs font-bold uppercase mb-2 ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Saved Filters:</p>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {savedFilters.map(sf => (
+                      <div key={sf.id} className={`flex items-center justify-between p-2 rounded ${darkMode ? "bg-slate-700" : "bg-slate-100"}`}>
+                        <span className={`text-xs font-medium ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{sf.name}</span>
+                        <button onClick={() => deleteSavedFilter(sf.id)} className="text-red-500 hover:text-red-700">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setIsFilterModalOpen(false)} className={`px-4 py-2 text-xs font-bold ${darkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-600 hover:text-slate-900"}`}>
+                  Cancel
+                </button>
+                <button onClick={saveCurrentFilter} disabled={!newFilterName.trim()} className="px-4 py-2 bg-purple-600 text-white rounded text-xs font-bold hover:bg-purple-700 disabled:opacity-50">
+                  Save Filter
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Activity Timeline Modal - trigger from expanded row */}
+      {activeNoteVuln && (
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
+          <div className={`rounded-lg shadow-2xl w-full max-w-lg overflow-hidden ${darkMode ? "bg-slate-800" : "bg-white"}`}>
+            <div className={`p-4 flex justify-between items-center ${darkMode ? "bg-slate-700" : "bg-slate-100"}`}>
+              <div className="flex items-center gap-2">
+                <MessageSquare size={18} className={darkMode ? "text-purple-400" : "text-purple-600"} />
+                <h3 className={`font-bold text-sm ${darkMode ? "text-white" : "text-slate-800"}`}>Notes for {activeNoteVuln}</h3>
+              </div>
+              <button onClick={() => setActiveNoteVuln(null)} className={darkMode ? "text-slate-400 hover:text-white" : "text-slate-400 hover:text-slate-600"}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4 max-h-64 overflow-y-auto space-y-2">
+              {(vulnNotes[activeNoteVuln] || []).map(note => (
+                <div key={note.id} className={`p-3 rounded ${darkMode ? "bg-slate-700" : "bg-slate-50"}`}>
+                  <p className={`text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{note.text}</p>
+                  <p className={`text-[10px] mt-1 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
+                    {note.author} - {new Date(note.timestamp).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+              {(!vulnNotes[activeNoteVuln] || vulnNotes[activeNoteVuln].length === 0) && (
+                <p className={`text-xs text-center py-4 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>No notes yet</p>
+              )}
+            </div>
+            <div className={`p-4 border-t ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newNoteText}
+                  onChange={(e) => setNewNoteText(e.target.value)}
+                  placeholder="Add a note..."
+                  className={`flex-1 px-3 py-2 border rounded text-sm ${darkMode ? "bg-slate-700 border-slate-600 text-white" : "border-slate-300"}`}
+                />
+                <button
+                  onClick={() => addNoteToVuln(activeNoteVuln)}
+                  disabled={!newNoteText.trim()}
+                  className="px-4 py-2 bg-purple-600 text-white rounded text-xs font-bold hover:bg-purple-700 disabled:opacity-50"
+                >
+                  Add
                 </button>
               </div>
             </div>

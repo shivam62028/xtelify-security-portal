@@ -1,18 +1,16 @@
 __author__ = "richyrik"
 
-import os, json, httpx, re, time
+import os, json, re, time
 import pandas as pd
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from dotenv import load_dotenv
-from langsmith import traceable
 from openpyxl import load_workbook
 
-load_dotenv()
+# OFFLINE MODE - No external API calls for Airtel data security
 
 EXPECTED_COLUMNS = {
     "id", "name", "severity", "findingstatus", "score", "wizurl",
@@ -24,7 +22,10 @@ EXPECTED_COLUMNS = {
 
 HIGH_SCORE_COLS = {"id", "name", "severity", "findingstatus"}
 MED_SCORE_COLS = {"score", "cvssseverity", "wizurl"}
-NEGATIVE_PATTERNS = ["grand total", "count of", "pivot"]
+NEGATIVE_PATTERNS = ["grand total", "count of", "pivot", "impacted resources", "summary"]
+
+# LOB Filter - Only process Wynk data
+ALLOWED_LOB = ["wynk"]
 
 
 def detect_header_row(ws, max_rows=15):
@@ -251,20 +252,379 @@ async def glb():
     mexwf.sort(key=lambda x: x["points"], reverse=True)
     return mexwf
 
-ourl = "http://127.0.0.1:11434/api/generate"
-mnam = "llama3"
+# OFFLINE MODE - No external API calls
+# All AI features work locally without internet connection
 
-@traceable(name="ai_schema_inference")
-async def iswa(c, s):
-    fendralis = {"cols": c, "sample": s}
-    p = f"Map exact schema: CVE, Severity, CVSS, Asset, Status, PackageName, CurrentVersion, FixedVersion, Remediation, DiscoveredDate, DueDate. JSON only mapping to raw columns: {fendralis['cols']}. Sample: {fendralis['sample']}. Missing = null."
-    async with httpx.AsyncClient() as cl:
-        try:
-            r = await cl.post(ourl, json={"model": mnam, "prompt": p, "stream": False, "format": "json"}, timeout=10.0)
-            return r.json().get("response", "{}")
-        except Exception as e:
-            print("Ollama unavailable. Using default mapping.")
-            return "{}"
+# Local database files for new features
+NOTES_DB = "xtelify_notes.json"
+ACTIVITY_DB = "xtelify_activity.json"
+FILTERS_DB = "xtelify_filters.json"
+
+def load_notes():
+    if not os.path.exists(NOTES_DB): return {}
+    with open(NOTES_DB, "r", encoding="utf-8") as f:
+        try: return json.load(f)
+        except: return {}
+
+def save_notes(data):
+    with open(NOTES_DB, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+def load_activity():
+    if not os.path.exists(ACTIVITY_DB): return []
+    with open(ACTIVITY_DB, "r", encoding="utf-8") as f:
+        try: return json.load(f)
+        except: return []
+
+def save_activity(data):
+    with open(ACTIVITY_DB, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+def load_filters():
+    if not os.path.exists(FILTERS_DB): return []
+    with open(FILTERS_DB, "r", encoding="utf-8") as f:
+        try: return json.load(f)
+        except: return []
+
+def save_filters(data):
+    with open(FILTERS_DB, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+# ============ NEW API ENDPOINTS FOR FEATURES ============
+
+@app.get("/api/notes")
+async def get_notes():
+    """Get all vulnerability notes - OFFLINE"""
+    return load_notes()
+
+@app.post("/api/notes")
+async def add_note(req: Request):
+    """Add a note to a vulnerability - OFFLINE"""
+    data = await req.json()
+    vuln_id = data.get("vulnId")
+    note_text = data.get("text")
+    author = data.get("author", "Admin")
+
+    if not vuln_id or not note_text:
+        return JSONResponse(status_code=400, content={"error": "Missing vulnId or text"})
+
+    notes = load_notes()
+    if vuln_id not in notes:
+        notes[vuln_id] = []
+
+    new_note = {
+        "id": f"note-{int(time.time() * 1000)}",
+        "vulnId": vuln_id,
+        "text": note_text,
+        "timestamp": datetime.now().isoformat(),
+        "author": author
+    }
+    notes[vuln_id].append(new_note)
+    save_notes(notes)
+
+    # Also log activity
+    add_activity_log(vuln_id, "Note Added", note_text[:50] + "..." if len(note_text) > 50 else note_text, author)
+
+    return {"status": "success", "note": new_note}
+
+@app.delete("/api/notes/{note_id}")
+async def delete_note(note_id: str):
+    """Delete a note - OFFLINE"""
+    notes = load_notes()
+    for vuln_id in notes:
+        notes[vuln_id] = [n for n in notes[vuln_id] if n.get("id") != note_id]
+    save_notes(notes)
+    return {"status": "deleted"}
+
+
+@app.get("/api/activity")
+async def get_activity():
+    """Get all activity logs - OFFLINE"""
+    return load_activity()
+
+@app.get("/api/activity/{vuln_id}")
+async def get_vuln_activity(vuln_id: str):
+    """Get activity logs for a specific vulnerability - OFFLINE"""
+    logs = load_activity()
+    return [l for l in logs if l.get("vulnId") == vuln_id]
+
+def add_activity_log(vuln_id: str, action: str, details: str, user: str = "Admin"):
+    """Add an activity log entry - OFFLINE"""
+    logs = load_activity()
+    new_log = {
+        "id": f"log-{int(time.time() * 1000)}",
+        "vulnId": vuln_id,
+        "action": action,
+        "details": details,
+        "timestamp": datetime.now().isoformat(),
+        "user": user
+    }
+    logs.insert(0, new_log)
+    # Keep only last 500 logs
+    logs = logs[:500]
+    save_activity(logs)
+    return new_log
+
+@app.post("/api/activity")
+async def log_activity(req: Request):
+    """Log an activity - OFFLINE"""
+    data = await req.json()
+    vuln_id = data.get("vulnId")
+    action = data.get("action")
+    details = data.get("details", "")
+    user = data.get("user", "Admin")
+
+    if not vuln_id or not action:
+        return JSONResponse(status_code=400, content={"error": "Missing vulnId or action"})
+
+    log = add_activity_log(vuln_id, action, details, user)
+    return {"status": "success", "log": log}
+
+
+@app.get("/api/filters")
+async def get_filters():
+    """Get saved filters - OFFLINE"""
+    return load_filters()
+
+@app.post("/api/filters")
+async def save_filter(req: Request):
+    """Save a filter - OFFLINE"""
+    data = await req.json()
+    name = data.get("name")
+    filter_config = data.get("config", {})
+
+    if not name:
+        return JSONResponse(status_code=400, content={"error": "Missing filter name"})
+
+    filters = load_filters()
+    new_filter = {
+        "id": f"filter-{int(time.time() * 1000)}",
+        "name": name,
+        "config": filter_config,
+        "createdAt": datetime.now().isoformat()
+    }
+    filters.append(new_filter)
+    save_filters(filters)
+    return {"status": "success", "filter": new_filter}
+
+@app.delete("/api/filters/{filter_id}")
+async def delete_filter(filter_id: str):
+    """Delete a saved filter - OFFLINE"""
+    filters = load_filters()
+    filters = [f for f in filters if f.get("id") != filter_id]
+    save_filters(filters)
+    return {"status": "deleted"}
+
+
+@app.post("/api/bulk-update")
+async def bulk_update(req: Request):
+    """Bulk update vulnerabilities - OFFLINE"""
+    data = await req.json()
+    vuln_ids = data.get("vulnIds", [])
+    updates = data.get("updates", {})
+    user = data.get("user", "Admin")
+
+    if not vuln_ids:
+        return JSONResponse(status_code=400, content={"error": "No vulnerabilities selected"})
+
+    db = ldb()
+    updated_count = 0
+
+    for item in db:
+        if item.get("DisplayID") in vuln_ids or item.get("IssueID") in vuln_ids:
+            for key, value in updates.items():
+                old_value = item.get(key, "")
+                item[key] = value
+                # Log the change
+                add_activity_log(
+                    item.get("DisplayID", item.get("IssueID")),
+                    f"{key} Changed",
+                    f"Changed from '{old_value}' to '{value}'",
+                    user
+                )
+            updated_count += 1
+
+    sdb(db)
+    return {"status": "success", "updated": updated_count}
+
+
+@app.get("/api/analytics/sla")
+async def get_sla_analytics():
+    """Get SLA compliance analytics - OFFLINE"""
+    db = ldb()
+    now = datetime.now()
+
+    resolved = [i for i in db if is_resolved(i.get("Status", ""))]
+    on_time = 0
+    breached = 0
+
+    for item in resolved:
+        due_date = item.get("DueDate", "")
+        resolved_at = item.get("ResolvedAt", "")
+
+        if due_date and due_date != "NA":
+            try:
+                due = datetime.fromisoformat(due_date.replace("Z", ""))
+                if resolved_at and resolved_at != "NA":
+                    res = datetime.fromisoformat(resolved_at.replace("Z", ""))
+                else:
+                    res = now
+
+                if res <= due:
+                    on_time += 1
+                else:
+                    breached += 1
+            except:
+                on_time += 1  # Assume on-time if can't parse
+        else:
+            on_time += 1  # No due date = on-time
+
+    total = len(resolved)
+    compliance = round((on_time / total * 100) if total > 0 else 100, 1)
+
+    return {
+        "total": total,
+        "onTime": on_time,
+        "breached": breached,
+        "compliance": compliance
+    }
+
+
+@app.get("/api/analytics/age-distribution")
+async def get_age_distribution():
+    """Get vulnerability age distribution - OFFLINE"""
+    db = ldb()
+    now = datetime.now()
+
+    buckets = {"0-7 days": 0, "8-30 days": 0, "31-90 days": 0, "90+ days": 0}
+
+    open_items = [i for i in db if not is_resolved(i.get("Status", ""))]
+
+    for item in open_items:
+        discovered = item.get("DiscoveredDate", "")
+        if discovered and discovered != "NA":
+            try:
+                disc_date = datetime.fromisoformat(discovered.replace("Z", ""))
+                days = (now - disc_date).days
+
+                if days <= 7:
+                    buckets["0-7 days"] += 1
+                elif days <= 30:
+                    buckets["8-30 days"] += 1
+                elif days <= 90:
+                    buckets["31-90 days"] += 1
+                else:
+                    buckets["90+ days"] += 1
+            except:
+                buckets["0-7 days"] += 1
+        else:
+            buckets["0-7 days"] += 1
+
+    return [{"name": k, "value": v} for k, v in buckets.items()]
+
+
+@app.get("/api/analytics/trend")
+async def get_trend_data():
+    """Get 30-day trend data - OFFLINE"""
+    db = ldb()
+    now = datetime.now()
+
+    days = []
+    for i in range(29, -1, -1):
+        d = now - timedelta(days=i)
+        date_str = d.strftime("%Y-%m-%d")
+
+        discovered = sum(1 for item in db
+            if item.get("DiscoveredDate", "").startswith(date_str))
+        resolved = sum(1 for item in db
+            if item.get("ResolvedAt", "").startswith(date_str))
+
+        days.append({
+            "date": date_str[5:],  # MM-DD format
+            "discovered": discovered,
+            "resolved": resolved
+        })
+
+    return days
+
+
+@app.get("/api/analytics/heatmap")
+async def get_risk_heatmap():
+    """Get risk heatmap data - OFFLINE"""
+    db = ldb()
+
+    # Get unique departments
+    depts = list(set(item.get("Department", "Unassigned") or "Unassigned" for item in db))[:8]
+    severities = ["Critical", "High", "Medium", "Low"]
+
+    heatmap = {}
+    for dept in depts:
+        heatmap[dept] = {sev: 0 for sev in severities}
+
+    open_items = [i for i in db if not is_resolved(i.get("Status", ""))]
+
+    for item in open_items:
+        dept = item.get("Department", "Unassigned") or "Unassigned"
+        sev = item.get("Severity", "Medium")
+
+        if dept in heatmap and sev in severities:
+            heatmap[dept][sev] += 1
+
+    return {
+        "heatmap": heatmap,
+        "depts": depts,
+        "severities": severities
+    }
+
+
+@app.get("/api/analytics/due-alerts")
+async def get_due_alerts():
+    """Get due date alerts - OFFLINE"""
+    db = ldb()
+    now = datetime.now()
+    now = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow = now + timedelta(days=1)
+    next_week = now + timedelta(days=7)
+
+    open_items = [i for i in db if not is_resolved(i.get("Status", ""))]
+
+    overdue = []
+    due_today = []
+    due_this_week = []
+
+    for item in open_items:
+        due_date = item.get("DueDate", "")
+        if due_date and due_date != "NA":
+            try:
+                due = datetime.fromisoformat(due_date.replace("Z", ""))
+                due = due.replace(hour=0, minute=0, second=0, microsecond=0)
+
+                if due < now:
+                    overdue.append(item.get("DisplayID", item.get("IssueID")))
+                elif due >= now and due < tomorrow:
+                    due_today.append(item.get("DisplayID", item.get("IssueID")))
+                elif due >= tomorrow and due < next_week:
+                    due_this_week.append(item.get("DisplayID", item.get("IssueID")))
+            except:
+                pass
+
+    return {
+        "overdue": overdue,
+        "overdueCount": len(overdue),
+        "dueToday": due_today,
+        "dueTodayCount": len(due_today),
+        "dueThisWeek": due_this_week,
+        "dueThisWeekCount": len(due_this_week)
+    }
+
+
+def is_resolved(status):
+    """Check if a status indicates resolved - helper function"""
+    if not status:
+        return False
+    s = str(status).lower()
+    return any(x in s for x in ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"])
 
 @app.post("/api/upload-report")
 async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
@@ -504,8 +864,13 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
             rec["SubscriptionName"] = gv(row, "SubscriptionName")
             rec["Tags"] = gv(row, "Tags")
 
+            # Filter: Only include Wynk LOB data
+            lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
+            if lob_value and lob_value not in ALLOWED_LOB:
+                continue  # Skip non-Wynk data
+
             if idx < 3:
-                print(f"Row {idx}: IssueID={rec['IssueID']}, DisplayID={rec['DisplayID']}, Name={rec['Name']}, Severity={rec['Severity']}")
+                print(f"Row {idx}: IssueID={rec['IssueID']}, DisplayID={rec['DisplayID']}, Name={rec['Name']}, Severity={rec['Severity']}, LOB={rec['LOB']}")
 
             ni.append(rec)
         t_norm_end = time.time()
@@ -725,12 +1090,17 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
             rec["SubscriptionName"] = gv(row, "SubscriptionName")
             rec["Tags"] = gv(row, "Tags")
 
+            # Filter: Only include Wynk LOB data
+            lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
+            if lob_value and lob_value not in ALLOWED_LOB:
+                continue  # Skip non-Wynk data
+
             ni.append(rec)
 
         db.extend(ni)
         sdb(db)
 
-        print(f"Processed {len(ni)} rows from sheet '{sheetName}'")
+        print(f"Processed {len(ni)} rows from sheet '{sheetName}' (Wynk LOB only)")
         return {"status": "success", "processed_rows": len(ni)}
     except Exception as e:
         import traceback
@@ -738,49 +1108,166 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+# ============ OFFLINE AI ENDPOINTS ============
+# No internet connection required - all analysis is done locally
+
+# Remediation templates for common vulnerability types
+REMEDIATION_TEMPLATES = {
+    "cve": """OFFLINE ANALYSIS - CVE Remediation Steps:
+
+1. IMMEDIATE ACTIONS:
+   - Verify the vulnerability exists in your environment
+   - Check if the affected component is in production
+   - Assess exposure level (internal/external)
+
+2. PATCH STRATEGY:
+   - Check vendor advisory for available patches
+   - Test patch in staging environment first
+   - Schedule maintenance window for production
+
+3. MITIGATION (if patch not available):
+   - Apply network-level controls (firewall rules)
+   - Implement WAF rules if web-facing
+   - Consider disabling affected functionality temporarily
+
+4. VERIFICATION:
+   - Re-scan after remediation
+   - Update ticket status
+   - Document changes made
+
+Note: This is an offline analysis. For detailed CVE information,
+consult your internal security documentation.""",
+
+    "config": """OFFLINE ANALYSIS - Configuration Issue:
+
+1. REVIEW:
+   - Compare current config against security baseline
+   - Check compliance requirements (CIS, NIST, etc.)
+
+2. REMEDIATION:
+   - Update configuration to secure defaults
+   - Remove unnecessary services/features
+   - Implement least privilege principle
+
+3. HARDENING:
+   - Enable logging and monitoring
+   - Set up alerts for configuration drift
+   - Document approved configuration
+
+4. VALIDATION:
+   - Test functionality after changes
+   - Verify security controls are effective""",
+
+    "default": """OFFLINE ANALYSIS - General Remediation:
+
+1. ASSESSMENT:
+   - Review vulnerability details and impact
+   - Identify affected systems and data
+   - Determine business criticality
+
+2. REMEDIATION OPTIONS:
+   - Apply vendor patches if available
+   - Implement compensating controls
+   - Update security configurations
+
+3. TESTING:
+   - Validate fix in test environment
+   - Verify no regression in functionality
+
+4. DOCUMENTATION:
+   - Update asset inventory
+   - Record remediation actions taken
+   - Close tracking ticket with evidence"""
+}
+
 @app.post("/api/analyze")
 async def av(req: Request):
+    """Offline vulnerability analysis - NO INTERNET REQUIRED"""
     try:
-        fendralis = await req.json()
-        d = fendralis.get('description', '')
-        a = fendralis.get('asset', '')
-        e = fendralis.get('evidence', '')
-        p = f"Asset: {a}\nDescription: {d}\nEvidence: {e}"
-        async with httpx.AsyncClient() as c:
-            r = await c.post(ourl, json={"model": mnam, "prompt": p, "stream": False}, timeout=120.0)
-            mexwf = r.json().get("response", "Error")
-        return {"remediation": mexwf}
+        data = await req.json()
+        description = data.get('description', '').lower()
+        asset = data.get('asset', 'Unknown')
+
+        # Determine remediation type based on description
+        if 'cve' in description or 'vulnerability' in description:
+            template = REMEDIATION_TEMPLATES["cve"]
+        elif 'config' in description or 'misconfigur' in description:
+            template = REMEDIATION_TEMPLATES["config"]
+        else:
+            template = REMEDIATION_TEMPLATES["default"]
+
+        # Customize with asset info
+        response = f"""Asset: {asset}
+
+{template}
+
+---
+Analysis performed OFFLINE for data security.
+No data was transmitted to external services."""
+
+        return {"remediation": response}
     except Exception as e:
-        return {"remediation": str(e)}
+        return {"remediation": f"Offline analysis error: {str(e)}"}
+
+
+# Security knowledge base for offline agent
+SECURITY_KB = {
+    "critical": "Critical vulnerabilities require immediate attention. Typical SLA is 7 days. Focus on internet-facing systems first.",
+    "high": "High severity issues should be addressed within 30 days. Prioritize based on asset criticality.",
+    "patch": "Always test patches in staging before production deployment. Document rollback procedures.",
+    "sla": "SLA targets: Critical=7d, High=30d, Medium=60d, Low=90d. Track MTTR for continuous improvement.",
+    "remediation": "Follow the principle of least privilege. Document all changes. Verify fixes with rescans.",
+    "compliance": "Ensure changes align with organizational security policies and compliance frameworks.",
+    "risk": "Calculate risk as: Risk = Likelihood x Impact. Prioritize based on business context.",
+}
 
 @app.post("/api/ask-agent")
 async def aa(req: Request):
+    """Offline security assistant - NO INTERNET REQUIRED"""
     try:
-        fendralis = await req.json()
-        m = fendralis.get('message', '')
-        cx = fendralis.get('context', [])
-        p = f"Context: {json.dumps(cx)}\nUser: {m}"
-        async with httpx.AsyncClient() as c:
-            r = await c.post(ourl, json={"model": mnam, "prompt": p, "stream": False}, timeout=120.0)
-            mexwf = r.json().get("response", "Error")
-        return {"reply": mexwf}
+        data = await req.json()
+        message = data.get('message', '').lower()
+        context = data.get('context', [])
+
+        # Build response based on keywords
+        response_parts = []
+
+        if 'critical' in message or 'urgent' in message:
+            response_parts.append(SECURITY_KB["critical"])
+        if 'high' in message:
+            response_parts.append(SECURITY_KB["high"])
+        if 'patch' in message or 'update' in message:
+            response_parts.append(SECURITY_KB["patch"])
+        if 'sla' in message or 'deadline' in message:
+            response_parts.append(SECURITY_KB["sla"])
+        if 'fix' in message or 'remediat' in message:
+            response_parts.append(SECURITY_KB["remediation"])
+        if 'complian' in message or 'audit' in message:
+            response_parts.append(SECURITY_KB["compliance"])
+        if 'risk' in message or 'priorit' in message:
+            response_parts.append(SECURITY_KB["risk"])
+
+        # If context provided, add summary
+        if context:
+            critical_count = sum(1 for c in context if c.get('Severity') == 'Critical')
+            open_count = sum(1 for c in context if c.get('Status', '').lower() not in ['resolved', 'closed', 'fixed'])
+            response_parts.append(f"\nCurrent Status: {len(context)} vulnerabilities in view, {critical_count} critical, {open_count} open.")
+
+        if not response_parts:
+            response_parts.append("I'm your offline security assistant. I can help with:\n- Vulnerability prioritization\n- Remediation guidance\n- SLA tracking\n- Risk assessment\n\nAsk about specific topics like 'critical vulnerabilities', 'patch management', or 'SLA targets'.")
+
+        response = "\n\n".join(response_parts)
+        response += "\n\n---\n[OFFLINE MODE - No data transmitted externally]"
+
+        return {"reply": response}
     except Exception as e:
-        return {"reply": str(e)}
+        return {"reply": f"Offline assistant error: {str(e)}"}
+
 
 @app.post("/api/trigger-openclaw")
 async def tc(req: Request):
-    try:
-        fendralis = await req.json()
-        p = fendralis.get('prompt', '')
-        u = f"{os.getenv('OPENCLAW_GATEWAY_URL')}/v1/execute"
-        h = {"Authorization": f"Bearer {os.getenv('OPENCLAW_TOKEN')}", "Content-Type": "application/json"}
-        py = {"prompt": p, "workspace": os.getcwd(), "skills": ["xtelify.skill.md"]}
-        async with httpx.AsyncClient() as c:
-            r = await c.post(u, json=py, headers=h, timeout=300.0)
-            mexwf = r.json().get("response", r.json())
-        return {"result": mexwf}
-    except Exception as e:
-        return {"result": str(e)}
+    """Disabled - OFFLINE MODE for data security"""
+    return {"result": "OpenClaw integration disabled in OFFLINE MODE for Airtel data security. All features work locally without internet connection."}
 
 app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
 
