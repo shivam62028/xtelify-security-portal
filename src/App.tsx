@@ -260,7 +260,7 @@ const AppContent: React.FC = () => {
 
   // UI Dynamic Table States
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
-  const defaultTableCols = ["Name", "DisplayID", "Projects", "AssignedTo", "AffectedAsset", "DetailedName", "Description", "RecommendedAction", "AssetType", "Status", "Version", "FixedVersion", "DueDate", "SubscriptionId", "LOB"];
+  const defaultTableCols = ["Name", "DisplayID", "Projects", "AssignedTo", "AffectedAsset", "DetailedName", "Description", "RecommendedAction", "AssetType", "Status", "Version", "FixedVersion", "DueDate", "SubscriptionId"];
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
 
   const [filter, setFilter] = useState<string>("All");

@@ -109,10 +109,14 @@ POD_OWNER_MAPPING = {
     "u-c-l-m": "Dheeraj/Satya",
     "ucl": "Dheeraj/Satya",
 
-    # iptv variations (general - Anshu)
+    # iptv/ktv variations (general - Anshu)
+    # Note: IPTV-Be is separate (Shreya), but general IPTV/KTV is Anshu
     "iptv": "Anshu",
     "ip-tv": "Anshu",
     "ip_tv": "Anshu",
+    "ktv": "Anshu",
+    "k-tv": "Anshu",
+    "k_tv": "Anshu",
 
     # discovery variations
     "discovery": "Aakash",
@@ -1109,13 +1113,15 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                 if auto_owner:
                     rec["AssignedTo"] = auto_owner
 
-            # Filter: Only include Wynk LOB data
+            # Filter: Only include Wynk LOB data (skip if LOB exists and is not Wynk)
+            # If LOB is empty, include the data
             lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
-            if lob_value and lob_value not in ALLOWED_LOB:
+            if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
+                print(f"Skipping row {idx}: LOB={rec['LOB']} (not Wynk)")
                 continue  # Skip non-Wynk data
 
-            if idx < 3:
-                print(f"Row {idx}: IssueID={rec['IssueID']}, DisplayID={rec['DisplayID']}, Name={rec['Name']}, Severity={rec['Severity']}, LOB={rec['LOB']}, AssignedTo={rec['AssignedTo']}")
+            if idx < 5:
+                print(f"Row {idx}: IssueID={rec['IssueID']}, DisplayID={rec['DisplayID']}, Severity={rec['Severity']}, LOB={rec['LOB']}")
 
             ni.append(rec)
         t_norm_end = time.time()
@@ -1355,9 +1361,9 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
                 if auto_owner:
                     rec["AssignedTo"] = auto_owner
 
-            # Filter: Only include Wynk LOB data
+            # Filter: Only include Wynk LOB data (skip if LOB exists and is not Wynk)
             lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
-            if lob_value and lob_value not in ALLOWED_LOB:
+            if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
                 continue  # Skip non-Wynk data
 
             ni.append(rec)
@@ -1365,7 +1371,7 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
         db.extend(ni)
         sdb(db)
 
-        print(f"Processed {len(ni)} rows from sheet '{sheetName}' (Wynk LOB only)")
+        print(f"Processed {len(ni)} rows from sheet '{sheetName}'")
         return {"status": "success", "processed_rows": len(ni)}
     except Exception as e:
         import traceback
