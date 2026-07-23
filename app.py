@@ -122,6 +122,99 @@ POD_OWNER_MAPPING = {
     "ds": "Aakash",
 }
 
+def generate_short_description(vuln_name, cve_id, severity, asset_type, detailed_name):
+    """
+    Generate a short 5-7 word vulnerability description.
+    Pure Python - no external AI dependencies.
+    Works offline with Python 3.11.8.
+    """
+    desc_parts = []
+
+    # Determine severity prefix
+    severity_words = {
+        "critical": "Critical security flaw",
+        "high": "High-risk vulnerability",
+        "medium": "Moderate security issue",
+        "low": "Minor security concern",
+        "info": "Informational finding"
+    }
+    sev_lower = (severity or "medium").lower()
+    sev_prefix = severity_words.get(sev_lower, "Security issue")
+
+    # Extract key info from vulnerability name
+    name_lower = (vuln_name or "").lower()
+    detailed_lower = (detailed_name or "").lower()
+    combined = name_lower + " " + detailed_lower
+
+    # Detect vulnerability type from name/details
+    vuln_type = ""
+    if any(x in combined for x in ["rce", "remote code", "command injection", "code execution"]):
+        vuln_type = "allows remote code execution"
+    elif any(x in combined for x in ["sql injection", "sqli", "sql inj"]):
+        vuln_type = "SQL injection vulnerability found"
+    elif any(x in combined for x in ["xss", "cross-site script", "cross site script"]):
+        vuln_type = "cross-site scripting detected"
+    elif any(x in combined for x in ["buffer overflow", "overflow", "memory corrupt"]):
+        vuln_type = "memory corruption vulnerability"
+    elif any(x in combined for x in ["dos", "denial of service", "denial-of-service"]):
+        vuln_type = "denial of service possible"
+    elif any(x in combined for x in ["auth", "authentication", "bypass", "privilege"]):
+        vuln_type = "authentication bypass risk"
+    elif any(x in combined for x in ["path traversal", "directory traversal", "lfi", "rfi"]):
+        vuln_type = "path traversal vulnerability"
+    elif any(x in combined for x in ["ssrf", "server-side request"]):
+        vuln_type = "server-side request forgery"
+    elif any(x in combined for x in ["xxe", "xml external"]):
+        vuln_type = "XML external entity attack"
+    elif any(x in combined for x in ["deserializ", "unserializ"]):
+        vuln_type = "insecure deserialization flaw"
+    elif any(x in combined for x in ["crypto", "encrypt", "ssl", "tls", "certificate"]):
+        vuln_type = "cryptographic weakness detected"
+    elif any(x in combined for x in ["config", "misconfig", "default", "hardcoded"]):
+        vuln_type = "configuration issue found"
+    elif any(x in combined for x in ["outdated", "upgrade", "version", "update", "patch"]):
+        vuln_type = "outdated component needs update"
+    elif any(x in combined for x in ["exposure", "leak", "sensitive", "disclosure"]):
+        vuln_type = "information disclosure risk"
+    elif any(x in combined for x in ["inject", "input valid"]):
+        vuln_type = "injection vulnerability detected"
+    elif any(x in combined for x in ["container", "docker", "kubernetes", "k8s", "image"]):
+        vuln_type = "container security issue"
+    elif any(x in combined for x in ["permission", "access control", "rbac"]):
+        vuln_type = "access control weakness"
+    elif any(x in combined for x in ["log4j", "log4shell"]):
+        vuln_type = "Log4j vulnerability detected"
+    elif any(x in combined for x in ["spring", "spring4shell"]):
+        vuln_type = "Spring framework vulnerability"
+
+    # Build description
+    if vuln_type:
+        # Use detected type
+        if cve_id and cve_id.upper().startswith("CVE"):
+            desc = f"{sev_prefix}: {vuln_type}"
+        else:
+            desc = f"{sev_prefix} - {vuln_type}"
+    elif cve_id and cve_id.upper().startswith("CVE"):
+        # Use CVE if no type detected
+        desc = f"{sev_prefix} in {cve_id}"
+    elif vuln_name:
+        # Use first few words of name
+        words = vuln_name.split()[:4]
+        short_name = " ".join(words)
+        desc = f"{sev_prefix}: {short_name}"
+    else:
+        # Fallback
+        asset = asset_type if asset_type and asset_type not in ["", "NA"] else "system"
+        desc = f"{sev_prefix} affecting {asset}"
+
+    # Ensure 5-7 words (trim if too long)
+    final_words = desc.split()
+    if len(final_words) > 8:
+        desc = " ".join(final_words[:7]) + "..."
+
+    return desc
+
+
 def get_pod_owner(subscription_name, subscription_id):
     """
     Auto-detect POD owner from subscription name or ID.
@@ -960,8 +1053,21 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                 rec["DueDate"] = ""
 
             rec["Name"] = gv(row, "Name")
-            rec["Description"] = gv(row, "Description")
             rec["DetailedName"] = gv(row, "DetailedName")
+
+            # Get original description or generate AI-like short description
+            orig_desc = gv(row, "Description")
+            if orig_desc and orig_desc.strip() and orig_desc.lower() not in ["na", "none", ""]:
+                rec["Description"] = orig_desc
+            else:
+                # Generate short 5-7 word description
+                rec["Description"] = generate_short_description(
+                    rec["Name"],
+                    rec["DisplayID"],
+                    rec["Severity"],
+                    gv(row, "AssetType"),
+                    rec["DetailedName"]
+                )
 
             rec["AffectedAsset"] = gv(row, "AffectedAsset")
             rec["AssetID"] = gv(row, "AssetID")
@@ -1196,8 +1302,22 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
                 rec["DueDate"] = ""
 
             rec["Name"] = gv(row, "Name")
-            rec["Description"] = gv(row, "Description")
             rec["DetailedName"] = gv(row, "DetailedName")
+
+            # Get original description or generate AI-like short description
+            orig_desc = gv(row, "Description")
+            if orig_desc and orig_desc.strip() and orig_desc.lower() not in ["na", "none", ""]:
+                rec["Description"] = orig_desc
+            else:
+                # Generate short 5-7 word description
+                rec["Description"] = generate_short_description(
+                    rec["Name"],
+                    rec["DisplayID"],
+                    rec["Severity"],
+                    gv(row, "AssetType"),
+                    rec["DetailedName"]
+                )
+
             rec["AffectedAsset"] = gv(row, "AffectedAsset")
             rec["AssetID"] = gv(row, "AssetID")
             rec["AssetType"] = gv(row, "AssetType")
