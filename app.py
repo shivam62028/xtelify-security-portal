@@ -27,6 +27,52 @@ NEGATIVE_PATTERNS = ["grand total", "count of", "pivot", "impacted resources", "
 # LOB Filter - Only process Wynk data
 ALLOWED_LOB = ["wynk"]
 
+# POD Owner Mapping - Auto-assign based on subscription/project name
+# Maps POD/Section keywords to their owners
+POD_OWNER_MAPPING = {
+    "xstream": "Shreya",
+    "adtech": "Satya",
+    "music": "Aakash",
+    "wcf": "Yash",
+    "vmax": "Dheeraj",
+    "iptv-be": "Shreya",
+    "iptv_be": "Shreya",
+    "iptvbe": "Shreya",
+    "data platform": "Abhinav/Vinod",
+    "dataplatform": "Abhinav/Vinod",
+    "data_platform": "Abhinav/Vinod",
+    "msp": "Yash",
+    "search": "Mohit",
+    "ml": "Nisha",
+    "catalog": "Aakash",
+    "channels": "Vinod",
+    "uclm": "Dheeraj/Satya",
+    "iptv": "Anshu",
+    "discovery": "Aakash",
+}
+
+def get_pod_owner(subscription_name, subscription_id):
+    """
+    Auto-detect POD owner from subscription name or ID.
+    Matches keywords from POD_OWNER_MAPPING.
+    """
+    # Combine both fields for matching
+    search_text = ""
+    if subscription_name and subscription_name not in ["", "NA", "None", "nan"]:
+        search_text += subscription_name.lower()
+    if subscription_id and subscription_id not in ["", "NA", "None", "nan"]:
+        search_text += " " + subscription_id.lower()
+
+    if not search_text.strip():
+        return ""  # No subscription info, leave empty
+
+    # Check each POD keyword
+    for pod_keyword, owner in POD_OWNER_MAPPING.items():
+        if pod_keyword in search_text:
+            return owner
+
+    return ""  # No match found, leave empty
+
 
 def detect_header_row(ws, max_rows=15):
     """Search first max_rows rows to find the header row with most expected columns."""
@@ -864,13 +910,19 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
             rec["SubscriptionName"] = gv(row, "SubscriptionName")
             rec["Tags"] = gv(row, "Tags")
 
+            # Auto-assign POD owner based on subscription name/ID
+            if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
+                auto_owner = get_pod_owner(rec["SubscriptionName"], rec["SubscriptionId"])
+                if auto_owner:
+                    rec["AssignedTo"] = auto_owner
+
             # Filter: Only include Wynk LOB data
             lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
             if lob_value and lob_value not in ALLOWED_LOB:
                 continue  # Skip non-Wynk data
 
             if idx < 3:
-                print(f"Row {idx}: IssueID={rec['IssueID']}, DisplayID={rec['DisplayID']}, Name={rec['Name']}, Severity={rec['Severity']}, LOB={rec['LOB']}")
+                print(f"Row {idx}: IssueID={rec['IssueID']}, DisplayID={rec['DisplayID']}, Name={rec['Name']}, Severity={rec['Severity']}, LOB={rec['LOB']}, AssignedTo={rec['AssignedTo']}")
 
             ni.append(rec)
         t_norm_end = time.time()
@@ -1089,6 +1141,12 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
             rec["SubscriptionId"] = gv(row, "SubscriptionId")
             rec["SubscriptionName"] = gv(row, "SubscriptionName")
             rec["Tags"] = gv(row, "Tags")
+
+            # Auto-assign POD owner based on subscription name/ID
+            if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
+                auto_owner = get_pod_owner(rec["SubscriptionName"], rec["SubscriptionId"])
+                if auto_owner:
+                    rec["AssignedTo"] = auto_owner
 
             # Filter: Only include Wynk LOB data
             lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
