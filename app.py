@@ -28,33 +28,104 @@ NEGATIVE_PATTERNS = ["grand total", "count of", "pivot", "impacted resources", "
 ALLOWED_LOB = ["wynk"]
 
 # POD Owner Mapping - Auto-assign based on subscription/project name
-# Maps POD/Section keywords to their owners
+# Maps POD/Section keywords (including abbreviations) to their owners
 POD_OWNER_MAPPING = {
+    # xstream variations
     "xstream": "Shreya",
+    "xstrm": "Shreya",
+    "x-stream": "Shreya",
+    "x_stream": "Shreya",
+    "xs": "Shreya",
+
+    # adtech variations
     "adtech": "Satya",
+    "ad-tech": "Satya",
+    "ad_tech": "Satya",
+    "adt": "Satya",
+    "ads": "Satya",
+
+    # music variations
     "music": "Aakash",
+    "msc": "Aakash",
+    "mus": "Aakash",
+
+    # wcf variations
     "wcf": "Yash",
+    "w-c-f": "Yash",
+
+    # vmax variations
     "vmax": "Dheeraj",
+    "v-max": "Dheeraj",
+    "v_max": "Dheeraj",
+    "vmx": "Dheeraj",
+
+    # iptv-be variations (backend)
     "iptv-be": "Shreya",
     "iptv_be": "Shreya",
     "iptvbe": "Shreya",
+    "iptv-backend": "Shreya",
+    "iptvbackend": "Shreya",
+
+    # data platform variations
     "data platform": "Abhinav/Vinod",
     "dataplatform": "Abhinav/Vinod",
     "data_platform": "Abhinav/Vinod",
+    "data-platform": "Abhinav/Vinod",
+    "dataplat": "Abhinav/Vinod",
+    "dp": "Abhinav/Vinod",
+    "dplat": "Abhinav/Vinod",
+
+    # msp variations
     "msp": "Yash",
+    "m-s-p": "Yash",
+
+    # search variations
     "search": "Mohit",
+    "srch": "Mohit",
+    "src": "Mohit",
+
+    # ml variations
     "ml": "Nisha",
+    "m-l": "Nisha",
+    "machine learning": "Nisha",
+    "machinelearning": "Nisha",
+
+    # catalog variations
     "catalog": "Aakash",
+    "catalogue": "Aakash",
+    "cat": "Aakash",
+    "ctlg": "Aakash",
+    "ctg": "Aakash",
+
+    # channels variations
     "channels": "Vinod",
+    "channel": "Vinod",
+    "chnl": "Vinod",
+    "chnls": "Vinod",
+    "ch": "Vinod",
+
+    # uclm variations
     "uclm": "Dheeraj/Satya",
+    "u-c-l-m": "Dheeraj/Satya",
+    "ucl": "Dheeraj/Satya",
+
+    # iptv variations (general - Anshu)
     "iptv": "Anshu",
+    "ip-tv": "Anshu",
+    "ip_tv": "Anshu",
+
+    # discovery variations
     "discovery": "Aakash",
+    "disc": "Aakash",
+    "dscvry": "Aakash",
+    "dscv": "Aakash",
+    "ds": "Aakash",
 }
 
 def get_pod_owner(subscription_name, subscription_id):
     """
     Auto-detect POD owner from subscription name or ID.
-    Matches keywords from POD_OWNER_MAPPING.
+    Matches keywords from POD_OWNER_MAPPING with smart matching.
     """
     # Combine both fields for matching
     search_text = ""
@@ -66,9 +137,25 @@ def get_pod_owner(subscription_name, subscription_id):
     if not search_text.strip():
         return ""  # No subscription info, leave empty
 
+    # Normalize: replace common separators with spaces
+    normalized = search_text.replace("-", " ").replace("_", " ").replace(".", " ")
+
+    # Sort keywords by length (longer first) to match more specific terms first
+    # e.g., "iptv-be" should match before "iptv"
+    sorted_keywords = sorted(POD_OWNER_MAPPING.keys(), key=len, reverse=True)
+
     # Check each POD keyword
-    for pod_keyword, owner in POD_OWNER_MAPPING.items():
+    for pod_keyword in sorted_keywords:
+        owner = POD_OWNER_MAPPING[pod_keyword]
+        # Check in original text
         if pod_keyword in search_text:
+            return owner
+        # Check in normalized text (separators replaced with spaces)
+        if pod_keyword in normalized:
+            return owner
+        # Check as word boundary (for short abbreviations like "ds", "ml")
+        words = normalized.split()
+        if pod_keyword in words:
             return owner
 
     return ""  # No match found, leave empty
