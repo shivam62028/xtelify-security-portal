@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 
 # Ollama API Configuration (Local LLM - runs on your machine)
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-OLLAMA_MODEL = "llama3.2:1b"  # Faster 1B model - change if you have a different one
+OLLAMA_MODEL = "llama3"  # Using llama3 4.7GB model
 
 EXPECTED_COLUMNS = {
     "id", "name", "severity", "findingstatus", "score", "wizurl",
@@ -1504,8 +1504,12 @@ Keep response concise and actionable."""
         print("Ollama not running - using fallback")
         return {"remediation": get_fallback_remediation(data.get('description', ''), data.get('asset', 'Unknown'))}
     except Exception as e:
-        print(f"Analyze error: {e}")
-        return {"remediation": f"Analysis error: {str(e)}. Ensure Ollama is running on port 11434."}
+        import traceback
+        err = traceback.format_exc()
+        print("======== ANALYZE ERROR ========")
+        print(err)
+        print("===============================")
+        return {"remediation": f"Analysis error: {type(e).__name__}: {str(e)}"}
 
 
 def get_fallback_remediation(description, asset):
@@ -1586,8 +1590,12 @@ Keep your answer under 200 words unless more detail is needed."""
         print("Ollama not running - using fallback")
         return {"reply": get_fallback_agent_response(data.get('message', ''), data.get('context', []))}
     except Exception as e:
-        print(f"Agent error: {e}")
-        return {"reply": f"Error: {str(e)}. Ensure Ollama is running: `ollama serve`"}
+        import traceback
+        err = traceback.format_exc()
+        print("======== AGENT ERROR ========")
+        print(err)
+        print("=============================")
+        return {"reply": f"Error: {type(e).__name__}: {str(e)}"}
 
 
 def get_fallback_agent_response(message, context):
