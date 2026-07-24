@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 
 # Ollama API Configuration (Local LLM - runs on your machine)
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-OLLAMA_MODEL = "llama3"  # Using llama3 4.7GB model
+OLLAMA_MODEL = "llama3"  # Using llama3:latest (4.7GB)
 
 EXPECTED_COLUMNS = {
     "id", "name", "severity", "findingstatus", "score", "wizurl",
@@ -1481,7 +1481,7 @@ Provide:
 Keep response concise and actionable."""
 
         # Call Ollama API
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(
                 OLLAMA_URL,
                 json={
@@ -1568,7 +1568,7 @@ Provide a helpful, concise response focused on security operations.
 Keep your answer under 200 words unless more detail is needed."""
 
         # Call Ollama API
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(
                 OLLAMA_URL,
                 json={
@@ -1664,7 +1664,7 @@ async def tc(req: Request):
 
 Provide actionable security recommendations."""
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(
                 OLLAMA_URL,
                 json={

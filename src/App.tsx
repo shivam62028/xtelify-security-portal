@@ -71,8 +71,15 @@ import {
 
 const author = "richyrik";
 
-const BACKEND_URL =
-  window.location.hostname === "localhost" ? "http://127.0.0.1:8000" : "";
+const BACKEND_URL = (() => {
+  const hostname = window.location.hostname;
+  // Local development (Windows) - port 8000
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return "http://127.0.0.1:8000";
+  }
+  // Production (VM) - use same origin (empty string = relative URL)
+  return "";
+})();
 
 interface Issue {
   [key: string]: any;
