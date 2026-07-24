@@ -39,7 +39,6 @@ import {
   Send,
   FileUp,
   MessageSquare,
-  Trophy,
   GripVertical,
   Search,
   Moon,
@@ -120,13 +119,6 @@ interface IssueGroup {
   }[];
 }
 
-interface LeaderboardRow {
-  team: string;
-  points: number;
-  fixes: number;
-  mttr: number;
-  tier: string;
-}
 
 interface TimelineData {
   count: number;
@@ -1530,13 +1522,13 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className={`min-h-screen p-6 lg:p-8 font-sans transition-colors duration-300 ${darkMode ? "bg-slate-900 text-slate-100" : "bg-[#f8fafc] text-slate-800"}`}>
-      <header className={`mb-6 flex flex-col md:flex-row md:items-center justify-between px-6 py-4 rounded-sm shadow-sm border transition-colors ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+    <div className={`min-h-screen p-6 lg:p-8 font-sans ${darkMode ? "bg-slate-900 text-slate-100" : "bg-slate-50 text-slate-800"}`}>
+      <header className={`mb-6 flex flex-col md:flex-row md:items-center justify-between px-6 py-4 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
         <div className="flex items-center gap-4">
-          <img src="/airtel-logo.svg" alt="Airtel" className="h-10 w-auto rounded-sm" />
-          <div className={`h-6 w-[1px] mx-1 ${darkMode ? "bg-slate-600" : "bg-slate-300"}`}></div>
-          <h1 className={`text-lg font-semibold tracking-tight ${darkMode ? "text-white" : "text-slate-800"}`}>
-            Wynk Security Leadership Portal
+          <img src="/airtel-logo.svg" alt="Airtel" className="h-10 w-auto" />
+          <div className={`h-6 w-px ${darkMode ? "bg-slate-600" : "bg-slate-300"}`}></div>
+          <h1 className={`text-lg font-semibold ${darkMode ? "text-white" : "text-slate-800"}`}>
+            Wynk Security Portal
           </h1>
         </div>
         <div className="flex items-center gap-4 mt-4 md:mt-0">
@@ -1567,30 +1559,24 @@ const AppContent: React.FC = () => {
 
       {/* Due Date Alerts Banner */}
       {(dueDateAlerts.overdue.length > 0 || dueDateAlerts.dueToday.length > 0) && (
-        <div className={`mb-4 p-4 rounded-lg border flex items-center justify-between ${darkMode ? "bg-red-900/30 border-red-800" : "bg-red-50 border-red-200"}`}>
+        <div className={`mb-4 p-4 rounded border flex items-center justify-between ${darkMode ? "bg-red-900/20 border-red-800" : "bg-red-50 border-red-200"}`}>
           <div className="flex items-center gap-4">
             <AlertCircle className="text-red-500" size={20} />
-            <div className="flex gap-6">
+            <div className="flex gap-4 text-sm">
               {dueDateAlerts.overdue.length > 0 && (
-                <span className="text-sm font-bold text-red-600">
-                  {dueDateAlerts.overdue.length} Overdue
-                </span>
+                <span className="font-bold text-red-600">{dueDateAlerts.overdue.length} Overdue</span>
               )}
               {dueDateAlerts.dueToday.length > 0 && (
-                <span className={`text-sm font-bold ${darkMode ? "text-amber-400" : "text-amber-600"}`}>
-                  {dueDateAlerts.dueToday.length} Due Today
-                </span>
+                <span className={`font-medium ${darkMode ? "text-amber-400" : "text-amber-600"}`}>{dueDateAlerts.dueToday.length} Due Today</span>
               )}
               {dueDateAlerts.dueThisWeek.length > 0 && (
-                <span className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                  {dueDateAlerts.dueThisWeek.length} Due This Week
-                </span>
+                <span className={darkMode ? "text-slate-400" : "text-slate-600"}>{dueDateAlerts.dueThisWeek.length} Due This Week</span>
               )}
             </div>
           </div>
           <button
             onClick={() => setQuickFilter("overdue")}
-            className="text-xs font-bold text-red-600 hover:text-red-800 underline"
+            className="text-xs font-bold text-red-600 hover:underline"
           >
             View Overdue
           </button>
@@ -1598,21 +1584,21 @@ const AppContent: React.FC = () => {
       )}
 
       <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
-        <div className={`flex p-1 rounded-md w-fit ${darkMode ? "bg-slate-700" : "bg-slate-200"}`}>
+        <div className={`flex p-1 rounded ${darkMode ? "bg-slate-700" : "bg-slate-200"}`}>
           <button
             onClick={() => setViewMode("Optimized")}
-            className={`px-6 py-2 text-sm font-bold rounded-md transition-all ${viewMode === "Optimized"
-              ? `${darkMode ? "bg-slate-800 text-purple-400" : "bg-white text-purple-700"} shadow-sm`
-              : `${darkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`
+            className={`px-4 py-2 text-sm font-medium rounded ${viewMode === "Optimized"
+              ? `${darkMode ? "bg-slate-800 text-white" : "bg-white text-slate-800"}`
+              : `${darkMode ? "text-slate-400" : "text-slate-500"}`
               }`}
           >
             Dashboard
           </button>
           <button
             onClick={() => setViewMode("Raw")}
-            className={`px-6 py-2 text-sm font-bold rounded-md transition-all ${viewMode === "Raw"
-              ? `${darkMode ? "bg-slate-800 text-emerald-400" : "bg-white text-emerald-700"} shadow-sm`
-              : `${darkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`
+            className={`px-4 py-2 text-sm font-medium rounded ${viewMode === "Raw"
+              ? `${darkMode ? "bg-slate-800 text-white" : "bg-white text-slate-800"}`
+              : `${darkMode ? "text-slate-400" : "text-slate-500"}`
               }`}
           >
             Live Export Preview
@@ -1621,7 +1607,7 @@ const AppContent: React.FC = () => {
 
         {/* Quick Filters */}
         <div className="flex items-center gap-2">
-          <span className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Quick:</span>
+          <span className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Quick:</span>
           {[
             { key: "all", label: "All", icon: Filter },
             { key: "overdue", label: "Overdue", icon: AlertCircle },
@@ -1631,10 +1617,10 @@ const AppContent: React.FC = () => {
             <button
               key={qf.key}
               onClick={() => setQuickFilter(qf.key)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium ${
                 quickFilter === qf.key
-                  ? `${darkMode ? "bg-blue-600 text-white" : "bg-blue-100 text-blue-700 border border-blue-300"}`
-                  : `${darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`
+                  ? `${darkMode ? "bg-blue-600 text-white" : "bg-blue-100 text-blue-700"}`
+                  : `${darkMode ? "bg-slate-700 text-slate-300" : "bg-white text-slate-600 border border-slate-200"}`
               }`}
             >
               <qf.icon size={12} /> {qf.label}
@@ -1730,42 +1716,36 @@ const AppContent: React.FC = () => {
               title="Unique Vulnerabilities"
               val={stats?.uniqueVulns || 0}
               Icon={Shield}
-              color="text-purple-700"
-              bg="bg-purple-100"
+              color="text-purple-600"
+              bg="bg-white"
             />
             <Card
               title="Total Affected Assets"
               val={stats?.total || 0}
               Icon={Server}
-              color="text-slate-700"
-              bg="bg-slate-100"
+              color="text-blue-600"
+              bg="bg-white"
             />
             <Card
               title="Critical Risks"
               val={stats?.criticalOpen || 0}
               Icon={AlertTriangle}
               color="text-amber-600"
-              bg="bg-amber-50"
+              bg="bg-white"
             />
-            <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-              <div>
-                <p className="text-xs font-medium text-slate-500 mb-1">
-                  SLA Breached (Vulns)
-                </p>
-                <p className="text-2xl font-bold text-red-600">
-                  {stats?.breached || 0}
-                </p>
-              </div>
-              <div className="p-2.5 rounded-md bg-red-50 text-red-600">
-                <Flame size={20} />
-              </div>
-            </div>
+            <Card
+              title="SLA Breached"
+              val={stats?.breached || 0}
+              Icon={Flame}
+              color="text-red-600"
+              bg="bg-white"
+            />
           </div>
 
-          {/* NEW: SLA Compliance & Age Distribution */}
+          {/* SLA Compliance & Age Distribution */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
             {/* SLA Compliance Meter */}
-            <div className={`p-5 rounded-sm border shadow-sm ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+            <div className={`p-5 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
               <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
                 <Target size={16} className="text-emerald-500" /> SLA Compliance
               </h2>
@@ -1807,7 +1787,7 @@ const AppContent: React.FC = () => {
             </div>
 
             {/* Age Distribution */}
-            <div className={`p-5 rounded-sm border shadow-sm ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+            <div className={`p-5 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
               <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
                 <Clock size={16} className="text-blue-500" /> Vulnerability Age Distribution
               </h2>
@@ -1833,8 +1813,8 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          {/* NEW: Trend Chart - Discovered vs Resolved */}
-          <div className={`p-5 rounded-sm border shadow-sm mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+          {/* Trend Chart - Discovered vs Resolved */}
+          <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
             <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
               <TrendingUp size={16} className="text-purple-500" /> 30-Day Trend: Discovered vs Resolved
             </h2>
@@ -1867,8 +1847,8 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          {/* NEW: Risk Heatmap */}
-          <div className={`p-5 rounded-sm border shadow-sm mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+          {/* Risk Heatmap */}
+          <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
             <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
               <Zap size={16} className="text-amber-500" /> Risk Heatmap: Severity vs Department
             </h2>
@@ -1986,9 +1966,9 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm">
-              <h2 className="font-semibold text-slate-800 text-sm mb-4 border-b border-slate-100 pb-2">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+            <div className={`p-5 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+              <h2 className={`font-semibold text-sm mb-4 border-b pb-2 ${darkMode ? "text-slate-200 border-slate-700" : "text-slate-800 border-slate-100"}`}>
                 Asset Category Distribution
               </h2>
               <div className="h-64 flex items-center justify-center">
@@ -2029,8 +2009,8 @@ const AppContent: React.FC = () => {
                 )}
               </div>
             </div>
-            <div className="lg:col-span-2 bg-white p-5 rounded-sm border border-slate-200 shadow-sm">
-              <h2 className="font-semibold text-slate-800 text-sm mb-4 border-b border-slate-100 pb-2">
+            <div className={`lg:col-span-2 p-5 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+              <h2 className={`font-semibold text-sm mb-4 border-b pb-2 ${darkMode ? "text-slate-200 border-slate-700" : "text-slate-800 border-slate-100"}`}>
                 Vulnerability Types
               </h2>
               <div className="h-64 flex items-center justify-center">
@@ -2151,8 +2131,8 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
-            <h2 className="font-semibold text-slate-800 text-sm mb-4 border-b border-slate-100 pb-2">
+          <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+            <h2 className={`font-semibold text-sm mb-4 border-b pb-2 ${darkMode ? "text-slate-200 border-slate-700" : "text-slate-800 border-slate-100"}`}>
               Workload & Risk Distribution by Assigned Owner
             </h2>
             <div className="h-72 flex items-center justify-center">
@@ -2279,55 +2259,19 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
-            <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-3">
-              <Wrench className="text-slate-500" size={18} />
-              <h2 className="font-semibold text-slate-800 text-sm">
-                Top Priority Remediation Actions
-              </h2>
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
-              {topRemediations && topRemediations.length > 0 ? (
-                topRemediations.map((rem, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between bg-slate-50 p-3 rounded-sm border border-slate-100"
-                  >
-                    <div className="flex-1 pr-4">
-                      <p
-                        className="text-xs font-semibold text-slate-700 line-clamp-2"
-                        title={rem.action}
-                      >
-                        {rem.action}
-                      </p>
-                    </div>
-                    <div className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-1 rounded-sm whitespace-nowrap">
-                      {rem.count || 0} Vulns
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-slate-500">
-                  No open remediations required.
-                </p>
-              )}
-            </div>
-          </div>
-
-          <Leaderboard />
-
           <SecurityAgent contextData={displayedIssues} />
 
-          <div className="bg-white rounded-sm border border-slate-200 shadow-sm flex flex-col z-30 overflow-visible">
-            <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+          <div className={`rounded border overflow-hidden z-30 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+            <div className={`p-4 border-b flex flex-col xl:flex-row xl:items-center justify-between gap-4 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
               <div className="flex items-center gap-4 flex-1">
-                <div className="flex items-center gap-2 text-slate-800 font-semibold text-sm border-r border-slate-300 pr-4">
-                  <Filter size={16} className="text-slate-500" /> Vulnerability Groups
+                <div className={`flex items-center gap-2 font-semibold text-sm border-r pr-4 ${darkMode ? "text-slate-200 border-slate-600" : "text-slate-800 border-slate-300"}`}>
+                  <Filter size={14} className="text-slate-500" />
+                  Vulnerability Groups
                 </div>
                 <input
                   type="text"
                   placeholder="Search CVE, Remediation, Category..."
-                  className="px-3 py-1.5 rounded-sm border border-slate-300 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none w-full max-w-sm"
+                  className={`px-3 py-1.5 rounded border text-sm focus:border-blue-500 outline-none w-full max-w-sm ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -3297,123 +3241,16 @@ const AppContent: React.FC = () => {
 };
 
 const Card: React.FC<CardProps> = ({ title, val, Icon, color, bg }) => (
-  <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
+  <div className={`${bg} p-5 rounded border border-slate-200 flex items-center justify-between`}>
     <div>
-      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
-        {title}
-      </p>
-      <p className="text-2xl font-bold text-slate-900">{val}</p>
+      <p className="text-xs font-medium text-slate-500 uppercase mb-1">{title}</p>
+      <p className={`text-2xl font-bold ${color}`}>{val}</p>
     </div>
-    <div
-      className={`p-2 rounded-sm bg-slate-50 border border-slate-100 ${color}`}
-    >
+    <div className={`p-2 rounded ${color}`}>
       <Icon size={20} />
     </div>
   </div>
 );
-
-const Leaderboard: React.FC = () => {
-  const [d, setD] = useState<LeaderboardRow[]>([]);
-
-  useEffect(() => {
-    const fetchLeaderboard = async () => {
-      try {
-        const fendralis = await fetch(`${BACKEND_URL}/api/leaderboard`, {
-          mode: "cors",
-        });
-        if (!fendralis.ok) {
-          setD([]);
-          return;
-        }
-
-        const text = await fendralis.text();
-        const mexwf = text ? JSON.parse(text) : [];
-
-        if (Array.isArray(mexwf)) {
-          setD(mexwf);
-        } else {
-          setD([]);
-        }
-      } catch (error) {
-        console.error("Leaderboard Error", error);
-        setD([]);
-      }
-    };
-    fetchLeaderboard();
-  }, []);
-
-  const getTierClass = (tier?: string) => {
-    const s = String(tier || "");
-    switch (s) {
-      case "Elite Guardian":
-        return "bg-red-50/20 text-red-600 border border-red-200";
-      case "SecOps Specialist":
-        return "bg-purple-50/20 text-purple-600 border border-purple-200";
-      case "Patch Master":
-        return "bg-blue-50/20 text-blue-600 border border-blue-200";
-      default:
-        return "bg-slate-50 border border-slate-200 text-slate-600";
-    }
-  };
-
-  return (
-    <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
-      <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-3">
-        <Trophy className="text-amber-500" size={18} />
-        <h2 className="font-semibold text-slate-800 text-sm">
-          DevSecOps Leaderboard
-        </h2>
-        <span className="text-xs font-medium text-slate-500 ml-auto">
-          Teams ranked by resolution speed and SLA metrics
-        </span>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm text-slate-600">
-          <thead className="text-xs uppercase bg-slate-50 border-b border-slate-200 text-slate-500">
-            <tr>
-              <th className="px-4 py-3">Rank</th>
-              <th className="px-4 py-3">Team Name</th>
-              <th className="px-4 py-3">Tier</th>
-              <th className="px-4 py-3">Fixes</th>
-              <th className="px-4 py-3">Avg MTTR</th>
-              <th className="px-4 py-3 text-right">Rating Points</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {d &&
-              d.map((r, i) => (
-                <tr key={r.team || i} className="hover:bg-slate-50 transition">
-                  <td className="px-4 py-4 font-bold text-slate-400">
-                    #{i + 1}
-                  </td>
-                  <td className="px-4 py-4 font-semibold text-slate-800 flex items-center gap-2">
-                    <Shield size={14} className="text-slate-400" />
-                    {r.team || "Unknown"}
-                  </td>
-                  <td className="px-4 py-4">
-                    <span
-                      className={`px-2.5 py-1 rounded text-[10px] font-bold ${getTierClass(
-                        r.tier
-                      )}`}
-                    >
-                      {r.tier || "Unranked"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4">{r.fixes || 0} bugs</td>
-                  <td className="px-4 py-4 text-emerald-600 font-medium">
-                    {r.mttr || 0} hrs
-                  </td>
-                  <td className="px-4 py-4 text-right font-bold text-amber-500">
-                    {r.points || 0} XP
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
 
 const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
   const [query, setQuery] = useState<string>("");
@@ -3462,29 +3299,31 @@ const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
   };
 
   return (
-    <div className="p-6 w-full mb-6 bg-slate-800 rounded-sm shadow-sm border border-slate-700">
-      <h3 className="text-xl font-bold text-white mb-4">
-        Xtelify AI Security Assistant
-      </h3>
+    <div className="p-5 w-full mb-6 bg-slate-800 rounded border border-slate-700">
+      <div className="flex items-center gap-2 mb-4">
+        <Bot size={18} className="text-slate-400" />
+        <h3 className="text-sm font-semibold text-white">Ask AI</h3>
+      </div>
       <div className="flex gap-2">
         <input
           type="text"
-          className="flex-1 p-2 bg-slate-900 border border-slate-600 rounded-sm text-white focus:outline-none focus:border-purple-500"
+          className="flex-1 p-2 bg-slate-900 border border-slate-600 rounded text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Ask about threats, logs, or vulnerabilities..."
+          onKeyDown={(e) => e.key === 'Enter' && askAgent()}
+          placeholder="Ask about vulnerabilities..."
         />
         <button
           onClick={askAgent}
           disabled={loading}
-          className="px-6 py-2 bg-purple-600 text-white rounded-sm font-medium hover:bg-purple-700 disabled:bg-slate-500 transition-colors"
+          className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 disabled:bg-slate-600"
         >
-          {loading ? "Analyzing..." : "Ask AI"}
+          {loading ? "..." : "Ask"}
         </button>
       </div>
       {response && (
-        <div className="p-4 bg-slate-900 border border-slate-700 rounded-sm mt-4 text-slate-300">
-          <p>{response}</p>
+        <div className="p-3 bg-slate-900 border border-slate-700 rounded mt-3 text-sm text-slate-300">
+          {response}
         </div>
       )}
     </div>

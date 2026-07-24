@@ -30,6 +30,60 @@ NEGATIVE_PATTERNS = ["grand total", "count of", "pivot", "impacted resources", "
 # LOB Filter - Only process Wynk data
 ALLOWED_LOB = ["wynk"]
 
+# ============ FORMAT DETECTION ============
+# Column patterns to detect file format automatically
+
+CONTAINER_COLUMNS = {
+    "container_image", "container", "image", "cluster", "namespace",
+    "namespaces", "clusters", "assettype", "locationpath"
+}
+
+CSPM_COLUMNS = {
+    "cloud_provider", "cloudprovider", "finding_name", "findingname",
+    "finding_type_id", "resource_id", "resourceid", "resource_name",
+    "resourcename", "compliance_tags", "compliancetags", "risk_score",
+    "riskscore", "impact", "remediation_region", "remediationregion"
+}
+
+VAPT_COLUMNS = {
+    "issue key", "issuekey", "issue_key", "summary", "application name",
+    "applicationname", "application_name", "criticality status",
+    "criticalitystatus", "criticality_status", "reported on", "reportedon",
+    "reported_on", "ageing", "compliant", "non-compliant", "noncompliant",
+    "expected timeline", "expectedtimeline", "expected_timeline",
+    "assignee", "multiple assignee", "multipleassignee", "application owner",
+    "applicationowner", "application_owner"
+}
+
+def detect_file_format(columns):
+    """Auto-detect file format based on column names"""
+    cols_lower = {str(c).lower().replace(" ", "").replace("_", "") for c in columns}
+    cols_with_spaces = {str(c).lower() for c in columns}
+    all_cols = cols_lower | cols_with_spaces
+
+    # Count matches for each format
+    container_matches = len(all_cols & {c.replace("_", "") for c in CONTAINER_COLUMNS})
+    cspm_matches = len(all_cols & {c.replace("_", "") for c in CSPM_COLUMNS})
+    vapt_matches = len(all_cols & {c.replace("_", "").replace(" ", "") for c in VAPT_COLUMNS})
+
+    # Check for specific unique columns
+    for col in cols_with_spaces:
+        if "issue key" in col or "issuekey" in col:
+            vapt_matches += 5
+        if "cloud_provider" in col or "cloudprovider" in col:
+            cspm_matches += 5
+        if "container_image" in col or "containerimage" in col:
+            container_matches += 5
+
+    print(f"Format detection - Container: {container_matches}, CSPM: {cspm_matches}, VAPT: {vapt_matches}")
+
+    if vapt_matches > cspm_matches and vapt_matches > container_matches:
+        return "VAPT"
+    elif cspm_matches > container_matches:
+        return "CSPM"
+    else:
+        return "CONTAINER"
+
 # POD Owner Mapping - Auto-assign based on subscription/project name
 # Maps POD/Section keywords (including abbreviations) to their owners
 POD_OWNER_MAPPING = {
@@ -259,6 +313,177 @@ def get_pod_owner(subscription_name, subscription_id):
             return owner
 
     return ""  # No match found, leave empty
+
+
+# ============ VAPT PROCESSING ============
+def process_vapt_row(row, idx, dsn, rc_lower):
+    """Process a VAPT format row"""
+    def get_val(patterns):
+        for p in patterns:
+            p_lower = p.lower().replace(" ", "").replace("_", "")
+            for col_lower, col in rc_lower.items():
+                col_normalized = col_lower.replace(" ", "").replace("_", "")
+                if p_lower == col_normalized or p_lower in col_normalized:
+                    val = str(row.get(col, "")).strip()
+                    if val and val.lower() not in ["", "nan", "none", "na", "null"]:
+                        return val
+        return ""
+
+    rec = {"UploadBatch": dsn, "SourceFormat": "VAPT"}
+
+    # Issue ID
+    issue_key = get_val(["Issue key", "IssueKey", "Issue_key", "ID"])
+    rec["IssueID"] = issue_key if issue_key else f"VAPT-{idx}"
+    rec["DisplayID"] = rec["IssueID"]
+
+    # Name/Summary
+    summary = get_val(["Summary", "Title", "Issue", "Description"])
+    rec["Name"] = summary
+    rec["Description"] = summary[:100] + "..." if len(summary) > 100 else summary
+
+    # Application = AffectedAsset
+    app_name = get_val(["Application Name", "ApplicationName", "Application", "App"])
+    rec["AffectedAsset"] = app_name
+    rec["AssetType"] = "Application"
+
+    # Severity from Criticality Status
+    criticality = get_val(["Criticality Status", "CriticalityStatus", "Criticality", "Severity", "Priority"])
+    sev_map = {"critical": "Critical", "high": "High", "medium": "Medium", "low": "Low",
+               "exception": "Medium", "info": "Info"}
+    rec["Severity"] = sev_map.get(criticality.lower(), "Medium") if criticality else "Medium"
+
+    # Compliant/Non-Compliant = Status
+    compliant = get_val(["Compliant/Non-compliant", "Compliant", "Status", "Compliance"])
+    if "non" in compliant.lower() or "open" in compliant.lower():
+        rec["Status"] = "Open"
+    else:
+        rec["Status"] = "Resolved" if compliant else "Open"
+
+    # Dates
+    reported_on = get_val(["Reported on", "ReportedOn", "Reported_on", "Created", "Date"])
+    rec["DiscoveredDate"] = reported_on
+
+    expected_timeline = get_val(["Expected Timeline", "ExpectedTimeline", "Due Date", "DueDate", "Deadline"])
+    rec["DueDate"] = expected_timeline
+
+    # Ageing
+    ageing = get_val(["Ageing", "Age", "Days Open"])
+    rec["Ageing"] = ageing
+
+    # Assignee
+    assignee = get_val(["Assignee", "Assigned To", "AssignedTo", "Owner"])
+    multiple_assignee = get_val(["Multiple Assignee", "MultipleAssignee", "Additional Assignees"])
+    rec["AssignedTo"] = assignee if assignee else multiple_assignee
+
+    # Application Owner
+    app_owner = get_val(["Application Owner", "ApplicationOwner", "App Owner", "Owner"])
+    rec["Department"] = app_owner
+
+    # Category
+    rec["Category"] = "VAPT Finding"
+
+    # Auto-assign POD owner if not assigned
+    if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
+        auto_owner = get_pod_owner(app_name, "")
+        if auto_owner:
+            rec["AssignedTo"] = auto_owner
+
+    # LOB filter
+    lob = get_val(["LOB", "Line of Business", "BusinessUnit"])
+    rec["LOB"] = lob
+    lob_value = lob.lower().strip() if lob else ""
+    if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
+        return None  # Skip non-Wynk
+
+    return rec
+
+
+# ============ CSPM PROCESSING ============
+def process_cspm_row(row, idx, dsn, rc_lower):
+    """Process a CSPM format row"""
+    def get_val(patterns):
+        for p in patterns:
+            p_lower = p.lower().replace(" ", "").replace("_", "")
+            for col_lower, col in rc_lower.items():
+                col_normalized = col_lower.replace(" ", "").replace("_", "")
+                if p_lower == col_normalized or p_lower in col_normalized:
+                    val = str(row.get(col, "")).strip()
+                    if val and val.lower() not in ["", "nan", "none", "na", "null"]:
+                        return val
+        return ""
+
+    rec = {"UploadBatch": dsn, "SourceFormat": "CSPM"}
+
+    # IDs
+    resource_id = get_val(["resource_id", "ResourceID", "Resource ID"])
+    finding_type_id = get_val(["finding_type_id", "FindingTypeID", "Finding Type ID"])
+    rec["IssueID"] = finding_type_id if finding_type_id else f"CSPM-{idx}"
+    rec["DisplayID"] = rec["IssueID"]
+
+    # Finding Name = Name
+    finding_name = get_val(["finding_name", "FindingName", "Finding Name", "Finding"])
+    rec["Name"] = finding_name
+    rec["Description"] = finding_name[:100] + "..." if len(finding_name) > 100 else finding_name
+
+    # Resource = AffectedAsset
+    resource_name = get_val(["resource_name", "ResourceName", "Resource Name", "Resource"])
+    rec["AffectedAsset"] = resource_name if resource_name else resource_id
+    rec["AssetID"] = resource_id
+
+    # Cloud Provider & Account
+    cloud_provider = get_val(["cloud_provider", "CloudProvider", "Cloud Provider", "Provider"])
+    account_name = get_val(["account_name", "AccountName", "Account Name", "Account"])
+    rec["CloudProvider"] = cloud_provider
+    rec["CloudPlatform"] = account_name
+    rec["AssetType"] = f"{cloud_provider} Resource" if cloud_provider else "Cloud Resource"
+
+    # Severity
+    severity = get_val(["severity", "Severity", "Risk", "RiskLevel"])
+    sev_map = {"critical": "Critical", "high": "High", "medium": "Medium", "low": "Low", "info": "Info"}
+    rec["Severity"] = sev_map.get(severity.lower(), "Medium") if severity else "Medium"
+
+    # Risk Score
+    risk_score = get_val(["risk_score", "RiskScore", "Risk Score", "Score"])
+    rec["Score"] = risk_score
+
+    # Impact
+    impact = get_val(["impact", "Impact", "Business Impact"])
+    rec["Impact"] = impact
+
+    # Compliance Tags
+    compliance_tags = get_val(["compliance_tags", "ComplianceTags", "Compliance Tags", "Compliance"])
+    rec["Tags"] = compliance_tags
+    rec["Category"] = "CSPM Finding"
+
+    # Remediation
+    remediation = get_val(["remediation", "Remediation", "Remediation Steps", "Fix"])
+    remediation_region = get_val(["remediation_region", "RemediationRegion", "Region"])
+    rec["RecommendedAction"] = remediation if remediation else "Review cloud configuration"
+    rec["LocationPath"] = remediation_region
+
+    # Status (CSPM usually shows current state)
+    rec["Status"] = "Open"
+
+    # Dates
+    rec["DiscoveredDate"] = datetime.now().strftime("%Y-%m-%d")
+    sev = rec["Severity"]
+    days = 7 if sev == "Critical" else (30 if sev == "High" else 60)
+    rec["DueDate"] = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+
+    # LOB filter
+    lob = get_val(["LOB", "Line of Business", "BusinessUnit"])
+    rec["LOB"] = lob
+    lob_value = lob.lower().strip() if lob else ""
+    if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
+        return None  # Skip non-Wynk
+
+    # Auto-assign based on account name
+    if account_name:
+        auto_owner = get_pod_owner(account_name, "")
+        if auto_owner:
+            rec["AssignedTo"] = auto_owner
+
+    return rec
 
 
 def detect_header_row(ws, max_rows=15):
@@ -913,13 +1138,41 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
         
         df = df.fillna("").astype(str).replace(["nan", "NaN", "NaT", "<NA>", "None", "NA"], "").dropna(how='all')
         if df.empty: return JSONResponse(status_code=400, content={"error": "Empty file."})
-        
+
         rc = df.columns.tolist()
         rc_lower = {c.lower(): c for c in rc}
         cache_key = tuple(rc)
 
+        # Auto-detect file format
+        file_format = detect_file_format(rc)
+        print(f"Detected file format: {file_format}")
+
         t_map_start = time.time()
 
+        # If VAPT or CSPM, use specialized processing
+        if file_format == "VAPT":
+            ni = []
+            ri = df.to_dict(orient="records")
+            for idx, row in enumerate(ri):
+                rec = process_vapt_row(row, idx, dsn, rc_lower)
+                if rec:
+                    ni.append(rec)
+            db.extend(ni)
+            sdb(db)
+            return {"status": "success", "processed_rows": len(ni), "format": "VAPT"}
+
+        elif file_format == "CSPM":
+            ni = []
+            ri = df.to_dict(orient="records")
+            for idx, row in enumerate(ri):
+                rec = process_cspm_row(row, idx, dsn, rc_lower)
+                if rec:
+                    ni.append(rec)
+            db.extend(ni)
+            sdb(db)
+            return {"status": "success", "processed_rows": len(ni), "format": "CSPM"}
+
+        # Container format (original processing)
         def find_col(patterns):
             for p in patterns:
                 p_lower = p.lower()
@@ -1185,6 +1438,34 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
         rc = df.columns.tolist()
         rc_lower = {c.lower(): c for c in rc}
 
+        # Auto-detect file format
+        file_format = detect_file_format(rc)
+        print(f"Detected file format: {file_format}")
+
+        # If VAPT or CSPM, use specialized processing
+        if file_format == "VAPT":
+            ni = []
+            ri = df.to_dict(orient="records")
+            for idx, row in enumerate(ri):
+                rec = process_vapt_row(row, idx, dsn, rc_lower)
+                if rec:
+                    ni.append(rec)
+            db.extend(ni)
+            sdb(db)
+            return {"status": "success", "processed_rows": len(ni), "format": "VAPT"}
+
+        elif file_format == "CSPM":
+            ni = []
+            ri = df.to_dict(orient="records")
+            for idx, row in enumerate(ri):
+                rec = process_cspm_row(row, idx, dsn, rc_lower)
+                if rec:
+                    ni.append(rec)
+            db.extend(ni)
+            sdb(db)
+            return {"status": "success", "processed_rows": len(ni), "format": "CSPM"}
+
+        # Container format (original processing)
         def find_col(patterns):
             for p in patterns:
                 p_lower = p.lower()
@@ -1646,6 +1927,140 @@ async def ollama_status():
     except:
         pass
     return {"status": "offline", "models": [], "message": "Start Ollama with: ollama serve"}
+
+
+@app.post("/api/smart-search")
+async def smart_search(req: Request):
+    """Smart search using Ollama to parse natural language queries"""
+    try:
+        data = await req.json()
+        query = data.get('query', '')
+
+        if not query:
+            return {"results": [], "error": "No query provided"}
+
+        db = ldb()
+        if not db:
+            return {"results": [], "message": "No data in database"}
+
+        # First try local parsing (fast, no Ollama needed)
+        query_lower = query.lower()
+        filters = {"severity": None, "status": None, "keywords": [], "assignee": None, "format": None}
+
+        # Quick severity detection
+        if "critical" in query_lower:
+            filters["severity"] = "Critical"
+        elif "high" in query_lower:
+            filters["severity"] = "High"
+        elif "medium" in query_lower:
+            filters["severity"] = "Medium"
+        elif "low" in query_lower:
+            filters["severity"] = "Low"
+
+        # Quick status detection
+        if "open" in query_lower or "pending" in query_lower:
+            filters["status"] = "open"
+        elif "resolved" in query_lower or "closed" in query_lower or "fixed" in query_lower:
+            filters["status"] = "resolved"
+
+        # Format detection
+        if "vapt" in query_lower:
+            filters["format"] = "VAPT"
+        elif "cspm" in query_lower or "cloud" in query_lower:
+            filters["format"] = "CSPM"
+        elif "container" in query_lower:
+            filters["format"] = "CONTAINER"
+
+        # Common vulnerability keywords
+        vuln_keywords = ["sql", "injection", "xss", "rce", "buffer", "overflow", "auth",
+                        "bypass", "dos", "denial", "ssrf", "xxe", "path", "traversal",
+                        "log4j", "cve", "exploit", "remote", "code", "execution"]
+        for kw in vuln_keywords:
+            if kw in query_lower:
+                filters["keywords"].append(kw)
+
+        # If no filters detected, use Ollama to parse (slower but smarter)
+        use_ollama = not filters["severity"] and not filters["status"] and not filters["keywords"]
+
+        if use_ollama:
+            try:
+                prompt = f"""Parse this security search query and extract filters.
+Query: "{query}"
+
+Return ONLY a JSON object with these fields (use null if not mentioned):
+{{"severity": "Critical/High/Medium/Low or null", "status": "open/resolved or null", "keywords": ["list", "of", "keywords"], "assignee": "name or null"}}
+
+Return ONLY the JSON, no explanation."""
+
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        OLLAMA_URL,
+                        json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
+                    )
+                    if response.status_code == 200:
+                        ai_response = response.json().get("response", "")
+                        # Try to parse JSON from response
+                        import re
+                        json_match = re.search(r'\{[^}]+\}', ai_response)
+                        if json_match:
+                            parsed = json.loads(json_match.group())
+                            if parsed.get("severity"):
+                                filters["severity"] = parsed["severity"]
+                            if parsed.get("status"):
+                                filters["status"] = parsed["status"]
+                            if parsed.get("keywords"):
+                                filters["keywords"].extend(parsed["keywords"])
+                            if parsed.get("assignee"):
+                                filters["assignee"] = parsed["assignee"]
+            except:
+                pass  # Fall back to basic search
+
+        # Apply filters to database
+        results = []
+        for item in db:
+            match = True
+
+            # Severity filter
+            if filters["severity"] and item.get("Severity", "").lower() != filters["severity"].lower():
+                match = False
+
+            # Status filter
+            if filters["status"]:
+                item_status = item.get("Status", "").lower()
+                if filters["status"] == "open" and any(x in item_status for x in ["resolved", "closed", "fixed"]):
+                    match = False
+                elif filters["status"] == "resolved" and not any(x in item_status for x in ["resolved", "closed", "fixed"]):
+                    match = False
+
+            # Format filter
+            if filters["format"] and item.get("SourceFormat", "CONTAINER") != filters["format"]:
+                match = False
+
+            # Keyword filter
+            if filters["keywords"]:
+                item_text = f"{item.get('Name', '')} {item.get('Description', '')} {item.get('DisplayID', '')}".lower()
+                if not any(kw in item_text for kw in filters["keywords"]):
+                    match = False
+
+            # Assignee filter
+            if filters["assignee"]:
+                if filters["assignee"].lower() not in item.get("AssignedTo", "").lower():
+                    match = False
+
+            if match:
+                results.append(item)
+
+        return {
+            "results": results[:100],  # Limit to 100 results
+            "total": len(results),
+            "filters_applied": filters,
+            "query": query
+        }
+
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return {"results": [], "error": str(e)}
 
 
 @app.post("/api/trigger-openclaw")
