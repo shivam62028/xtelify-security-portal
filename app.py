@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 
 # Ollama API Configuration (Local LLM - runs on your machine)
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-OLLAMA_MODEL = "llama3.2"  # Change to your installed model (e.g., mistral, codellama, etc.)
+OLLAMA_MODEL = "llama3.2:1b"  # Faster 1B model - change if you have a different one
 
 EXPECTED_COLUMNS = {
     "id", "name", "severity", "findingstatus", "score", "wizurl",
