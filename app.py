@@ -2,6 +2,7 @@ __author__ = "richyrik"
 
 import os, json, re, time
 import pandas as pd
+import httpx
 from io import BytesIO
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, UploadFile, File, Form
@@ -10,7 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from openpyxl import load_workbook
 
-# OFFLINE MODE - No external API calls for Airtel data security
+# Ollama API Configuration (Local LLM - runs on your machine)
+OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
+OLLAMA_MODEL = "llama3.2"  # Change to your installed model (e.g., mistral, codellama, etc.)
 
 EXPECTED_COLUMNS = {
     "id", "name", "severity", "findingstatus", "score", "wizurl",
@@ -67,13 +70,13 @@ POD_OWNER_MAPPING = {
     "iptvbackend": "Shreya",
 
     # data platform variations
-    "data platform": "Abhinav/Vinod",
-    "dataplatform": "Abhinav/Vinod",
-    "data_platform": "Abhinav/Vinod",
-    "data-platform": "Abhinav/Vinod",
-    "dataplat": "Abhinav/Vinod",
-    "dp": "Abhinav/Vinod",
-    "dplat": "Abhinav/Vinod",
+    "data platform": "Vinod",
+    "dataplatform": "Vinod",
+    "data_platform": "Vinod",
+    "data-platform": "Vinod",
+    "dataplat": "Vinod",
+    "dp": "Vinod",
+    "dplat": "Vinod",
 
     # msp variations
     "msp": "Yash",
@@ -105,9 +108,9 @@ POD_OWNER_MAPPING = {
     "ch": "Vinod",
 
     # uclm variations
-    "uclm": "Dheeraj/Satya",
-    "u-c-l-m": "Dheeraj/Satya",
-    "ucl": "Dheeraj/Satya",
+    "uclm": "Satya",
+    "u-c-l-m": "Satya",
+    "ucl": "Satya",
 
     # iptv/ktv variations (general - Anshu)
     # Note: IPTV-Be is separate (Shreya), but general IPTV/KTV is Anshu
@@ -1453,32 +1456,74 @@ consult your internal security documentation.""",
 
 @app.post("/api/analyze")
 async def av(req: Request):
-    """Offline vulnerability analysis - NO INTERNET REQUIRED"""
+    """Vulnerability analysis using Ollama LLM"""
     try:
         data = await req.json()
-        description = data.get('description', '').lower()
+        description = data.get('description', '')
         asset = data.get('asset', 'Unknown')
+        severity = data.get('severity', 'Medium')
+        cve_id = data.get('cve', '')
 
-        # Determine remediation type based on description
-        if 'cve' in description or 'vulnerability' in description:
-            template = REMEDIATION_TEMPLATES["cve"]
-        elif 'config' in description or 'misconfigur' in description:
-            template = REMEDIATION_TEMPLATES["config"]
-        else:
-            template = REMEDIATION_TEMPLATES["default"]
+        # Build prompt for Ollama
+        prompt = f"""You are a security analyst. Analyze this vulnerability and provide remediation steps.
 
-        # Customize with asset info
-        response = f"""Asset: {asset}
+Vulnerability: {description}
+Asset: {asset}
+Severity: {severity}
+CVE: {cve_id if cve_id else 'N/A'}
+
+Provide:
+1. Risk Assessment (2-3 sentences)
+2. Immediate Actions (bullet points)
+3. Remediation Steps (numbered list)
+4. Verification Steps
+
+Keep response concise and actionable."""
+
+        # Call Ollama API
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                OLLAMA_URL,
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False
+                }
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                ai_response = result.get("response", "No response from Ollama")
+                return {"remediation": ai_response}
+            else:
+                # Fallback to template if Ollama fails
+                print(f"Ollama error: {response.status_code}")
+                return {"remediation": get_fallback_remediation(description, asset)}
+
+    except httpx.ConnectError:
+        print("Ollama not running - using fallback")
+        return {"remediation": get_fallback_remediation(data.get('description', ''), data.get('asset', 'Unknown'))}
+    except Exception as e:
+        print(f"Analyze error: {e}")
+        return {"remediation": f"Analysis error: {str(e)}. Ensure Ollama is running on port 11434."}
+
+
+def get_fallback_remediation(description, asset):
+    """Fallback when Ollama is not available"""
+    desc_lower = description.lower()
+    if 'cve' in desc_lower or 'vulnerability' in desc_lower:
+        template = REMEDIATION_TEMPLATES["cve"]
+    elif 'config' in desc_lower or 'misconfigur' in desc_lower:
+        template = REMEDIATION_TEMPLATES["config"]
+    else:
+        template = REMEDIATION_TEMPLATES["default"]
+
+    return f"""Asset: {asset}
 
 {template}
 
 ---
-Analysis performed OFFLINE for data security.
-No data was transmitted to external services."""
-
-        return {"remediation": response}
-    except Exception as e:
-        return {"remediation": f"Offline analysis error: {str(e)}"}
+[Fallback mode - Ollama not available. Start Ollama for AI-powered analysis.]"""
 
 
 # Security knowledge base for offline agent
@@ -1494,51 +1539,140 @@ SECURITY_KB = {
 
 @app.post("/api/ask-agent")
 async def aa(req: Request):
-    """Offline security assistant - NO INTERNET REQUIRED"""
+    """Security assistant powered by Ollama LLM"""
     try:
         data = await req.json()
-        message = data.get('message', '').lower()
+        message = data.get('message', '')
         context = data.get('context', [])
 
-        # Build response based on keywords
-        response_parts = []
-
-        if 'critical' in message or 'urgent' in message:
-            response_parts.append(SECURITY_KB["critical"])
-        if 'high' in message:
-            response_parts.append(SECURITY_KB["high"])
-        if 'patch' in message or 'update' in message:
-            response_parts.append(SECURITY_KB["patch"])
-        if 'sla' in message or 'deadline' in message:
-            response_parts.append(SECURITY_KB["sla"])
-        if 'fix' in message or 'remediat' in message:
-            response_parts.append(SECURITY_KB["remediation"])
-        if 'complian' in message or 'audit' in message:
-            response_parts.append(SECURITY_KB["compliance"])
-        if 'risk' in message or 'priorit' in message:
-            response_parts.append(SECURITY_KB["risk"])
-
-        # If context provided, add summary
+        # Build context summary for the AI
+        context_summary = ""
         if context:
             critical_count = sum(1 for c in context if c.get('Severity') == 'Critical')
+            high_count = sum(1 for c in context if c.get('Severity') == 'High')
             open_count = sum(1 for c in context if c.get('Status', '').lower() not in ['resolved', 'closed', 'fixed'])
-            response_parts.append(f"\nCurrent Status: {len(context)} vulnerabilities in view, {critical_count} critical, {open_count} open.")
+            context_summary = f"\n\nCurrent Dashboard Context:\n- Total vulnerabilities: {len(context)}\n- Critical: {critical_count}\n- High: {high_count}\n- Open issues: {open_count}"
 
-        if not response_parts:
-            response_parts.append("I'm your offline security assistant. I can help with:\n- Vulnerability prioritization\n- Remediation guidance\n- SLA tracking\n- Risk assessment\n\nAsk about specific topics like 'critical vulnerabilities', 'patch management', or 'SLA targets'.")
+        # Build prompt for Ollama
+        prompt = f"""You are a security operations assistant for Wynk Security Portal.
+Help the user with vulnerability management, prioritization, and remediation guidance.
 
-        response = "\n\n".join(response_parts)
-        response += "\n\n---\n[OFFLINE MODE - No data transmitted externally]"
+User Question: {message}
+{context_summary}
 
-        return {"reply": response}
+Provide a helpful, concise response focused on security operations.
+Keep your answer under 200 words unless more detail is needed."""
+
+        # Call Ollama API
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                OLLAMA_URL,
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False
+                }
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                ai_response = result.get("response", "No response from Ollama")
+                return {"reply": ai_response}
+            else:
+                print(f"Ollama error: {response.status_code}")
+                return {"reply": get_fallback_agent_response(message, context)}
+
+    except httpx.ConnectError:
+        print("Ollama not running - using fallback")
+        return {"reply": get_fallback_agent_response(data.get('message', ''), data.get('context', []))}
     except Exception as e:
-        return {"reply": f"Offline assistant error: {str(e)}"}
+        print(f"Agent error: {e}")
+        return {"reply": f"Error: {str(e)}. Ensure Ollama is running: `ollama serve`"}
+
+
+def get_fallback_agent_response(message, context):
+    """Fallback when Ollama is not available"""
+    message_lower = message.lower()
+    response_parts = []
+
+    if 'critical' in message_lower or 'urgent' in message_lower:
+        response_parts.append(SECURITY_KB["critical"])
+    if 'high' in message_lower:
+        response_parts.append(SECURITY_KB["high"])
+    if 'patch' in message_lower or 'update' in message_lower:
+        response_parts.append(SECURITY_KB["patch"])
+    if 'sla' in message_lower or 'deadline' in message_lower:
+        response_parts.append(SECURITY_KB["sla"])
+    if 'fix' in message_lower or 'remediat' in message_lower:
+        response_parts.append(SECURITY_KB["remediation"])
+    if 'complian' in message_lower or 'audit' in message_lower:
+        response_parts.append(SECURITY_KB["compliance"])
+    if 'risk' in message_lower or 'priorit' in message_lower:
+        response_parts.append(SECURITY_KB["risk"])
+
+    if context:
+        critical_count = sum(1 for c in context if c.get('Severity') == 'Critical')
+        open_count = sum(1 for c in context if c.get('Status', '').lower() not in ['resolved', 'closed', 'fixed'])
+        response_parts.append(f"\nCurrent Status: {len(context)} vulnerabilities, {critical_count} critical, {open_count} open.")
+
+    if not response_parts:
+        response_parts.append("I'm your security assistant. Ask about vulnerabilities, SLA, patches, or risk prioritization.\n\n[Ollama not running - using basic mode. Start Ollama for AI-powered responses.]")
+
+    return "\n\n".join(response_parts)
+
+
+@app.get("/api/ollama-status")
+async def ollama_status():
+    """Check if Ollama is running"""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get("http://127.0.0.1:11434/api/tags")
+            if response.status_code == 200:
+                data = response.json()
+                models = [m.get("name") for m in data.get("models", [])]
+                return {
+                    "status": "running",
+                    "models": models,
+                    "active_model": OLLAMA_MODEL
+                }
+    except:
+        pass
+    return {"status": "offline", "models": [], "message": "Start Ollama with: ollama serve"}
 
 
 @app.post("/api/trigger-openclaw")
 async def tc(req: Request):
-    """Disabled - OFFLINE MODE for data security"""
-    return {"result": "OpenClaw integration disabled in OFFLINE MODE for Airtel data security. All features work locally without internet connection."}
+    """OpenClaw trigger using Ollama"""
+    try:
+        data = await req.json()
+        query = data.get('query', '')
+
+        if not query:
+            return {"result": "No query provided"}
+
+        prompt = f"""You are OpenClaw, a security analysis tool. Analyze this security query:
+
+{query}
+
+Provide actionable security recommendations."""
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                OLLAMA_URL,
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False
+                }
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                return {"result": result.get("response", "No response")}
+
+        return {"result": "Ollama not available. Start with: ollama serve"}
+    except Exception as e:
+        return {"result": f"Error: {str(e)}"}
 
 app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
 
