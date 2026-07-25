@@ -260,10 +260,13 @@ const AppContent: React.FC = () => {
   // UI Dynamic Table States
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
 
-  // Format-specific default columns
-  const CONTAINER_COLS = ["SubscriptionName", "AssignedTo", "AffectedAsset", "Description", "RecommendedAction", "AssetType", "Status", "Version", "FixedVersion", "DueDate"];
-  const CSPM_COLS = ["account_name", "AssignedTo", "account_id", "resource_type", "finding_type_id", "finding_name", "resource_id", "resource_name", "compliance_tags", "impact"];
-  const VAPT_COLS = ["IssueID", "Summary", "ApplicationName", "Criticality", "Status", "AssignedTo", "Ageing", "DueDate", "ApplicationOwner", "RecommendedAction"];
+  // Format-specific default columns (based on actual Excel headers)
+  // Container/Container Image: ID, WizURL, Name, CVSSSeverity, HasExploit, FindingStatus, Score, Severity, etc.
+  const CONTAINER_COLS = ["SubscriptionName", "AssignedTo", "AffectedAsset", "VulnDescription", "Severity", "Status", "Version", "FixedVersion", "DueDate", "RecommendedAction"];
+  // CSPM: cloud_provider, account_id, account_name, resource_type, finding_type_id, finding_name, resource_id, resource_name, compliance_tags, risk_score, impact
+  const CSPM_COLS = ["account_name", "AssignedTo", "account_id", "resource_type", "finding_type_id", "VulnDescription", "resource_id", "resource_name", "compliance_tags", "impact"];
+  // VAPT: Issue key, Summary, Application Name, Criticality Status, reported on, Ageing, Compliant/Non-compliant, Expected Timeline, Assignee, Multiple Assignee, Application Owner
+  const VAPT_COLS = ["issue_key", "VulnDescription", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Compliant_NonCompliant", "ExpectedTimeline", "Assignee", "MultipleAssignee", "ApplicationOwner"];
 
   const defaultTableCols = CONTAINER_COLS;
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
@@ -439,6 +442,7 @@ const AppContent: React.FC = () => {
 
   const colHeaderMap: Record<string, string> = {
     // Common columns
+    VulnDescription: "Vulnerability Description",
     Name: "Vulnerability Name",
     DisplayID: "Vulnerability ID",
     Projects: "Project ID",
@@ -487,11 +491,20 @@ const AppContent: React.FC = () => {
     resource_name: "Resource Name",
     compliance_tags: "Compliance Tags",
     impact: "Impact",
-    // VAPT specific columns
+    risk_score: "Risk Score",
+    remediation_type: "Remediation Type",
+    region: "Region",
+    // VAPT specific columns (all columns from VAPT format)
+    issue_key: "Issue Key",
     Summary: "Summary",
     ApplicationName: "Application Name",
-    Criticality: "Criticality",
+    CriticalityStatus: "Criticality Status",
+    ReportedOn: "Reported On",
     Ageing: "Ageing (Days)",
+    Compliant_NonCompliant: "Compliant/Non-Compliant",
+    ExpectedTimeline: "Expected Timeline",
+    Assignee: "Assignee",
+    MultipleAssignee: "Multiple Assignee",
     ApplicationOwner: "Application Owner",
   };
 
@@ -499,6 +512,88 @@ const AppContent: React.FC = () => {
     if (!fullName || fullName === "NA" || fullName === "Unknown Asset") return fullName;
     const lastPart = fullName.split("/").pop() || fullName;
     return lastPart;
+  };
+
+  // Generate short 5-7 word vulnerability description
+  const generateVulnDescription = (issue: Issue): string => {
+    const name = issue.Name || issue.finding_name || issue.Summary || "";
+    const severity = issue.Severity || "Medium";
+    const detailedName = issue.DetailedName || "";
+    const combined = (name + " " + detailedName).toLowerCase();
+
+    // Severity prefix
+    const sevPrefix: Record<string, string> = {
+      critical: "Critical security flaw",
+      high: "High-risk vulnerability",
+      medium: "Moderate security issue",
+      low: "Minor security concern",
+      info: "Informational finding"
+    };
+    const prefix = sevPrefix[severity.toLowerCase()] || "Security issue";
+
+    // Detect vulnerability type
+    if (/rce|remote code|command injection|code execution/.test(combined)) {
+      return `${prefix}: allows remote code execution`;
+    }
+    if (/sql injection|sqli/.test(combined)) {
+      return `${prefix}: SQL injection vulnerability`;
+    }
+    if (/xss|cross-site script/.test(combined)) {
+      return `${prefix}: cross-site scripting detected`;
+    }
+    if (/buffer overflow|memory corrupt/.test(combined)) {
+      return `${prefix}: memory corruption vulnerability`;
+    }
+    if (/dos|denial of service/.test(combined)) {
+      return `${prefix}: denial of service possible`;
+    }
+    if (/auth|authentication|bypass|privilege/.test(combined)) {
+      return `${prefix}: authentication bypass risk`;
+    }
+    if (/path traversal|directory traversal|lfi|rfi/.test(combined)) {
+      return `${prefix}: path traversal vulnerability`;
+    }
+    if (/ssrf|server-side request/.test(combined)) {
+      return `${prefix}: server-side request forgery`;
+    }
+    if (/xxe|xml external/.test(combined)) {
+      return `${prefix}: XML external entity attack`;
+    }
+    if (/deserializ|unserializ/.test(combined)) {
+      return `${prefix}: insecure deserialization flaw`;
+    }
+    if (/crypto|encrypt|ssl|tls|certificate/.test(combined)) {
+      return `${prefix}: cryptographic weakness detected`;
+    }
+    if (/config|misconfig|default|hardcoded/.test(combined)) {
+      return `${prefix}: configuration issue found`;
+    }
+    if (/outdated|upgrade|version|update|patch/.test(combined)) {
+      return `${prefix}: outdated component needs update`;
+    }
+    if (/exposure|leak|sensitive|disclosure/.test(combined)) {
+      return `${prefix}: information disclosure risk`;
+    }
+    if (/inject|input valid/.test(combined)) {
+      return `${prefix}: injection vulnerability detected`;
+    }
+    if (/container|docker|kubernetes|k8s|image/.test(combined)) {
+      return `${prefix}: container security issue`;
+    }
+    if (/permission|access control|rbac/.test(combined)) {
+      return `${prefix}: access control weakness`;
+    }
+    if (/log4j|log4shell/.test(combined)) {
+      return `${prefix}: Log4j vulnerability detected`;
+    }
+
+    // Fallback: use first few words of name
+    if (name) {
+      const words = name.split(/\s+/).slice(0, 4).join(" ");
+      return `${prefix}: ${words}`;
+    }
+
+    return `${prefix} in system component`;
   };
 
   const [expandedAsset, setExpandedAsset] = useState<string | null>(null);
@@ -2731,6 +2826,19 @@ const AppContent: React.FC = () => {
                                 return (
                                   <td key={col} className="px-4 py-3 text-xs text-slate-600 min-w-[150px]">
                                     <AssetNameCell fullName={assetVal} />
+                                  </td>
+                                );
+                              }
+
+                              // VulnDescription: use existing value or generate one
+                              if (col === "VulnDescription") {
+                                const existingDesc = rawIssue && rawIssue.VulnDescription ? String(rawIssue.VulnDescription) : "";
+                                const desc = existingDesc && existingDesc !== "—" && existingDesc.toLowerCase() !== "na"
+                                  ? existingDesc
+                                  : (rawIssue ? generateVulnDescription(rawIssue as Issue) : "—");
+                                return (
+                                  <td key={col} className="px-4 py-3 text-xs text-slate-700 min-w-[180px] max-w-[250px]">
+                                    <span className="line-clamp-2">{desc}</span>
                                   </td>
                                 );
                               }

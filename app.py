@@ -16,16 +16,28 @@ from openpyxl import load_workbook
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 OLLAMA_MODEL = "llama3"  # Using llama3:latest (4.7GB)
 
+# Expected columns for detecting data sheets (combines all formats)
 EXPECTED_COLUMNS = {
+    # Container columns
     "id", "name", "severity", "findingstatus", "score", "wizurl",
     "vendorseverity", "cvssseverity", "hasexploit", "hascisakeknownexploit",
     "firstdetected", "lastdetected", "resolvedat", "resolution", "remediation",
     "locationpath", "detailedname", "version", "fixedversion", "status",
-    "cvss", "cve", "asset", "assetname", "assignedto", "duedate", "category"
+    "subscriptionid", "subscriptionname", "namespaces", "clusters", "imageid",
+    # CSPM columns
+    "cloudprovider", "cloud_provider", "accountid", "account_id", "accountname", "account_name",
+    "resourcetype", "resource_type", "findingtypeid", "finding_type_id", "findingname", "finding_name",
+    "resourceid", "resource_id", "resourcename", "resource_name", "compliancetags", "compliance_tags",
+    "riskscore", "risk_score", "impact", "remediationtype", "remediation_type", "region",
+    # VAPT columns
+    "issuekey", "issue key", "summary", "applicationname", "application name",
+    "criticalitystatus", "criticality status", "reportedon", "reported on", "ageing",
+    "assignee", "multipleassignee", "multiple assignee", "applicationowner", "application owner",
+    "expectedtimeline", "expected timeline", "compliant", "non-compliant"
 }
 
-HIGH_SCORE_COLS = {"id", "name", "severity", "findingstatus"}
-MED_SCORE_COLS = {"score", "cvssseverity", "wizurl"}
+HIGH_SCORE_COLS = {"id", "name", "severity", "findingstatus", "issuekey", "issue key", "cloud_provider", "finding_name"}
+MED_SCORE_COLS = {"score", "cvssseverity", "wizurl", "account_name", "resource_name", "applicationname", "summary"}
 NEGATIVE_PATTERNS = ["grand total", "count of", "pivot", "impacted resources", "summary", "row labels", "column labels", "values", "total"]
 
 # Pivot table detection patterns (these indicate summary/pivot sheets, not raw data)
@@ -36,47 +48,103 @@ ALLOWED_LOB = ["wynk"]
 
 # ============ FORMAT DETECTION ============
 # Column patterns to detect file format automatically
+# Based on actual Excel column headers from user's data
 
+# Container/Container Image format columns (Image 1,2,3)
+# Columns: ID, WizURL, Name, CVSSSeverity, HasExploit, HasCisaKnownExploit, FindingStatus, Score, Severity,
+# VendorSeverity, NvdSeverity, FirstDetected, LastDetected, ResolvedAt, Resolution, Remediation, LocationPath,
+# DetailedName, Version, FixedVersion, DetectionLink, Projects, AssetID, AssetName, AssetType, AssetRegion,
+# ProviderUniqueId, CloudProvider, CloudPlatform, Status, SubscriptionId, SubscriptionName, SubscriptionTags,
+# ExecutionContext, Namespaces, Clusters, ImageId, LOB
 CONTAINER_COLUMNS = {
-    "container_image", "container", "image", "cluster", "namespace",
-    "namespaces", "clusters", "assettype", "locationpath"
+    "wizurl", "cvssseverity", "hasexploit", "hascisaknownexploit", "findingstatus",
+    "vendorseverity", "nvdseverity", "firstdetected", "lastdetected", "resolvedat",
+    "detailedname", "fixedversion", "detectionlink", "assetregion", "provideruniqueid",
+    "cloudprovider", "cloudplatform", "subscriptionid", "subscriptionname", "subscriptiontags",
+    "executioncontext", "namespaces", "clusters", "imageid", "locationpath"
 }
 
+# CSPM format columns (Image 4)
+# Columns: cloud_provider, account_id, account_name, resource_type, finding_type_id, finding_name,
+# resource_id, resource_name, severity, compliance_tags, risk_score, impact, remediation_type, region, LOB
 CSPM_COLUMNS = {
-    "cloud_provider", "cloudprovider", "finding_name", "findingname",
-    "finding_type_id", "resource_id", "resourceid", "resource_name",
-    "resourcename", "compliance_tags", "compliancetags", "risk_score",
-    "riskscore", "impact", "remediation_region", "remediationregion"
+    "cloud_provider", "account_id", "account_name", "resource_type", "finding_type_id",
+    "finding_name", "resource_id", "resource_name", "compliance_tags", "risk_score",
+    "remediation_type", "region"
 }
 
+# VAPT format columns (Image 5)
+# Columns: Issue key, Summary, Application Name, Criticality Status, reported on, Ageing,
+# Compliant/Non-compliant, Expected Timeline, Assignee, Multiple Assignee, Application Owner
 VAPT_COLUMNS = {
-    "issue key", "issuekey", "issue_key", "summary", "application name",
-    "applicationname", "application_name", "criticality status",
-    "criticalitystatus", "criticality_status", "reported on", "reportedon",
-    "reported_on", "ageing", "compliant", "non-compliant", "noncompliant",
-    "expected timeline", "expectedtimeline", "expected_timeline",
-    "assignee", "multiple assignee", "multipleassignee", "application owner",
-    "applicationowner", "application_owner"
+    "issue key", "issuekey", "application name", "criticality status", "reported on",
+    "ageing", "compliant/non-compliant", "expected timeline", "assignee",
+    "multiple assignee", "application owner"
 }
 
 def detect_file_format(columns):
     """Auto-detect file format based on column names"""
-    cols_lower = {str(c).lower().replace(" ", "").replace("_", "") for c in columns}
-    cols_with_spaces = {str(c).lower() for c in columns}
-    all_cols = cols_lower | cols_with_spaces
+    cols_lower = {str(c).lower().strip() for c in columns}
+    cols_normalized = {str(c).lower().replace(" ", "").replace("_", "").strip() for c in columns}
 
-    # Count matches for each format
-    container_matches = len(all_cols & {c.replace("_", "") for c in CONTAINER_COLUMNS})
-    cspm_matches = len(all_cols & {c.replace("_", "") for c in CSPM_COLUMNS})
-    vapt_matches = len(all_cols & {c.replace("_", "").replace(" ", "") for c in VAPT_COLUMNS})
-
-    # Check for specific unique columns
-    for col in cols_with_spaces:
-        if "issue key" in col or "issuekey" in col:
+    # Check for VAPT specific columns first (most distinctive)
+    vapt_matches = 0
+    for col in cols_lower:
+        if "issue key" in col or col == "issuekey":
+            vapt_matches += 10
+        if "application name" in col or col == "applicationname":
             vapt_matches += 5
-        if "cloud_provider" in col or "cloudprovider" in col:
+        if "criticality status" in col or col == "criticalitystatus":
+            vapt_matches += 5
+        if "ageing" in col:
+            vapt_matches += 5
+        if "expected timeline" in col:
+            vapt_matches += 3
+        if "application owner" in col:
+            vapt_matches += 3
+
+    # Check for CSPM specific columns
+    cspm_matches = 0
+    for col in cols_lower:
+        if col == "cloud_provider" or col == "cloudprovider":
+            cspm_matches += 10
+        if col == "account_id" or col == "accountid":
             cspm_matches += 5
-        if "container_image" in col or "containerimage" in col:
+        if col == "account_name" or col == "accountname":
+            cspm_matches += 5
+        if col == "finding_type_id" or col == "findingtypeid":
+            cspm_matches += 5
+        if col == "finding_name" or col == "findingname":
+            cspm_matches += 5
+        if col == "resource_type" or col == "resourcetype":
+            cspm_matches += 3
+        if col == "compliance_tags" or col == "compliancetags":
+            cspm_matches += 3
+        if col == "risk_score" or col == "riskscore":
+            cspm_matches += 3
+
+    # Check for Container/Container Image specific columns
+    container_matches = 0
+    for col in cols_lower:
+        if col == "wizurl" or "wizurl" in col:
+            container_matches += 10
+        if col == "cvssseverity":
+            container_matches += 5
+        if col == "hasexploit":
+            container_matches += 5
+        if col == "findingstatus":
+            container_matches += 5
+        if col == "subscriptionid":
+            container_matches += 5
+        if col == "subscriptionname":
+            container_matches += 5
+        if col == "detailedname":
+            container_matches += 3
+        if col == "fixedversion":
+            container_matches += 3
+        if col == "namespaces" or col == "clusters":
+            container_matches += 3
+        if col == "imageid":
             container_matches += 5
 
     print(f"Format detection - Container: {container_matches}, CSPM: {cspm_matches}, VAPT: {vapt_matches}")
@@ -321,7 +389,7 @@ def get_pod_owner(subscription_name, subscription_id):
 
 # ============ VAPT PROCESSING ============
 def process_vapt_row(row, idx, dsn, rc_lower):
-    """Process a VAPT format row"""
+    """Process a VAPT format row - preserves all VAPT columns for display"""
     def get_val(patterns):
         for p in patterns:
             p_lower = p.lower().replace(" ", "").replace("_", "")
@@ -335,56 +403,85 @@ def process_vapt_row(row, idx, dsn, rc_lower):
 
     rec = {"UploadBatch": dsn, "SourceFormat": "VAPT"}
 
-    # Issue ID
+    # Issue key (primary ID)
     issue_key = get_val(["Issue key", "IssueKey", "Issue_key", "ID"])
     rec["IssueID"] = issue_key if issue_key else f"VAPT-{idx}"
     rec["DisplayID"] = rec["IssueID"]
+    rec["issue_key"] = issue_key  # Preserve original column name
 
-    # Name/Summary
+    # Summary
     summary = get_val(["Summary", "Title", "Issue", "Description"])
     rec["Name"] = summary
-    rec["Description"] = summary[:100] + "..." if len(summary) > 100 else summary
+    rec["Summary"] = summary
+    rec["Description"] = summary
 
-    # Application = AffectedAsset
+    # Application Name
     app_name = get_val(["Application Name", "ApplicationName", "Application", "App"])
     rec["AffectedAsset"] = app_name
+    rec["ApplicationName"] = app_name
     rec["AssetType"] = "Application"
 
-    # Severity from Criticality Status
+    # Criticality Status
     criticality = get_val(["Criticality Status", "CriticalityStatus", "Criticality", "Severity", "Priority"])
+    rec["CriticalityStatus"] = criticality
+
+    # Severity from Criticality Status
     sev_map = {"critical": "Critical", "high": "High", "medium": "Medium", "low": "Low",
                "exception": "Medium", "info": "Info"}
     rec["Severity"] = sev_map.get(criticality.lower(), "Medium") if criticality else "Medium"
 
     # Compliant/Non-Compliant = Status
     compliant = get_val(["Compliant/Non-compliant", "Compliant", "Status", "Compliance"])
-    if "non" in compliant.lower() or "open" in compliant.lower():
-        rec["Status"] = "Open"
+    rec["Compliant_NonCompliant"] = compliant  # Preserve original
+    if compliant:
+        if "non" in compliant.lower() or "open" in compliant.lower():
+            rec["Status"] = "Open"
+        else:
+            rec["Status"] = "Resolved"
     else:
-        rec["Status"] = "Resolved" if compliant else "Open"
+        rec["Status"] = "Open"
 
-    # Dates
+    # Reported on (date)
     reported_on = get_val(["Reported on", "ReportedOn", "Reported_on", "Created", "Date"])
     rec["DiscoveredDate"] = reported_on
+    rec["ReportedOn"] = reported_on  # Preserve original
 
+    # Expected Timeline (due date)
     expected_timeline = get_val(["Expected Timeline", "ExpectedTimeline", "Due Date", "DueDate", "Deadline"])
     rec["DueDate"] = expected_timeline
+    rec["ExpectedTimeline"] = expected_timeline  # Preserve original
 
-    # Ageing
+    # Ageing (days open)
     ageing = get_val(["Ageing", "Age", "Days Open"])
     rec["Ageing"] = ageing
 
     # Assignee
     assignee = get_val(["Assignee", "Assigned To", "AssignedTo", "Owner"])
+    rec["Assignee"] = assignee
+    rec["AssignedTo"] = assignee
+
+    # Multiple Assignee
     multiple_assignee = get_val(["Multiple Assignee", "MultipleAssignee", "Additional Assignees"])
-    rec["AssignedTo"] = assignee if assignee else multiple_assignee
+    rec["MultipleAssignee"] = multiple_assignee
+    if not rec["AssignedTo"]:
+        rec["AssignedTo"] = multiple_assignee
 
     # Application Owner
-    app_owner = get_val(["Application Owner", "ApplicationOwner", "App Owner", "Owner"])
+    app_owner = get_val(["Application Owner", "ApplicationOwner", "App Owner"])
+    rec["ApplicationOwner"] = app_owner
     rec["Department"] = app_owner
 
     # Category
     rec["Category"] = "VAPT Finding"
+
+    # Generate short vulnerability description (5-7 words)
+    rec["VulnDescription"] = generate_short_description(
+        summary,
+        rec["IssueID"],
+        rec["Severity"],
+        "Application",
+        summary
+    )
 
     # Auto-assign POD owner if not assigned
     if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
@@ -471,6 +568,15 @@ def process_cspm_row(row, idx, dsn, rc_lower):
     rec["Tags"] = compliance_tags
     rec["compliance_tags"] = compliance_tags
     rec["Category"] = "CSPM Finding"
+
+    # Generate short vulnerability description (5-7 words)
+    rec["VulnDescription"] = generate_short_description(
+        finding_name,
+        rec["IssueID"],
+        rec["Severity"],
+        resource_type,
+        finding_name
+    )
 
     # Remediation
     remediation = get_val(["remediation", "Remediation", "Remediation Steps", "Fix"])
@@ -1444,6 +1550,15 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                     rec["DetailedName"]
                 )
 
+            # Generate VulnDescription - short 5-7 word vulnerability description
+            rec["VulnDescription"] = generate_short_description(
+                rec["Name"],
+                rec["DisplayID"],
+                rec["Severity"],
+                gv(row, "AssetType"),
+                rec["DetailedName"]
+            )
+
             rec["AffectedAsset"] = gv(row, "AffectedAsset")
             rec["AssetID"] = gv(row, "AssetID")
             rec["AssetType"] = gv(row, "AssetType")
@@ -1724,6 +1839,15 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
                     gv(row, "AssetType"),
                     rec["DetailedName"]
                 )
+
+            # Generate VulnDescription - short 5-7 word vulnerability description
+            rec["VulnDescription"] = generate_short_description(
+                rec["Name"],
+                rec["DisplayID"],
+                rec["Severity"],
+                gv(row, "AssetType"),
+                rec["DetailedName"]
+            )
 
             rec["AffectedAsset"] = gv(row, "AffectedAsset")
             rec["AssetID"] = gv(row, "AssetID")
