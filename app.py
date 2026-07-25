@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from openpyxl import load_workbook
 
 # Ollama API Configuration (Local LLM - runs on your machine)
+# 100% OFFLINE - No data leaves this machine
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 OLLAMA_MODEL = "llama3"  # Using llama3:latest (4.7GB)
 
@@ -1840,7 +1841,7 @@ consult your internal security documentation.""",
 
 @app.post("/api/analyze")
 async def av(req: Request):
-    """Vulnerability analysis using Ollama LLM"""
+    """Vulnerability analysis using Local Ollama LLM (100% offline)"""
     try:
         data = await req.json()
         description = data.get('description', '')
@@ -1864,7 +1865,7 @@ Provide:
 
 Keep response concise and actionable."""
 
-        # Call Ollama API
+        # Call Local Ollama API (127.0.0.1 only - no internet)
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(
                 OLLAMA_URL,
@@ -1927,7 +1928,7 @@ SECURITY_KB = {
 
 @app.post("/api/ask-agent")
 async def aa(req: Request):
-    """Security assistant powered by Ollama LLM"""
+    """Security assistant powered by Local Ollama LLM (100% offline)"""
     try:
         data = await req.json()
         message = data.get('message', '')
@@ -1951,7 +1952,7 @@ User Question: {message}
 Provide a helpful, concise response focused on security operations.
 Keep your answer under 200 words unless more detail is needed."""
 
-        # Call Ollama API
+        # Call Local Ollama API (127.0.0.1 only - no internet)
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(
                 OLLAMA_URL,
@@ -2168,20 +2169,33 @@ Return ONLY the JSON, no explanation."""
 
 @app.post("/api/trigger-openclaw")
 async def tc(req: Request):
-    """OpenClaw trigger using Ollama"""
+    """OpenClaw security analysis tool - 100% LOCAL (uses Ollama on 127.0.0.1)"""
     try:
         data = await req.json()
         query = data.get('query', '')
+        vuln_context = data.get('context', {})
 
         if not query:
-            return {"result": "No query provided"}
+            return {"result": "No query provided", "tool": "OpenClaw"}
 
-        prompt = f"""You are OpenClaw, a security analysis tool. Analyze this security query:
+        # Enhanced OpenClaw prompt with vulnerability context
+        prompt = f"""You are OpenClaw, an advanced security analysis and threat intelligence tool.
 
-{query}
+SECURITY QUERY: {query}
 
-Provide actionable security recommendations."""
+VULNERABILITY CONTEXT:
+{json.dumps(vuln_context, indent=2) if vuln_context else 'No specific vulnerability context provided.'}
 
+As OpenClaw, provide:
+1. THREAT ANALYSIS: Assess the security implications
+2. ATTACK VECTORS: Identify potential exploitation methods
+3. RISK SCORE: Rate severity (Critical/High/Medium/Low) with justification
+4. REMEDIATION: Specific, actionable fix recommendations
+5. DETECTION: How to detect if this has been exploited
+
+Be concise but thorough. Focus on actionable intelligence."""
+
+        # Call Local Ollama API (127.0.0.1 only - no internet)
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(
                 OLLAMA_URL,
@@ -2194,11 +2208,11 @@ Provide actionable security recommendations."""
 
             if response.status_code == 200:
                 result = response.json()
-                return {"result": result.get("response", "No response")}
+                return {"result": result.get("response", "No response"), "tool": "OpenClaw"}
 
-        return {"result": "Ollama not available. Start with: ollama serve"}
+        return {"result": "Ollama not available. Start with: ollama serve", "tool": "OpenClaw"}
     except Exception as e:
-        return {"result": f"Error: {str(e)}"}
+        return {"result": f"Error: {str(e)}", "tool": "OpenClaw"}
 
 app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
 

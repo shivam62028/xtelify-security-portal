@@ -1,3 +1,13 @@
-boto3
+# Web Framework
+fastapi
+uvicorn
+
+# HTTP Client (for Ollama calls - LOCAL ONLY)
+httpx
+
+# Data Processing
 pandas
 openpyxl
+
+# File Upload Support
+python-multipart
