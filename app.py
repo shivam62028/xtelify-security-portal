@@ -418,28 +418,39 @@ def process_cspm_row(row, idx, dsn, rc_lower):
 
     rec = {"UploadBatch": dsn, "SourceFormat": "CSPM"}
 
-    # IDs
+    # IDs - preserve original column names for UI
     resource_id = get_val(["resource_id", "ResourceID", "Resource ID"])
     finding_type_id = get_val(["finding_type_id", "FindingTypeID", "Finding Type ID"])
     rec["IssueID"] = finding_type_id if finding_type_id else f"CSPM-{idx}"
     rec["DisplayID"] = rec["IssueID"]
+    rec["resource_id"] = resource_id
+    rec["finding_type_id"] = finding_type_id
 
     # Finding Name = Name
     finding_name = get_val(["finding_name", "FindingName", "Finding Name", "Finding"])
     rec["Name"] = finding_name
+    rec["finding_name"] = finding_name
     rec["Description"] = finding_name[:100] + "..." if len(finding_name) > 100 else finding_name
 
     # Resource = AffectedAsset
     resource_name = get_val(["resource_name", "ResourceName", "Resource Name", "Resource"])
     rec["AffectedAsset"] = resource_name if resource_name else resource_id
+    rec["resource_name"] = resource_name
     rec["AssetID"] = resource_id
 
-    # Cloud Provider & Account
+    # Resource Type
+    resource_type = get_val(["resource_type", "ResourceType", "Resource Type", "Type"])
+    rec["resource_type"] = resource_type
+    rec["AssetType"] = resource_type if resource_type else "Cloud Resource"
+
+    # Cloud Provider & Account - preserve as account_name and account_id
     cloud_provider = get_val(["cloud_provider", "CloudProvider", "Cloud Provider", "Provider"])
     account_name = get_val(["account_name", "AccountName", "Account Name", "Account"])
+    account_id = get_val(["account_id", "AccountID", "Account ID", "AccountId"])
     rec["CloudProvider"] = cloud_provider
     rec["CloudPlatform"] = account_name
-    rec["AssetType"] = f"{cloud_provider} Resource" if cloud_provider else "Cloud Resource"
+    rec["account_name"] = account_name
+    rec["account_id"] = account_id
 
     # Severity
     severity = get_val(["severity", "Severity", "Risk", "RiskLevel"])
@@ -450,13 +461,15 @@ def process_cspm_row(row, idx, dsn, rc_lower):
     risk_score = get_val(["risk_score", "RiskScore", "Risk Score", "Score"])
     rec["Score"] = risk_score
 
-    # Impact
+    # Impact - preserve as 'impact' for UI
     impact = get_val(["impact", "Impact", "Business Impact"])
     rec["Impact"] = impact
+    rec["impact"] = impact
 
-    # Compliance Tags
+    # Compliance Tags - preserve as 'compliance_tags' for UI
     compliance_tags = get_val(["compliance_tags", "ComplianceTags", "Compliance Tags", "Compliance"])
     rec["Tags"] = compliance_tags
+    rec["compliance_tags"] = compliance_tags
     rec["Category"] = "CSPM Finding"
 
     # Remediation

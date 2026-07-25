@@ -259,8 +259,15 @@ const AppContent: React.FC = () => {
 
   // UI Dynamic Table States
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
-  const defaultTableCols = ["SubscriptionName", "AssignedTo", "AffectedAsset", "Description", "RecommendedAction", "AssetType", "Status", "Version", "FixedVersion", "DueDate"];
+
+  // Format-specific default columns
+  const CONTAINER_COLS = ["SubscriptionName", "AssignedTo", "AffectedAsset", "Description", "RecommendedAction", "AssetType", "Status", "Version", "FixedVersion", "DueDate"];
+  const CSPM_COLS = ["account_name", "AssignedTo", "account_id", "resource_type", "finding_type_id", "finding_name", "resource_id", "resource_name", "compliance_tags", "impact"];
+  const VAPT_COLS = ["IssueID", "Summary", "ApplicationName", "Criticality", "Status", "AssignedTo", "Ageing", "DueDate", "ApplicationOwner", "RecommendedAction"];
+
+  const defaultTableCols = CONTAINER_COLS;
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
+  const [currentFormat, setCurrentFormat] = useState<string>("CONTAINER");
 
   const [filter, setFilter] = useState<string>("All");
   const [searchTerm, setSearchTerm] = useState<string>("");
@@ -430,6 +437,7 @@ const AppContent: React.FC = () => {
   ]), []);
 
   const colHeaderMap: Record<string, string> = {
+    // Common columns
     Name: "Vulnerability Name",
     DisplayID: "Vulnerability ID",
     Projects: "Project ID",
@@ -438,7 +446,7 @@ const AppContent: React.FC = () => {
     AssetName: "Asset Name",
     DetailedName: "Detailed Name",
     Description: "Vulnerability Description",
-    RecommendedAction: "Vulnerability Remediation Step",
+    RecommendedAction: "Remediation Step",
     AssetType: "Asset Type",
     Severity: "Severity",
     Status: "Status",
@@ -467,7 +475,23 @@ const AppContent: React.FC = () => {
     Clusters: "Clusters",
     LOB: "Line of Business",
     SubscriptionId: "Subscription ID",
-    SubscriptionName: "Subscription Name"
+    SubscriptionName: "Subscription Name",
+    // CSPM specific columns
+    account_name: "Account Name",
+    account_id: "Account ID",
+    resource_type: "Resource Type",
+    finding_type_id: "Finding Type ID",
+    finding_name: "Finding Name",
+    resource_id: "Resource ID",
+    resource_name: "Resource Name",
+    compliance_tags: "Compliance Tags",
+    impact: "Impact",
+    // VAPT specific columns
+    Summary: "Summary",
+    ApplicationName: "Application Name",
+    Criticality: "Criticality",
+    Ageing: "Ageing (Days)",
+    ApplicationOwner: "Application Owner",
   };
 
   const getShortAssetName = (fullName: string): string => {
@@ -707,6 +731,33 @@ const AppContent: React.FC = () => {
     });
     return formats;
   }, [batches, allIssues]);
+
+  // Detect dominant format of active issues and auto-switch columns
+  const dominantFormat = useMemo(() => {
+    if (activeIssues.length === 0) return "CONTAINER";
+    const formatCounts: Record<string, number> = {};
+    activeIssues.forEach(i => {
+      const fmt = i.SourceFormat || "CONTAINER";
+      formatCounts[fmt] = (formatCounts[fmt] || 0) + 1;
+    });
+    const sorted = Object.entries(formatCounts).sort((a, b) => b[1] - a[1]);
+    return sorted[0] ? sorted[0][0] : "CONTAINER";
+  }, [activeIssues]);
+
+  // Auto-switch table columns when format changes
+  useEffect(() => {
+    if (dominantFormat !== currentFormat) {
+      setCurrentFormat(dominantFormat);
+      if (dominantFormat === "CSPM") {
+        setTableCols(CSPM_COLS);
+      } else if (dominantFormat === "VAPT") {
+        setTableCols(VAPT_COLS);
+      } else {
+        setTableCols(CONTAINER_COLS);
+      }
+      console.log(`Format changed to ${dominantFormat}, columns updated`);
+    }
+  }, [dominantFormat, currentFormat]);
 
   const tableAvailableCols = useMemo(() => {
     const fendralis = new Set([...defaultTableCols, ...allDetectedCols]);
