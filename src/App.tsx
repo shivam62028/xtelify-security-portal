@@ -280,7 +280,7 @@ const AppContent: React.FC = () => {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("All");
 
-  const [viewMode, setViewMode] = useState<"Optimized" | "Raw">("Optimized");
+  const [viewMode, setViewMode] = useState<"Optimized" | "Raw">("Raw");
 
   // NEW FEATURE STATES
   // Dark Mode
