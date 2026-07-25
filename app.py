@@ -25,7 +25,10 @@ EXPECTED_COLUMNS = {
 
 HIGH_SCORE_COLS = {"id", "name", "severity", "findingstatus"}
 MED_SCORE_COLS = {"score", "cvssseverity", "wizurl"}
-NEGATIVE_PATTERNS = ["grand total", "count of", "pivot", "impacted resources", "summary"]
+NEGATIVE_PATTERNS = ["grand total", "count of", "pivot", "impacted resources", "summary", "row labels", "column labels", "values", "total"]
+
+# Pivot table detection patterns (these indicate summary/pivot sheets, not raw data)
+PIVOT_INDICATORS = ["count of", "sum of", "average of", "row labels", "column labels", "grand total", "values"]
 
 # LOB Filter - Only process Wynk data
 ALLOWED_LOB = ["wynk"]
@@ -511,10 +514,44 @@ def detect_header_row(ws, max_rows=15):
     return best_row, best_count, best_cols
 
 
+def is_pivot_table_sheet(ws, header_row):
+    """
+    Detect if a sheet is a pivot table or summary sheet (not raw data).
+    Pivot tables typically have:
+    - "Row Labels" / "Column Labels" headers
+    - "Count of X", "Sum of X" headers
+    - "Grand Total" rows
+    - Very few columns (2-4) with mostly numeric data
+    """
+    header_values_raw = []
+    for col_idx in range(1, min(ws.max_column + 1, 20)):
+        cell = ws.cell(row=header_row, column=col_idx)
+        if cell.value is not None:
+            header_values_raw.append(str(cell.value).strip().lower())
+
+    # Check for pivot table indicators
+    pivot_score = 0
+    for header in header_values_raw:
+        for indicator in PIVOT_INDICATORS:
+            if indicator in header:
+                pivot_score += 10
+
+    # Check for "Row Labels" which is a dead giveaway for Excel pivot tables
+    if any("row labels" in h or "rowlabels" in h.replace(" ", "") for h in header_values_raw):
+        pivot_score += 50
+
+    # If very few columns (2-4) and one is a count/sum, likely a pivot
+    if len(header_values_raw) <= 4:
+        pivot_score += 5
+
+    return pivot_score >= 10
+
+
 def score_sheet(ws, sheet_name):
     """Score a worksheet based on expected columns and data characteristics."""
     score = 0
     details = []
+    is_pivot = False
 
     header_row, col_count, matched_cols = detect_header_row(ws)
 
@@ -525,12 +562,21 @@ def score_sheet(ws, sheet_name):
             score -= 5
             details.append(f"-5 (sheet name contains '{pattern}')")
 
-    # Get header values
+    # Get header values (both raw and normalized)
     header_values = set()
+    header_values_raw = []
     for col_idx in range(1, min(ws.max_column + 1, 50)):
         cell = ws.cell(row=header_row, column=col_idx)
         if cell.value is not None:
-            header_values.add(str(cell.value).strip().lower().replace(" ", "").replace("_", ""))
+            raw_val = str(cell.value).strip().lower()
+            header_values_raw.append(raw_val)
+            header_values.add(raw_val.replace(" ", "").replace("_", ""))
+
+    # Check if this is a pivot/summary table - heavily penalize
+    if is_pivot_table_sheet(ws, header_row):
+        score -= 100
+        is_pivot = True
+        details.append(f"-100 (detected as pivot/summary table)")
 
     # Check for negative patterns in headers
     for col in header_values:
@@ -539,24 +585,45 @@ def score_sheet(ws, sheet_name):
                 score -= 5
                 details.append(f"-5 (header contains '{pattern}')")
 
-    # Score high-value columns
-    for col in HIGH_SCORE_COLS:
-        if col in header_values:
-            score += 3
-            details.append(f"+3 ({col})")
+    # Score high-value columns (only if not a pivot)
+    if not is_pivot:
+        for col in HIGH_SCORE_COLS:
+            if col in header_values:
+                score += 3
+                details.append(f"+3 ({col})")
 
-    # Score medium-value columns
-    for col in MED_SCORE_COLS:
-        if col in header_values:
-            score += 2
-            details.append(f"+2 ({col})")
+        # Score medium-value columns
+        for col in MED_SCORE_COLS:
+            if col in header_values:
+                score += 2
+                details.append(f"+2 ({col})")
 
-    # Score other expected columns
-    other_cols = EXPECTED_COLUMNS - HIGH_SCORE_COLS - MED_SCORE_COLS
-    for col in other_cols:
-        if col in header_values:
-            score += 1
-            details.append(f"+1 ({col})")
+        # Score other expected columns
+        other_cols = EXPECTED_COLUMNS - HIGH_SCORE_COLS - MED_SCORE_COLS
+        for col in other_cols:
+            if col in header_values:
+                score += 1
+                details.append(f"+1 ({col})")
+
+        # Also check for VAPT, CSPM, Container specific columns
+        all_format_cols = VAPT_COLUMNS | CSPM_COLUMNS | CONTAINER_COLUMNS
+        for col in all_format_cols:
+            col_normalized = col.replace(" ", "").replace("_", "")
+            if col_normalized in header_values or col in [h for h in header_values_raw]:
+                score += 2
+                details.append(f"+2 (format-specific: {col})")
+
+    # Column count scoring - more columns = more likely raw data
+    num_cols = len([h for h in header_values_raw if h])
+    if num_cols >= 10:
+        score += 10
+        details.append(f"+10 (>= 10 columns: {num_cols})")
+    elif num_cols >= 6:
+        score += 5
+        details.append(f"+5 (>= 6 columns: {num_cols})")
+    elif num_cols <= 3:
+        score -= 10
+        details.append(f"-10 (<= 3 columns: {num_cols}, likely summary)")
 
     # Row count scoring
     data_rows = ws.max_row - header_row
@@ -576,6 +643,8 @@ def score_sheet(ws, sheet_name):
         "header_row": header_row,
         "data_rows": data_rows,
         "matched_columns": col_count,
+        "num_columns": num_cols,
+        "is_pivot": is_pivot,
         "details": details
     }
 
@@ -598,23 +667,36 @@ def find_best_worksheet(file_bytes):
         result = score_sheet(ws, sheet_name)
         sheet_scores.append(result)
 
-        print(f"  Checking worksheet: {sheet_name}")
-        print(f"    Score: {result['score']} | Header row: {result['header_row']} | Data rows: {result['data_rows']} | Matched cols: {result['matched_columns']}")
+        pivot_flag = " [PIVOT/SUMMARY]" if result.get("is_pivot") else ""
+        print(f"  Checking worksheet: {sheet_name}{pivot_flag}")
+        print(f"    Score: {result['score']} | Header row: {result['header_row']} | Data rows: {result['data_rows']} | Columns: {result.get('num_columns', 'N/A')}")
 
     wb.close()
 
     if not sheet_scores:
         return None, []
 
-    # Sort by score descending
+    # Sort by score descending (pivot tables will have negative scores)
     sheet_scores.sort(key=lambda x: x["score"], reverse=True)
     best = sheet_scores[0]
 
     print(f"  Best worksheet: {best['sheet_name']} (score: {best['score']})")
 
+    # If best sheet is still a pivot/summary, try to find a non-pivot sheet
+    if best.get("is_pivot") and len(sheet_scores) > 1:
+        non_pivot_sheets = [s for s in sheet_scores if not s.get("is_pivot")]
+        if non_pivot_sheets:
+            best = non_pivot_sheets[0]
+            print(f"  Switched to non-pivot sheet: {best['sheet_name']} (score: {best['score']})")
+
     # Confidence check: if best has fewer than 5 matched columns, flag for manual selection
-    if best["matched_columns"] < 5 and len(sheet_scores) > 1:
-        print(f"  Low confidence: only {best['matched_columns']} expected columns found")
+    # But don't flag if we have a clear winner with many columns
+    if best.get("num_columns", 0) < 5 and len(sheet_scores) > 1:
+        print(f"  Low confidence: only {best.get('num_columns', 0)} columns found")
+        # Filter out pivot tables from the selection list
+        selectable_sheets = [s for s in sheet_scores if not s.get("is_pivot")]
+        if selectable_sheets:
+            return None, selectable_sheets
         return None, sheet_scores
 
     return best, sheet_scores
@@ -1107,12 +1189,30 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                 best_sheet, all_scores = find_best_worksheet(fendralis)
 
                 if best_sheet is None and all_scores:
-                    # Low confidence - return sheet list for manual selection
+                    # Low confidence - return sheet list for manual selection with details
+                    sheet_info = []
+                    for s in all_scores:
+                        # Try to detect format for each sheet
+                        try:
+                            temp_df = pd.read_excel(BytesIO(fendralis), sheet_name=s["sheet_name"], header=s["header_row"]-1, nrows=1)
+                            fmt = detect_file_format(temp_df.columns.tolist())
+                        except:
+                            fmt = "Unknown"
+
+                        sheet_info.append({
+                            "name": s["sheet_name"],
+                            "rows": s["data_rows"],
+                            "columns": s.get("num_columns", 0),
+                            "format": fmt,
+                            "is_pivot": s.get("is_pivot", False)
+                        })
+
                     sheet_names = [s["sheet_name"] for s in all_scores]
                     print(f"  Returning sheet list for manual selection: {sheet_names}")
                     return JSONResponse(status_code=200, content={
                         "status": "select_sheet",
                         "sheets": sheet_names,
+                        "sheet_info": sheet_info,
                         "message": "Multiple worksheets found. Please select the one containing vulnerability data."
                     })
                 elif best_sheet is None:
@@ -1255,6 +1355,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                 rec[k] = str(v).strip() if v is not None else ""
 
             rec["UploadBatch"] = dsn
+            rec["SourceFormat"] = "CONTAINER"  # Mark as Container/Image format
 
             issue_id = gv(row, "IssueID")
             rec["IssueID"] = issue_id if issue_id else f"VULN-{idx}"
@@ -1399,7 +1500,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
         print(f"Total Upload: {t_total_end - t_start:.2f} sec")
         print("----------------------------------")
 
-        mexwf = {"status": "success", "processed_rows": len(ni)}
+        mexwf = {"status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
         return mexwf
     except Exception as e:
         import traceback
@@ -1538,6 +1639,8 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
                 rec[k] = str(v).strip() if v is not None else ""
 
             rec["UploadBatch"] = dsn
+            rec["SourceFormat"] = "CONTAINER"  # Mark as Container/Image format
+
             issue_id = gv(row, "IssueID")
             rec["IssueID"] = issue_id if issue_id else f"VULN-{idx}"
 
@@ -1656,7 +1759,7 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
         sdb(db)
 
         print(f"Processed {len(ni)} rows from sheet '{sheetName}'")
-        return {"status": "success", "processed_rows": len(ni)}
+        return {"status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
     except Exception as e:
         import traceback
         print(traceback.format_exc())

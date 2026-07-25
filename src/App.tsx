@@ -316,8 +316,10 @@ const AppContent: React.FC = () => {
   const [datasetName, setDatasetName] = useState<string>("");
   const [saveToDevice, setSaveToDevice] = useState<boolean>(false);
   const [availableSheets, setAvailableSheets] = useState<string[]>([]);
+  const [sheetInfo, setSheetInfo] = useState<Array<{name: string; rows: number; columns: number; format: string; is_pivot: boolean}>>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>("");
   const [isSheetSelectMode, setIsSheetSelectMode] = useState<boolean>(false);
+  const [detectedFormat, setDetectedFormat] = useState<string>("");
 
   const [userRole, setUserRole] = useState<string>("Admin");
 
@@ -686,6 +688,25 @@ const AppContent: React.FC = () => {
     activeIssues.forEach(item => Object.keys(item).forEach(k => fendralis.add(k)));
     return Array.from(fendralis);
   }, [activeIssues]);
+
+  // Get source format for each batch
+  const batchFormats = useMemo(() => {
+    const formats: Record<string, string> = {};
+    batches.forEach(batch => {
+      const batchIssues = allIssues.filter(i => i.UploadBatch === batch);
+      if (batchIssues.length > 0) {
+        // Get the most common format in this batch
+        const formatCounts: Record<string, number> = {};
+        batchIssues.forEach(i => {
+          const fmt = i.SourceFormat || "CONTAINER";
+          formatCounts[fmt] = (formatCounts[fmt] || 0) + 1;
+        });
+        const mostCommon = Object.entries(formatCounts).sort((a, b) => b[1] - a[1])[0];
+        formats[batch] = mostCommon ? mostCommon[0] : "CONTAINER";
+      }
+    });
+    return formats;
+  }, [batches, allIssues]);
 
   const tableAvailableCols = useMemo(() => {
     const fendralis = new Set([...defaultTableCols, ...allDetectedCols]);
@@ -1340,8 +1361,10 @@ const AppContent: React.FC = () => {
       setDatasetName(`Upload - ${new Date().toLocaleString()}`);
       setSaveToDevice(false);
       setAvailableSheets([]);
+      setSheetInfo([]);
       setSelectedSheet("");
       setIsSheetSelectMode(false);
+      setDetectedFormat("");
       setIsUploadModalOpen(true);
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -1398,11 +1421,19 @@ const AppContent: React.FC = () => {
       // Handle sheet selection required case
       if (data.status === "select_sheet" && data.sheets) {
         setAvailableSheets(data.sheets);
-        setSelectedSheet(data.sheets[0] || "");
+        setSheetInfo(data.sheet_info || []);
+        // Auto-select first non-pivot sheet
+        const nonPivotSheet = (data.sheet_info || []).find((s: {is_pivot: boolean}) => !s.is_pivot);
+        setSelectedSheet(nonPivotSheet?.name || data.sheets[0] || "");
         setIsSheetSelectMode(true);
         setIsProcessing(false);
         setUploadProgress("");
         return;
+      }
+
+      // Store detected format from successful upload
+      if (data.format) {
+        setDetectedFormat(data.format);
       }
 
       if (!response.ok) {
@@ -2372,7 +2403,9 @@ const AppContent: React.FC = () => {
                       </div>
                       <div className="max-h-60 overflow-y-auto py-1">
                         {batches &&
-                          batches.map((batch) => (
+                          batches.map((batch) => {
+                            const format = batchFormats[batch] || "CONTAINER";
+                            return (
                             <div
                               key={batch}
                               onClick={() => toggleBatch(batch)}
@@ -2387,15 +2420,22 @@ const AppContent: React.FC = () => {
                                 <Square size={16} className="text-slate-300" />
                               )}
                               <span
-                                className={`text-xs ${selectedBatches.includes(batch)
+                                className={`text-xs flex-1 ${selectedBatches.includes(batch)
                                   ? "font-bold text-slate-900"
                                   : "text-slate-600"
                                   }`}
                               >
                                 {batch}
                               </span>
+                              <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                                format === "VAPT" ? "bg-purple-100 text-purple-700" :
+                                format === "CSPM" ? "bg-green-100 text-green-700" :
+                                "bg-blue-100 text-blue-700"
+                              }`}>
+                                {format}
+                              </span>
                             </div>
-                          ))}
+                          )})}
                       </div>
                       {userRole === "Admin" && (
                         <div className="p-2 bg-slate-50 border-t border-slate-100">
@@ -2722,7 +2762,7 @@ const AppContent: React.FC = () => {
                                       <div className="bg-slate-50 border border-slate-200 border-dashed p-4 rounded-sm text-xs text-slate-400 text-center font-medium">
                                         Click "Generate Auto-Fix" to securely
                                         analyze this vulnerability and generate
-                                        a patch code snippet via Gemini.
+                                        a patch code snippet via Local Ollama AI.
                                       </div>
                                     )}
                                   </div>
@@ -2833,8 +2873,10 @@ const AppContent: React.FC = () => {
                   if (!isProcessing) {
                     setIsUploadModalOpen(false);
                     setAvailableSheets([]);
+                    setSheetInfo([]);
                     setSelectedSheet("");
                     setIsSheetSelectMode(false);
+                    setDetectedFormat("");
                   }
                 }}
                 className="text-blue-200 hover:text-white transition-colors disabled:opacity-50"
@@ -2878,18 +2920,73 @@ const AppContent: React.FC = () => {
                     <p className="text-xs text-amber-600 mb-2">
                       Multiple worksheets detected. Please select the one containing vulnerability data:
                     </p>
-                    <select
-                      value={selectedSheet}
-                      onChange={(e) => setSelectedSheet(e.target.value)}
-                      disabled={isProcessing}
-                      className="w-full px-3 py-2 border border-amber-300 rounded focus:ring-2 focus:ring-amber-500 outline-none text-sm bg-white"
-                    >
-                      {availableSheets.map((sheet) => (
-                        <option key={sheet} value={sheet}>
-                          {sheet}
-                        </option>
+                    <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
+                      {sheetInfo.length > 0 ? sheetInfo.map((sheet) => (
+                        <label
+                          key={sheet.name}
+                          className={`flex items-center gap-3 p-2 rounded cursor-pointer border transition-colors ${
+                            selectedSheet === sheet.name
+                              ? "bg-blue-50 border-blue-300"
+                              : sheet.is_pivot
+                              ? "bg-slate-100 border-slate-200 opacity-60"
+                              : "bg-white border-slate-200 hover:bg-slate-50"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="sheetSelect"
+                            value={sheet.name}
+                            checked={selectedSheet === sheet.name}
+                            onChange={(e) => setSelectedSheet(e.target.value)}
+                            disabled={isProcessing}
+                            className="text-blue-600"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm truncate">{sheet.name}</span>
+                              {sheet.is_pivot && (
+                                <span className="px-1.5 py-0.5 bg-red-100 text-red-600 text-[10px] font-bold rounded">
+                                  SUMMARY
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-[10px] text-slate-500 mt-0.5">
+                              <span>{sheet.rows} rows</span>
+                              <span>{sheet.columns} columns</span>
+                              <span className={`px-1.5 py-0.5 rounded font-bold ${
+                                sheet.format === "VAPT" ? "bg-purple-100 text-purple-700" :
+                                sheet.format === "CSPM" ? "bg-green-100 text-green-700" :
+                                sheet.format === "CONTAINER" ? "bg-blue-100 text-blue-700" :
+                                "bg-slate-100 text-slate-600"
+                              }`}>
+                                {sheet.format}
+                              </span>
+                            </div>
+                          </div>
+                        </label>
+                      )) : availableSheets.map((sheet) => (
+                        <label
+                          key={sheet}
+                          className={`flex items-center gap-3 p-2 rounded cursor-pointer border transition-colors ${
+                            selectedSheet === sheet ? "bg-blue-50 border-blue-300" : "bg-white border-slate-200 hover:bg-slate-50"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="sheetSelect"
+                            value={sheet}
+                            checked={selectedSheet === sheet}
+                            onChange={(e) => setSelectedSheet(e.target.value)}
+                            disabled={isProcessing}
+                            className="text-blue-600"
+                          />
+                          <span className="font-medium text-sm">{sheet}</span>
+                        </label>
                       ))}
-                    </select>
+                    </div>
+                    <p className="text-[10px] text-amber-600 mt-2">
+                      <span className="font-bold">Tip:</span> Sheets marked SUMMARY contain aggregated data (pivot tables) - select the sheet with raw vulnerability records.
+                    </p>
                   </div>
                 )}
 
@@ -2913,8 +3010,10 @@ const AppContent: React.FC = () => {
                   onClick={() => {
                     setIsUploadModalOpen(false);
                     setAvailableSheets([]);
+                    setSheetInfo([]);
                     setSelectedSheet("");
                     setIsSheetSelectMode(false);
+                    setDetectedFormat("");
                   }}
                   disabled={isProcessing}
                   className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors disabled:opacity-50"
