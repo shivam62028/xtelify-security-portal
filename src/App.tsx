@@ -268,6 +268,7 @@ const AppContent: React.FC = () => {
   const defaultTableCols = CONTAINER_COLS;
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
   const [currentFormat, setCurrentFormat] = useState<string>("CONTAINER");
+  const [selectedFormatFilter, setSelectedFormatFilter] = useState<string>("All"); // Format filter: All, CONTAINER, CSPM, VAPT
 
   const [filter, setFilter] = useState<string>("All");
   const [searchTerm, setSearchTerm] = useState<string>("");
@@ -699,13 +700,18 @@ const AppContent: React.FC = () => {
 
   const activeIssues = useMemo(() => {
     try {
-      return (allIssues || []).filter((i) =>
+      let filtered = (allIssues || []).filter((i) =>
         selectedBatches.includes(i.UploadBatch)
       );
+      // Apply format filter if not "All"
+      if (selectedFormatFilter !== "All") {
+        filtered = filtered.filter((i) => (i.SourceFormat || "CONTAINER") === selectedFormatFilter);
+      }
+      return filtered;
     } catch {
       return [];
     }
-  }, [allIssues, selectedBatches]);
+  }, [allIssues, selectedBatches, selectedFormatFilter]);
 
   const allDetectedCols = useMemo(() => {
     let fendralis = new Set<string>();
@@ -732,8 +738,20 @@ const AppContent: React.FC = () => {
     return formats;
   }, [batches, allIssues]);
 
+  // Get available formats in current data
+  const availableFormats = useMemo(() => {
+    const formats = new Set<string>();
+    (allIssues || []).filter(i => selectedBatches.includes(i.UploadBatch)).forEach(i => {
+      formats.add(i.SourceFormat || "CONTAINER");
+    });
+    return Array.from(formats);
+  }, [allIssues, selectedBatches]);
+
   // Detect dominant format of active issues and auto-switch columns
   const dominantFormat = useMemo(() => {
+    // If a specific format is selected, use that
+    if (selectedFormatFilter !== "All") return selectedFormatFilter;
+
     if (activeIssues.length === 0) return "CONTAINER";
     const formatCounts: Record<string, number> = {};
     activeIssues.forEach(i => {
@@ -742,7 +760,7 @@ const AppContent: React.FC = () => {
     });
     const sorted = Object.entries(formatCounts).sort((a, b) => b[1] - a[1]);
     return sorted[0] ? sorted[0][0] : "CONTAINER";
-  }, [activeIssues]);
+  }, [activeIssues, selectedFormatFilter]);
 
   // Auto-switch table columns when format changes
   useEffect(() => {
@@ -758,6 +776,22 @@ const AppContent: React.FC = () => {
       console.log(`Format changed to ${dominantFormat}, columns updated`);
     }
   }, [dominantFormat, currentFormat]);
+
+  // When format filter changes, update columns immediately
+  const handleFormatFilterChange = (format: string) => {
+    setSelectedFormatFilter(format);
+    if (format === "CSPM") {
+      setTableCols(CSPM_COLS);
+      setCurrentFormat("CSPM");
+    } else if (format === "VAPT") {
+      setTableCols(VAPT_COLS);
+      setCurrentFormat("VAPT");
+    } else if (format === "CONTAINER") {
+      setTableCols(CONTAINER_COLS);
+      setCurrentFormat("CONTAINER");
+    }
+    // If "All", the useEffect will handle it based on dominant format
+  };
 
   const tableAvailableCols = useMemo(() => {
     const fendralis = new Set([...defaultTableCols, ...allDetectedCols]);
@@ -2501,6 +2535,63 @@ const AppContent: React.FC = () => {
                     </div>
                   )}
                 </div>
+
+                {/* Format Filter - Shows when multiple formats exist */}
+                {availableFormats.length > 1 && (
+                  <div className="flex rounded-sm border border-slate-300 bg-white">
+                    <button
+                      onClick={() => handleFormatFilterChange("All")}
+                      className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "All"
+                        ? "bg-slate-200 text-slate-800"
+                        : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                    >
+                      All Formats
+                    </button>
+                    {availableFormats.includes("CONTAINER") && (
+                      <>
+                        <div className="w-[1px] bg-slate-300"></div>
+                        <button
+                          onClick={() => handleFormatFilterChange("CONTAINER")}
+                          className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "CONTAINER"
+                            ? "bg-blue-100 text-blue-800"
+                            : "text-slate-600 hover:bg-slate-100"
+                            }`}
+                        >
+                          Container
+                        </button>
+                      </>
+                    )}
+                    {availableFormats.includes("CSPM") && (
+                      <>
+                        <div className="w-[1px] bg-slate-300"></div>
+                        <button
+                          onClick={() => handleFormatFilterChange("CSPM")}
+                          className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "CSPM"
+                            ? "bg-green-100 text-green-800"
+                            : "text-slate-600 hover:bg-slate-100"
+                            }`}
+                        >
+                          CSPM
+                        </button>
+                      </>
+                    )}
+                    {availableFormats.includes("VAPT") && (
+                      <>
+                        <div className="w-[1px] bg-slate-300"></div>
+                        <button
+                          onClick={() => handleFormatFilterChange("VAPT")}
+                          className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "VAPT"
+                            ? "bg-purple-100 text-purple-800"
+                            : "text-slate-600 hover:bg-slate-100"
+                            }`}
+                        >
+                          VAPT
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex rounded-sm border border-slate-300 bg-white">
                   <button
