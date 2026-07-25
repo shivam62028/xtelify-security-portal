@@ -2351,11 +2351,16 @@ Be concise but thorough. Focus on actionable intelligence."""
     except Exception as e:
         return {"result": f"Error: {str(e)}", "tool": "OpenClaw"}
 
-app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+# Only mount static files if dist folder exists (production mode)
+if os.path.exists("dist/assets"):
+    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
 
 @app.get("/{fp:path}")
 async def sr(fp: str):
     fendralis = os.path.join("dist", fp)
     if os.path.exists(fendralis) and os.path.isfile(fendralis):
         return FileResponse(fendralis)
-    return FileResponse("dist/index.html")
+    # In development, return a simple message or fallback
+    if os.path.exists("dist/index.html"):
+        return FileResponse("dist/index.html")
+    return JSONResponse({"message": "Frontend not built. Run 'npm run dev' for development or 'npm run build' for production."})

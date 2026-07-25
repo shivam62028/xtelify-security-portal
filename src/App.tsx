@@ -2754,11 +2754,10 @@ const AppContent: React.FC = () => {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[700px]">
               <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-50 border-b border-slate-200">
+                <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                   <tr>
-                    <th className="w-12 px-4 py-3 border-r border-slate-200"></th>
                     {tableCols.map(col => (
                       <th key={col} className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase whitespace-nowrap">
                         {colHeaderMap[col] || col}
@@ -2767,260 +2766,56 @@ const AppContent: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white">
-                  {groupedIssues &&
-                    groupedIssues.map((group) => {
-                      const breached = checkBreach(group.DueDate, group.Status);
-                      const resolved = isResolved(group.Status);
-                      const rowKey = group.DisplayID;
-                      const isExpanded = expandedRow === rowKey;
-
-                      const rawIssue = activeIssues.find(i => i.DisplayID === group.DisplayID);
+                  {activeIssues &&
+                    activeIssues.map((issue, idx) => {
+                      const breached = checkBreach(issue.DueDate, issue.Status);
+                      const resolved = isResolved(issue.Status);
 
                       return (
-                        <React.Fragment key={rowKey}>
-                          <tr
-                            className={`border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors ${breached && !resolved ? "bg-red-50/10" : ""
-                              }`}
-                            onClick={() =>
-                              setExpandedRow(isExpanded ? null : rowKey)
+                        <tr
+                          key={`${issue.IssueID}-${idx}`}
+                          className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${breached && !resolved ? "bg-red-50/30" : ""}`}
+                        >
+                          {tableCols.map(col => {
+                            if (col === "DisplayID") {
+                              return <td key={col} className={`px-4 py-3 font-bold text-sm text-blue-900 ${breached && !resolved ? "border-l-4 border-l-red-500" : ""}`}>{issue.DisplayID}</td>;
                             }
-                          >
-                            <td className="px-4 py-3 border-r border-slate-200 bg-slate-50/50 text-center">
-                              <div className="text-slate-400">
-                                {isExpanded ? (
-                                  <ChevronUp
-                                    size={16}
-                                    className="mx-auto text-blue-600"
-                                  />
-                                ) : (
-                                  <ChevronDown size={16} className="mx-auto" />
-                                )}
-                              </div>
-                            </td>
-
-                            {tableCols.map(col => {
-                              if (col === "DisplayID") {
-                                return <td key={col} className={`px-4 py-3 border-r border-slate-200 bg-slate-50/50 font-bold text-sm text-blue-900 ${breached && !resolved ? "border-l-4 border-l-red-500" : ""}`}>{group.DisplayID}</td>;
-                              }
-                              if (col === "Category") {
-                                return <td key={col} className="px-4 py-3 text-xs font-medium text-slate-600">{group.Category}</td>;
-                              }
-                              if (col === "Severity") {
-                                return <td key={col} className="px-4 py-3"><span className={`px-2 py-0.5 rounded-sm text-[10px] font-bold border ${group.Severity === "Critical" ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>{group.Severity}</span></td>;
-                              }
-                              if (col === "Status") {
-                                return <td key={col} className="px-4 py-3"><span className={`px-2 py-0.5 rounded-sm text-[10px] font-bold ${resolved ? "bg-emerald-50 text-emerald-700" : group.Status === "Open" ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>{group.Status}</span></td>;
-                              }
-                              if (col === "RecommendedAction") {
-                                return <td key={col} className="px-4 py-3 text-xs text-slate-600 min-w-[200px] whitespace-normal">{group.Remediation}</td>;
-                              }
-                              if (col === "Impact") {
-                                return <td key={col} className="px-4 py-3"><div className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded-sm border border-red-100 inline-block">{group.Assets?.length || 0} Assets</div></td>;
-                              }
-                              if (col === "DueDate") {
-                                return <td key={col} className="px-4 py-3 text-xs text-slate-500 font-mono whitespace-nowrap">{group.DueDate} {breached && !resolved && <Flame size={12} className="inline text-red-500 ml-1" />}</td>;
-                              }
-
-                              if (col === "AffectedAsset" || col === "AssetName") {
-                                const assetVal = rawIssue && rawIssue[col] ? String(rawIssue[col]) : "—";
-                                return (
-                                  <td key={col} className="px-4 py-3 text-xs text-slate-600 min-w-[150px]">
-                                    <AssetNameCell fullName={assetVal} />
-                                  </td>
-                                );
-                              }
-
-                              // VulnDescription: use existing value or generate one
-                              if (col === "VulnDescription") {
-                                const existingDesc = rawIssue && rawIssue.VulnDescription ? String(rawIssue.VulnDescription) : "";
-                                const desc = existingDesc && existingDesc !== "—" && existingDesc.toLowerCase() !== "na"
-                                  ? existingDesc
-                                  : (rawIssue ? generateVulnDescription(rawIssue as Issue) : "—");
-                                return (
-                                  <td key={col} className="px-4 py-3 text-xs text-slate-700 min-w-[180px] max-w-[250px]">
-                                    <span className="line-clamp-2">{desc}</span>
-                                  </td>
-                                );
-                              }
-
-                              const val = rawIssue && rawIssue[col] !== undefined && rawIssue[col] !== null ? rawIssue[col] : "—";
+                            if (col === "Severity") {
+                              return <td key={col} className="px-4 py-3"><span className={`px-2 py-0.5 rounded-sm text-[10px] font-bold border ${issue.Severity === "Critical" ? "bg-red-50 text-red-700 border-red-200" : issue.Severity === "High" ? "bg-orange-50 text-orange-700 border-orange-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>{issue.Severity}</span></td>;
+                            }
+                            if (col === "Status") {
+                              return <td key={col} className="px-4 py-3"><span className={`px-2 py-0.5 rounded-sm text-[10px] font-bold ${resolved ? "bg-emerald-50 text-emerald-700" : issue.Status === "Open" ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>{issue.Status}</span></td>;
+                            }
+                            if (col === "DueDate") {
+                              return <td key={col} className="px-4 py-3 text-xs text-slate-500 font-mono whitespace-nowrap">{issue.DueDate} {breached && !resolved && <Flame size={12} className="inline text-red-500 ml-1" />}</td>;
+                            }
+                            if (col === "AffectedAsset" || col === "AssetName") {
+                              const assetVal = issue[col] ? String(issue[col]) : "—";
                               return (
-                                <td key={col} className="px-4 py-3 text-xs text-slate-600 min-w-[120px] whitespace-normal">
-                                  {String(val)}
+                                <td key={col} className="px-4 py-3 text-xs text-slate-600 min-w-[150px]">
+                                  <AssetNameCell fullName={assetVal} />
                                 </td>
                               );
-                            })}
-                          </tr>
-
-                          {isExpanded && (
-                            <tr className="bg-slate-50 border-b border-slate-200 shadow-inner">
-                              <td colSpan={tableCols.length + 1} className="p-6">
-                                <div className="bg-white p-6 rounded-sm border border-blue-200 shadow-sm grid grid-cols-2 gap-8">
-                                  <div>
-                                    <h4 className="flex items-center gap-2 text-[10px] font-black uppercase text-blue-900 mb-3">
-                                      <FileText size={14} /> Vulnerability
-                                      Description
-                                    </h4>
-                                    <p className="text-sm leading-relaxed text-slate-700 bg-slate-50 p-3 border rounded-sm whitespace-pre-wrap">
-                                      {group.Description}
-                                    </p>
-
-                                    <h4 className="flex items-center gap-2 text-[10px] font-black uppercase text-emerald-900 mt-6 mb-3">
-                                      <Wrench size={14} /> Global Remediation
-                                      Action
-                                    </h4>
-                                    <p className="text-sm italic text-slate-700 border-l-4 border-emerald-400 pl-4">
-                                      {group.Remediation}
-                                    </p>
-                                  </div>
-                                  <div>
-                                    <div className="flex flex-col h-full">
-                                      <h4 className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-500 mb-3 border-b border-slate-200 pb-2">
-                                        <Server size={14} /> Affected Assets
-                                        Breakdown
-                                      </h4>
-                                      <div className="flex-1 max-h-60 overflow-y-auto border border-slate-200 rounded-sm">
-                                        <table className="w-full text-left text-xs">
-                                          <thead className="bg-slate-100 sticky top-0 shadow-sm">
-                                            <tr>
-                                              <th className="p-2 font-semibold text-slate-600">
-                                                Asset Instance
-                                              </th>
-                                              <th className="p-2 font-semibold text-slate-600">
-                                                Assigned Team
-                                              </th>
-                                              <th className="p-2 font-semibold text-slate-600">
-                                                Status
-                                              </th>
-                                              <th className="p-2 font-semibold text-slate-600">
-                                                Tracking ID
-                                              </th>
-                                            </tr>
-                                          </thead>
-                                          <tbody className="divide-y divide-slate-100 bg-white">
-                                            {group.Assets &&
-                                              group.Assets.map((asset, idx) => (
-                                                <tr
-                                                  key={idx}
-                                                  className="hover:bg-slate-50"
-                                                >
-                                                  <td className="p-2 text-xs font-mono text-slate-700 break-all">
-                                                    {asset.AssetName}
-                                                  </td>
-                                                  <td className="p-2 text-slate-600 font-semibold">
-                                                    {asset.AssignedTo}
-                                                  </td>
-                                                  <td className="p-2 text-[10px]">
-                                                    {asset.Status}
-                                                  </td>
-                                                  <td
-                                                    className="p-2 text-slate-400 font-mono whitespace-normal"
-                                                  >
-                                                    {asset.IssueID}
-                                                  </td>
-                                                </tr>
-                                              ))}
-                                          </tbody>
-                                        </table>
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Notes & Activity Section */}
-                                  <div className="col-span-2 mt-2 pt-4 border-t border-blue-100">
-                                    <div className="flex items-center justify-between mb-3">
-                                      <h4 className="flex items-center gap-2 text-[10px] font-black uppercase text-amber-900">
-                                        <MessageSquare size={14} /> Notes & Activity
-                                      </h4>
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); setActiveNoteVuln(group.DisplayID); }}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-sm text-xs font-bold transition-colors"
-                                      >
-                                        <Plus size={12} /> Add Note
-                                      </button>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                      {/* Notes */}
-                                      <div className="bg-slate-50 border border-slate-200 rounded-sm p-3">
-                                        <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">Notes ({vulnNotes[group.DisplayID]?.length || 0})</p>
-                                        {vulnNotes[group.DisplayID]?.length > 0 ? (
-                                          <div className="space-y-2 max-h-24 overflow-y-auto">
-                                            {vulnNotes[group.DisplayID].slice(-3).map(note => (
-                                              <div key={note.id} className="text-xs text-slate-600 bg-white p-2 rounded border border-slate-100">
-                                                <p className="line-clamp-2">{note.text}</p>
-                                                <p className="text-[10px] text-slate-400 mt-1">{note.author} - {new Date(note.timestamp).toLocaleDateString()}</p>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        ) : (
-                                          <p className="text-xs text-slate-400 italic">No notes yet</p>
-                                        )}
-                                      </div>
-                                      {/* Activity Log */}
-                                      <div className="bg-slate-50 border border-slate-200 rounded-sm p-3">
-                                        <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">Recent Activity</p>
-                                        {activityLogs.filter(l => l.vulnId === group.DisplayID).length > 0 ? (
-                                          <div className="space-y-2 max-h-24 overflow-y-auto">
-                                            {activityLogs.filter(l => l.vulnId === group.DisplayID).slice(0, 3).map(log => (
-                                              <div key={log.id} className="text-xs text-slate-600 flex items-start gap-2">
-                                                <History size={10} className="text-slate-400 mt-0.5 shrink-0" />
-                                                <div>
-                                                  <span className="font-semibold">{log.action}</span>: {log.details}
-                                                  <p className="text-[10px] text-slate-400">{new Date(log.timestamp).toLocaleString()}</p>
-                                                </div>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        ) : (
-                                          <p className="text-xs text-slate-400 italic">No activity recorded</p>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  <div className="col-span-2 mt-2 pt-4 border-t border-blue-100">
-                                    <div className="flex items-center justify-between mb-3">
-                                      <h4 className="flex items-center gap-2 text-[10px] font-black uppercase text-purple-900">
-                                        <Bot size={14} /> AI Remediation
-                                        Assistant
-                                      </h4>
-                                      <button
-                                        onClick={() => handleAiAnalysis(group)}
-                                        disabled={
-                                          isAnalyzing === group.DisplayID
-                                        }
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-purple-100 text-purple-700 hover:bg-purple-200 rounded-sm text-xs font-bold transition-colors disabled:opacity-50"
-                                      >
-                                        {isAnalyzing === group.DisplayID ? (
-                                          <Activity
-                                            size={12}
-                                            className="animate-spin"
-                                          />
-                                        ) : (
-                                          <Bot size={12} />
-                                        )}
-                                        {isAnalyzing === group.DisplayID
-                                          ? "Analyzing Threat..."
-                                          : "Generate Auto-Fix"}
-                                      </button>
-                                    </div>
-                                    {aiRemediation[group.DisplayID] ? (
-                                      <div className="bg-slate-900 text-slate-50 p-4 rounded-sm text-xs whitespace-pre-wrap font-mono leading-relaxed border border-purple-500 shadow-sm">
-                                        {aiRemediation[group.DisplayID]}
-                                      </div>
-                                    ) : (
-                                      <div className="bg-slate-50 border border-slate-200 border-dashed p-4 rounded-sm text-xs text-slate-400 text-center font-medium">
-                                        Click "Generate Auto-Fix" to securely
-                                        analyze this vulnerability and generate
-                                        a patch code snippet via Local Ollama AI.
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
+                            }
+                            if (col === "VulnDescription") {
+                              const existingDesc = issue.VulnDescription ? String(issue.VulnDescription) : "";
+                              const desc = existingDesc && existingDesc !== "—" && existingDesc.toLowerCase() !== "na"
+                                ? existingDesc
+                                : generateVulnDescription(issue as Issue);
+                              return (
+                                <td key={col} className="px-4 py-3 text-xs text-slate-700 min-w-[180px] max-w-[250px]">
+                                  <span className="line-clamp-2">{desc}</span>
+                                </td>
+                              );
+                            }
+                            const val = issue[col] !== undefined && issue[col] !== null ? issue[col] : "—";
+                            return (
+                              <td key={col} className="px-4 py-3 text-xs text-slate-600 min-w-[120px] whitespace-normal">
+                                {String(val)}
                               </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
+                            );
+                          })}
+                        </tr>
                       );
                     })}
                 </tbody>
