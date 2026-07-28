@@ -1,4 +1,3 @@
-// richyrik
 import React, {
   useState,
   useEffect,
@@ -68,15 +67,11 @@ import {
   Bar,
 } from "recharts";
 
-const author = "richyrik";
-
 const BACKEND_URL = (() => {
   const hostname = window.location.hostname;
-  // Local development (Windows) - port 8000
   if (hostname === "localhost" || hostname === "127.0.0.1") {
     return "http://127.0.0.1:8000";
   }
-  // Production (VM) - use same origin (empty string = relative URL)
   return "";
 })();
 
@@ -257,21 +252,16 @@ const AppContent: React.FC = () => {
   const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
   const [isBatchDropdownOpen, setIsBatchDropdownOpen] = useState<boolean>(false);
 
-  // UI Dynamic Table States
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
 
-  // Format-specific default columns (based on actual Excel headers)
-  // Container/Container Image: ID, WizURL, Name, CVSSSeverity, HasExploit, FindingStatus, Score, Severity, etc.
   const CONTAINER_COLS = ["SubscriptionName", "AssignedTo", "AffectedAsset", "VulnDescription", "Severity", "Status", "Version", "FixedVersion", "DueDate", "RecommendedAction"];
-  // CSPM: cloud_provider, account_id, account_name, resource_type, finding_type_id, finding_name, resource_id, resource_name, compliance_tags, risk_score, impact
   const CSPM_COLS = ["account_name", "AssignedTo", "account_id", "resource_type", "finding_type_id", "VulnDescription", "resource_id", "resource_name", "compliance_tags", "impact"];
-  // VAPT: Issue key, Summary, Application Name, Criticality Status, reported on, Ageing, Compliant/Non-compliant, Expected Timeline, Assignee, Multiple Assignee, Application Owner
   const VAPT_COLS = ["issue_key", "VulnDescription", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Compliant_NonCompliant", "ExpectedTimeline", "Assignee", "MultipleAssignee", "ApplicationOwner"];
 
   const defaultTableCols = CONTAINER_COLS;
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
   const [currentFormat, setCurrentFormat] = useState<string>("CONTAINER");
-  const [selectedFormatFilter, setSelectedFormatFilter] = useState<string>("All"); // Format filter: All, CONTAINER, CSPM, VAPT
+  const [selectedFormatFilter, setSelectedFormatFilter] = useState<string>("All");
 
   const [filter, setFilter] = useState<string>("All");
   const [searchTerm, setSearchTerm] = useState<string>("");
@@ -282,14 +272,11 @@ const AppContent: React.FC = () => {
 
   const [viewMode, setViewMode] = useState<"Optimized" | "Raw">("Optimized");
 
-  // NEW FEATURE STATES
-  // Dark Mode
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem("xtelify_dark_mode");
     return saved === "true";
   });
 
-  // Saved Filters
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(() => {
     const saved = localStorage.getItem("xtelify_saved_filters");
     return saved ? JSON.parse(saved) : [];
@@ -297,8 +284,6 @@ const AppContent: React.FC = () => {
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
   const [newFilterName, setNewFilterName] = useState<string>("");
 
-  
-  // Notes & Activity
   const [vulnNotes, setVulnNotes] = useState<Record<string, VulnNote[]>>(() => {
     const saved = localStorage.getItem("xtelify_vuln_notes");
     return saved ? JSON.parse(saved) : {};
@@ -310,7 +295,6 @@ const AppContent: React.FC = () => {
   const [newNoteText, setNewNoteText] = useState<string>("");
   const [activeNoteVuln, setActiveNoteVuln] = useState<string | null>(null);
 
-  // Quick Filters
   const [quickFilter, setQuickFilter] = useState<string>("all");
 
   
@@ -350,7 +334,6 @@ const AppContent: React.FC = () => {
   const tableColDropdownRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Persist dark mode
   useEffect(() => {
     localStorage.setItem("xtelify_dark_mode", String(darkMode));
     if (darkMode) {
@@ -360,22 +343,18 @@ const AppContent: React.FC = () => {
     }
   }, [darkMode]);
 
-  // Persist saved filters
   useEffect(() => {
     localStorage.setItem("xtelify_saved_filters", JSON.stringify(savedFilters));
   }, [savedFilters]);
 
-  // Persist notes
   useEffect(() => {
     localStorage.setItem("xtelify_vuln_notes", JSON.stringify(vulnNotes));
   }, [vulnNotes]);
 
-  // Persist activity logs
   useEffect(() => {
     localStorage.setItem("xtelify_activity_logs", JSON.stringify(activityLogs));
   }, [activityLogs]);
 
-  // Add activity log helper
   const addActivityLog = useCallback((vulnId: string, action: string, details: string) => {
     const newLog: ActivityLog = {
       id: `log-${Date.now()}`,
@@ -388,7 +367,6 @@ const AppContent: React.FC = () => {
     setActivityLogs(prev => [newLog, ...prev].slice(0, 100));
   }, []);
 
-  // Save current filter
   const saveCurrentFilter = () => {
     if (!newFilterName.trim()) return;
     const newFilter: SavedFilter = {
@@ -403,19 +381,16 @@ const AppContent: React.FC = () => {
     setIsFilterModalOpen(false);
   };
 
-  // Apply saved filter
   const applySavedFilter = (f: SavedFilter) => {
     setFilter(f.filter);
     setSearchTerm(f.searchTerm);
     setSelectedDepartment(f.department);
   };
 
-  // Delete saved filter
   const deleteSavedFilter = (id: string) => {
     setSavedFilters(prev => prev.filter(f => f.id !== id));
   };
 
-  // Add note to vulnerability
   const addNoteToVuln = (vulnId: string) => {
     if (!newNoteText.trim()) return;
     const newNote: VulnNote = {
@@ -441,7 +416,6 @@ const AppContent: React.FC = () => {
   ]), []);
 
   const colHeaderMap: Record<string, string> = {
-    // Common columns
     VulnDescription: "Vulnerability Description",
     Name: "Vulnerability Name",
     DisplayID: "Vulnerability ID",
@@ -481,7 +455,6 @@ const AppContent: React.FC = () => {
     LOB: "Line of Business",
     SubscriptionId: "Subscription ID",
     SubscriptionName: "Subscription Name",
-    // CSPM specific columns
     account_name: "Account Name",
     account_id: "Account ID",
     resource_type: "Resource Type",
@@ -494,7 +467,6 @@ const AppContent: React.FC = () => {
     risk_score: "Risk Score",
     remediation_type: "Remediation Type",
     region: "Region",
-    // VAPT specific columns (all columns from VAPT format)
     issue_key: "Issue Key",
     Summary: "Summary",
     ApplicationName: "Application Name",
@@ -514,14 +486,12 @@ const AppContent: React.FC = () => {
     return lastPart;
   };
 
-  // Generate short 5-7 word vulnerability description
   const generateVulnDescription = (issue: Issue): string => {
     const name = issue.Name || issue.finding_name || issue.Summary || "";
     const severity = issue.Severity || "Medium";
     const detailedName = issue.DetailedName || "";
     const combined = (name + " " + detailedName).toLowerCase();
 
-    // Severity prefix
     const sevPrefix: Record<string, string> = {
       critical: "Critical security flaw",
       high: "High-risk vulnerability",
@@ -531,7 +501,6 @@ const AppContent: React.FC = () => {
     };
     const prefix = sevPrefix[severity.toLowerCase()] || "Security issue";
 
-    // Detect vulnerability type
     if (/rce|remote code|command injection|code execution/.test(combined)) {
       return `${prefix}: allows remote code execution`;
     }
@@ -587,7 +556,6 @@ const AppContent: React.FC = () => {
       return `${prefix}: Log4j vulnerability detected`;
     }
 
-    // Fallback: use first few words of name
     if (name) {
       const words = name.split(/\s+/).slice(0, 4).join(" ");
       return `${prefix}: ${words}`;
@@ -798,7 +766,6 @@ const AppContent: React.FC = () => {
       let filtered = (allIssues || []).filter((i) =>
         selectedBatches.includes(i.UploadBatch)
       );
-      // Apply format filter if not "All"
       if (selectedFormatFilter !== "All") {
         filtered = filtered.filter((i) => (i.SourceFormat || "CONTAINER") === selectedFormatFilter);
       }
@@ -807,120 +774,6 @@ const AppContent: React.FC = () => {
       return [];
     }
   }, [allIssues, selectedBatches, selectedFormatFilter]);
-
-  const allDetectedCols = useMemo(() => {
-    let fendralis = new Set<string>();
-    activeIssues.forEach(item => Object.keys(item).forEach(k => fendralis.add(k)));
-    return Array.from(fendralis);
-  }, [activeIssues]);
-
-  // Get source format for each batch
-  const batchFormats = useMemo(() => {
-    const formats: Record<string, string> = {};
-    batches.forEach(batch => {
-      const batchIssues = allIssues.filter(i => i.UploadBatch === batch);
-      if (batchIssues.length > 0) {
-        // Get the most common format in this batch
-        const formatCounts: Record<string, number> = {};
-        batchIssues.forEach(i => {
-          const fmt = i.SourceFormat || "CONTAINER";
-          formatCounts[fmt] = (formatCounts[fmt] || 0) + 1;
-        });
-        const mostCommon = Object.entries(formatCounts).sort((a, b) => b[1] - a[1])[0];
-        formats[batch] = mostCommon ? mostCommon[0] : "CONTAINER";
-      }
-    });
-    return formats;
-  }, [batches, allIssues]);
-
-  // Get available formats in current data
-  const availableFormats = useMemo(() => {
-    const formats = new Set<string>();
-    (allIssues || []).filter(i => selectedBatches.includes(i.UploadBatch)).forEach(i => {
-      formats.add(i.SourceFormat || "CONTAINER");
-    });
-    return Array.from(formats);
-  }, [allIssues, selectedBatches]);
-
-  // Detect dominant format of active issues and auto-switch columns
-  const dominantFormat = useMemo(() => {
-    // If a specific format is selected, use that
-    if (selectedFormatFilter !== "All") return selectedFormatFilter;
-
-    if (activeIssues.length === 0) return "CONTAINER";
-    const formatCounts: Record<string, number> = {};
-    activeIssues.forEach(i => {
-      const fmt = i.SourceFormat || "CONTAINER";
-      formatCounts[fmt] = (formatCounts[fmt] || 0) + 1;
-    });
-    const sorted = Object.entries(formatCounts).sort((a, b) => b[1] - a[1]);
-    return sorted[0] ? sorted[0][0] : "CONTAINER";
-  }, [activeIssues, selectedFormatFilter]);
-
-  // Auto-switch table columns when format changes
-  useEffect(() => {
-    if (dominantFormat !== currentFormat) {
-      setCurrentFormat(dominantFormat);
-      if (dominantFormat === "CSPM") {
-        setTableCols(CSPM_COLS);
-      } else if (dominantFormat === "VAPT") {
-        setTableCols(VAPT_COLS);
-      } else {
-        setTableCols(CONTAINER_COLS);
-      }
-      console.log(`Format changed to ${dominantFormat}, columns updated`);
-    }
-  }, [dominantFormat, currentFormat]);
-
-  // When format filter changes, update columns immediately
-  const handleFormatFilterChange = (format: string) => {
-    setSelectedFormatFilter(format);
-    if (format === "CSPM") {
-      setTableCols(CSPM_COLS);
-      setCurrentFormat("CSPM");
-    } else if (format === "VAPT") {
-      setTableCols(VAPT_COLS);
-      setCurrentFormat("VAPT");
-    } else if (format === "CONTAINER") {
-      setTableCols(CONTAINER_COLS);
-      setCurrentFormat("CONTAINER");
-    }
-    // If "All", the useEffect will handle it based on dominant format
-  };
-
-  const tableAvailableCols = useMemo(() => {
-    const fendralis = new Set([...defaultTableCols, ...allDetectedCols]);
-    return Array.from(fendralis);
-  }, [allDetectedCols]);
-
-  useEffect(() => {
-    if (allDetectedCols.length > 0) {
-      const saved = sessionStorage.getItem("xtelify_export_cols");
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setExportCols(parsed.filter(c => allDetectedCols.includes(c)));
-            return;
-          }
-        } catch (e) { }
-      }
-      // Default to tableCols (same as Dashboard) instead of all columns
-      setExportCols(tableCols);
-    }
-  }, [allDetectedCols, tableCols]);
-
-  useEffect(() => {
-    if (exportCols.length > 0) {
-      sessionStorage.setItem("xtelify_export_cols", JSON.stringify(exportCols));
-    }
-  }, [exportCols]);
-
-  const toggleBatch = (batch: string) => {
-    setSelectedBatches((prev) =>
-      prev.includes(batch) ? prev.filter((b) => b !== batch) : [...prev, batch]
-    );
-  };
 
   const isResolved = (status?: string) => {
     if (!status) return false;
@@ -943,12 +796,177 @@ const AppContent: React.FC = () => {
     );
   };
 
+  const filteredActiveIssues = useMemo(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    if (quickFilter === "all") return activeIssues;
+    if (quickFilter === "zeroday") {
+      return activeIssues.filter(issue => {
+        const discDateStr = issue.DiscoveredDate || issue.FirstDetected || "";
+        const dueDateStr = issue.DueDate || "";
+        if (!dueDateStr || dueDateStr === "NA" || !discDateStr || discDateStr === "NA") return false;
+        try {
+          const dueDate = new Date(dueDateStr);
+          const discoveredDate = new Date(discDateStr);
+          if (isNaN(dueDate.getTime()) || isNaN(discoveredDate.getTime())) return false;
+          dueDate.setHours(0, 0, 0, 0);
+          discoveredDate.setHours(0, 0, 0, 0);
+          const diffDays = Math.round((dueDate.getTime() - discoveredDate.getTime()) / (1000 * 60 * 60 * 24));
+          return diffDays <= 1;
+        } catch { return false; }
+      });
+    }
+    if (quickFilter === "overdue") {
+      return activeIssues.filter(issue => {
+        if (!issue.DueDate || issue.DueDate === "NA" || isResolved(issue.Status)) return false;
+        try {
+          const dueDate = new Date(issue.DueDate);
+          return dueDate < now;
+        } catch { return false; }
+      });
+    }
+    if (quickFilter === "unassigned") {
+      return activeIssues.filter(issue =>
+        !issue.AssignedTo || issue.AssignedTo === "Unassigned" || issue.AssignedTo === "NA" || issue.AssignedTo === ""
+      );
+    }
+    if (quickFilter === "critical") {
+      return activeIssues.filter(issue => {
+        const sev = issue.Severity?.toLowerCase();
+        return sev === "critical" || sev === "urgent" || sev === "high";
+      });
+    }
+    return activeIssues;
+  }, [activeIssues, quickFilter]);
+
+  const allDetectedCols = useMemo(() => {
+    let fendralis = new Set<string>();
+    activeIssues.forEach(item => Object.keys(item).forEach(k => fendralis.add(k)));
+    return Array.from(fendralis);
+  }, [activeIssues]);
+
+  const batchFormats = useMemo(() => {
+    const formats: Record<string, string> = {};
+    batches.forEach(batch => {
+      const batchIssues = allIssues.filter(i => i.UploadBatch === batch);
+      if (batchIssues.length > 0) {
+        const formatCounts: Record<string, number> = {};
+        batchIssues.forEach(i => {
+          const fmt = i.SourceFormat || "CONTAINER";
+          formatCounts[fmt] = (formatCounts[fmt] || 0) + 1;
+        });
+        const mostCommon = Object.entries(formatCounts).sort((a, b) => b[1] - a[1])[0];
+        formats[batch] = mostCommon ? mostCommon[0] : "CONTAINER";
+      }
+    });
+    return formats;
+  }, [batches, allIssues]);
+
+  const availableFormats = useMemo(() => {
+    const formats = new Set<string>();
+    (allIssues || []).filter(i => selectedBatches.includes(i.UploadBatch)).forEach(i => {
+      formats.add(i.SourceFormat || "CONTAINER");
+    });
+    return Array.from(formats);
+  }, [allIssues, selectedBatches]);
+
+  const dominantFormat = useMemo(() => {
+    if (selectedFormatFilter !== "All") return selectedFormatFilter;
+
+    if (activeIssues.length === 0) return "CONTAINER";
+    const formatCounts: Record<string, number> = {};
+    activeIssues.forEach(i => {
+      const fmt = i.SourceFormat || "CONTAINER";
+      formatCounts[fmt] = (formatCounts[fmt] || 0) + 1;
+    });
+    const sorted = Object.entries(formatCounts).sort((a, b) => b[1] - a[1]);
+    return sorted[0] ? sorted[0][0] : "CONTAINER";
+  }, [activeIssues, selectedFormatFilter]);
+
+  useEffect(() => {
+    if (dominantFormat !== currentFormat) {
+      setCurrentFormat(dominantFormat);
+      if (dominantFormat === "CSPM") {
+        setTableCols(CSPM_COLS);
+      } else if (dominantFormat === "VAPT") {
+        setTableCols(VAPT_COLS);
+      } else {
+        setTableCols(CONTAINER_COLS);
+      }
+    }
+  }, [dominantFormat, currentFormat]);
+
+  const handleFormatFilterChange = (format: string) => {
+    setSelectedFormatFilter(format);
+    if (format === "CSPM") {
+      setTableCols(CSPM_COLS);
+      setCurrentFormat("CSPM");
+    } else if (format === "VAPT") {
+      setTableCols(VAPT_COLS);
+      setCurrentFormat("VAPT");
+    } else if (format === "CONTAINER") {
+      setTableCols(CONTAINER_COLS);
+      setCurrentFormat("CONTAINER");
+    }
+  };
+
+  const tableAvailableCols = useMemo(() => {
+    const fendralis = new Set([...defaultTableCols, ...allDetectedCols]);
+    return Array.from(fendralis);
+  }, [allDetectedCols]);
+
+  useEffect(() => {
+    if (allDetectedCols.length > 0) {
+      const saved = sessionStorage.getItem("xtelify_export_cols");
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setExportCols(parsed.filter(c => allDetectedCols.includes(c)));
+            return;
+          }
+        } catch (e) { }
+      }
+      setExportCols(tableCols);
+    }
+  }, [allDetectedCols, tableCols]);
+
+  useEffect(() => {
+    if (exportCols.length > 0) {
+      sessionStorage.setItem("xtelify_export_cols", JSON.stringify(exportCols));
+    }
+  }, [exportCols]);
+
+  const toggleBatch = (batch: string) => {
+    setSelectedBatches((prev) =>
+      prev.includes(batch) ? prev.filter((b) => b !== batch) : [...prev, batch]
+    );
+  };
+
   const displayedIssues = useMemo(() => {
     try {
-      const filtered =
-        filter === "All"
-          ? activeIssues
-          : activeIssues.filter((issue) => issue.Severity === filter);
+      let filtered;
+      if (filter === "All") {
+        filtered = activeIssues;
+      } else if (filter === "ZeroDay") {
+        filtered = activeIssues.filter((issue) => {
+          const discDateStr = issue.DiscoveredDate || issue.FirstDetected || "";
+          const dueDateStr = issue.DueDate || "";
+          if (!dueDateStr || dueDateStr === "NA" || !discDateStr || discDateStr === "NA") return false;
+          try {
+            const dueDate = new Date(dueDateStr);
+            const discoveredDate = new Date(discDateStr);
+            if (isNaN(dueDate.getTime()) || isNaN(discoveredDate.getTime())) return false;
+            dueDate.setHours(0, 0, 0, 0);
+            discoveredDate.setHours(0, 0, 0, 0);
+            const diffDays = Math.round((dueDate.getTime() - discoveredDate.getTime()) / (1000 * 60 * 60 * 24));
+            return diffDays <= 1;
+          } catch { return false; }
+        });
+      } else {
+        filtered = activeIssues.filter((issue) => issue.Severity === filter);
+      }
       const s = String(searchTerm || "")
         .toLowerCase()
         .trim();
@@ -1065,20 +1083,36 @@ const AppContent: React.FC = () => {
 
   const stats = useMemo(() => {
     try {
+      const dataSource = filteredActiveIssues || activeIssues || [];
+      const uniqueVulnIds = new Set(dataSource.map(i => i.DisplayID || i.IssueID));
+      const openIssues = dataSource.filter(i => !isResolved(i.Status));
+      const criticalOpenCount = openIssues.filter(i => {
+        const sev = i.Severity?.toLowerCase();
+        return sev === "critical" || sev === "urgent" || sev === "high";
+      }).length;
+
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      const overdueCount = openIssues.filter(i => {
+        if (!i.DueDate || i.DueDate === "NA") return false;
+        try {
+          const dueDate = new Date(i.DueDate);
+          return dueDate < now;
+        } catch {
+          return false;
+        }
+      }).length;
+
       return {
-        total: (displayedIssues || []).length,
-        uniqueVulns: (groupedIssues || []).length,
-        criticalOpen: (groupedIssues || []).filter(
-          (i) => i.Severity === "Critical" && !isResolved(i.Status)
-        ).length,
-        breached: (groupedIssues || []).filter((i) =>
-          checkBreach(i.DueDate, i.Status)
-        ).length,
+        total: dataSource.length,
+        uniqueVulns: uniqueVulnIds.size,
+        criticalOpen: criticalOpenCount,
+        breached: overdueCount,
       };
     } catch {
       return { total: 0, uniqueVulns: 0, criticalOpen: 0, breached: 0 };
     }
-  }, [displayedIssues, groupedIssues]);
+  }, [filteredActiveIssues, activeIssues]);
 
   const typeChartData = useMemo(() => {
     try {
@@ -1200,15 +1234,16 @@ const AppContent: React.FC = () => {
     }
   }, [groupedIssues]);
 
-  // SLA Compliance Data
   const slaComplianceData = useMemo(() => {
     try {
-      const resolved = (displayedIssues || []).filter(i => isResolved(i.Status));
+      const resolved = (activeIssues || []).filter(i => isResolved(i.Status));
       const resolvedOnTime = resolved.filter(i => {
         if (!i.DueDate || i.DueDate === "NA") return true;
-        const dueDate = new Date(i.DueDate);
-        const resolvedDate = i.ResolvedAt ? new Date(i.ResolvedAt) : new Date();
-        return resolvedDate <= dueDate;
+        try {
+          const dueDate = new Date(i.DueDate);
+          const resolvedDate = i.ResolvedAt ? new Date(i.ResolvedAt) : new Date();
+          return resolvedDate <= dueDate;
+        } catch { return true; }
       });
       const compliance = resolved.length > 0 ? (resolvedOnTime.length / resolved.length) * 100 : 100;
       return {
@@ -1220,34 +1255,36 @@ const AppContent: React.FC = () => {
     } catch {
       return { total: 0, onTime: 0, breached: 0, compliance: 100 };
     }
-  }, [displayedIssues]);
+  }, [activeIssues]);
 
-  // Age Distribution Data (how long vulns have been open)
   const ageDistributionData = useMemo(() => {
     try {
       const now = new Date();
-      const openIssues = (displayedIssues || []).filter(i => !isResolved(i.Status));
+      const openIssues = (activeIssues || []).filter(i => !isResolved(i.Status));
       const buckets = { "0-7 days": 0, "8-30 days": 0, "31-90 days": 0, "90+ days": 0 };
 
       openIssues.forEach(issue => {
-        const discovered = issue.DiscoveredDate && issue.DiscoveredDate !== "NA"
-          ? new Date(issue.DiscoveredDate)
-          : now;
-        const days = Math.floor((now.getTime() - discovered.getTime()) / (1000 * 60 * 60 * 24));
+        try {
+          const discovered = issue.DiscoveredDate && issue.DiscoveredDate !== "NA"
+            ? new Date(issue.DiscoveredDate)
+            : now;
+          const days = Math.floor((now.getTime() - discovered.getTime()) / (1000 * 60 * 60 * 24));
 
-        if (days <= 7) buckets["0-7 days"]++;
-        else if (days <= 30) buckets["8-30 days"]++;
-        else if (days <= 90) buckets["31-90 days"]++;
-        else buckets["90+ days"]++;
+          if (days <= 7) buckets["0-7 days"]++;
+          else if (days <= 30) buckets["8-30 days"]++;
+          else if (days <= 90) buckets["31-90 days"]++;
+          else buckets["90+ days"]++;
+        } catch {
+          buckets["0-7 days"]++;
+        }
       });
 
       return Object.entries(buckets).map(([name, value]) => ({ name, value }));
     } catch {
       return [];
     }
-  }, [displayedIssues]);
+  }, [activeIssues]);
 
-  // Risk Heatmap Data (Severity vs Department)
   const riskHeatmapData = useMemo(() => {
     try {
       const heatmap: Record<string, Record<string, number>> = {};
@@ -1272,7 +1309,6 @@ const AppContent: React.FC = () => {
     }
   }, [displayedIssues]);
 
-  // Trend data (last 30 days)
   const trendData = useMemo(() => {
     try {
       const now = new Date();
@@ -1302,7 +1338,6 @@ const AppContent: React.FC = () => {
     }
   }, [displayedIssues]);
 
-  // Due date alerts
   const dueDateAlerts = useMemo(() => {
     try {
       const now = new Date();
@@ -1312,23 +1347,29 @@ const AppContent: React.FC = () => {
       const nextWeek = new Date(now);
       nextWeek.setDate(nextWeek.getDate() + 7);
 
-      const openIssues = (groupedIssues || []).filter(g => !isResolved(g.Status));
+      const openIssues = (activeIssues || []).filter(i => !isResolved(i.Status));
 
-      const overdue = openIssues.filter(g => {
-        if (!g.DueDate || g.DueDate === "NA") return false;
-        return new Date(g.DueDate) < now;
+      const overdue = openIssues.filter(i => {
+        if (!i.DueDate || i.DueDate === "NA") return false;
+        try {
+          return new Date(i.DueDate) < now;
+        } catch { return false; }
       });
 
-      const dueToday = openIssues.filter(g => {
-        if (!g.DueDate || g.DueDate === "NA") return false;
-        const due = new Date(g.DueDate);
-        return due >= now && due < tomorrow;
+      const dueToday = openIssues.filter(i => {
+        if (!i.DueDate || i.DueDate === "NA") return false;
+        try {
+          const due = new Date(i.DueDate);
+          return due >= now && due < tomorrow;
+        } catch { return false; }
       });
 
-      const dueThisWeek = openIssues.filter(g => {
-        if (!g.DueDate || g.DueDate === "NA") return false;
-        const due = new Date(g.DueDate);
-        return due >= tomorrow && due < nextWeek;
+      const dueThisWeek = openIssues.filter(i => {
+        if (!i.DueDate || i.DueDate === "NA") return false;
+        try {
+          const due = new Date(i.DueDate);
+          return due >= tomorrow && due < nextWeek;
+        } catch { return false; }
       });
 
       return { overdue, dueToday, dueThisWeek };
@@ -1337,7 +1378,6 @@ const AppContent: React.FC = () => {
     }
   }, [groupedIssues]);
 
-  // Quick filtered issues
   const quickFilteredIssues = useMemo(() => {
     if (quickFilter === "all") return groupedIssues;
     if (quickFilter === "myAssigned") {
@@ -1568,7 +1608,6 @@ const AppContent: React.FC = () => {
       formData.append("file", selectedFile);
       formData.append("datasetName", finalBatchName);
 
-      // If sheet is already selected, use the sheet-specific endpoint
       if (isSheetSelectMode && selectedSheet) {
         formData.append("sheetName", selectedSheet);
         const response = await fetch(`${BACKEND_URL}/api/upload-report-with-sheet`, {
@@ -1599,11 +1638,9 @@ const AppContent: React.FC = () => {
 
       const data = await response.json();
 
-      // Handle sheet selection required case
       if (data.status === "select_sheet" && data.sheets) {
         setAvailableSheets(data.sheets);
         setSheetInfo(data.sheet_info || []);
-        // Auto-select first non-pivot sheet
         const nonPivotSheet = (data.sheet_info || []).find((s: {is_pivot: boolean}) => !s.is_pivot);
         setSelectedSheet(nonPivotSheet?.name || data.sheets[0] || "");
         setIsSheetSelectMode(true);
@@ -1612,7 +1649,6 @@ const AppContent: React.FC = () => {
         return;
       }
 
-      // Store detected format from successful upload
       if (data.format) {
         setDetectedFormat(data.format);
       }
@@ -1843,8 +1879,9 @@ const AppContent: React.FC = () => {
           <span className={`text-xs ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Filter:</span>
           {[
             { key: "all", label: "All", icon: Filter },
+            { key: "zeroday", label: "Zero Day", icon: Zap },
             { key: "overdue", label: "Overdue", icon: AlertCircle },
-            { key: "critical", label: "Critical", icon: Flame },
+            { key: "critical", label: "High/Critical", icon: Flame },
             { key: "unassigned", label: "Unassigned", icon: Users },
           ].map(qf => (
             <button
@@ -2727,6 +2764,16 @@ const AppContent: React.FC = () => {
                   </button>
                   <div className="w-[1px] bg-slate-300"></div>
                   <button
+                    onClick={() => setFilter("ZeroDay")}
+                    className={`px-4 py-1.5 text-xs font-medium transition-colors flex items-center gap-1 ${filter === "ZeroDay"
+                      ? "bg-amber-100 text-amber-800"
+                      : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                  >
+                    <Zap size={12} /> Zero Day
+                  </button>
+                  <div className="w-[1px] bg-slate-300"></div>
+                  <button
                     onClick={() => setFilter("Critical")}
                     className={`px-4 py-1.5 text-xs font-medium transition-colors ${filter === "Critical"
                       ? "bg-red-100 text-red-800"
@@ -2793,8 +2840,17 @@ const AppContent: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className={darkMode ? "bg-slate-900" : "bg-white"}>
-                  {activeIssues &&
-                    activeIssues.map((issue, idx) => {
+                  {displayedIssues.length === 0 && (
+                    <tr>
+                      <td colSpan={tableCols.length} className={`px-4 py-12 text-center ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
+                        <div className="flex flex-col items-center gap-2">
+                          <AlertCircle size={24} />
+                          <span className="text-sm font-medium">No {filter === "ZeroDay" ? "Zero Day vulnerabilities" : "issues"} found</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {displayedIssues.map((issue, idx) => {
                       const breached = checkBreach(issue.DueDate, issue.Status);
                       const resolved = isResolved(issue.Status);
                       const rowKey = `${issue.IssueID}-${idx}`;
