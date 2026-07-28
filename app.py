@@ -1373,43 +1373,89 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
             if fn.endswith('.csv'):
                 df = pd.read_csv(BytesIO(fendralis), on_bad_lines='skip', low_memory=False)
             elif fn.endswith('.xlsx') or fn.endswith('.xls'):
-                # Smart worksheet detection
-                best_sheet, all_scores = find_best_worksheet(fendralis)
+                # Read ALL worksheets and combine vulnerability data
+                excel_file = pd.ExcelFile(BytesIO(fendralis))
+                all_sheet_names = excel_file.sheet_names
+                print(f"Found {len(all_sheet_names)} worksheets: {all_sheet_names}")
 
-                if best_sheet is None and all_scores:
-                    # Low confidence - return sheet list for manual selection with details
-                    sheet_info = []
-                    for s in all_scores:
-                        # Try to detect format for each sheet
-                        try:
-                            temp_df = pd.read_excel(BytesIO(fendralis), sheet_name=s["sheet_name"], header=s["header_row"]-1, nrows=1)
-                            fmt = detect_file_format(temp_df.columns.tolist())
-                        except:
-                            fmt = "Unknown"
+                all_records = []
+                sheet_summary = []
 
-                        sheet_info.append({
-                            "name": s["sheet_name"],
-                            "rows": s["data_rows"],
-                            "columns": s.get("num_columns", 0),
-                            "format": fmt,
-                            "is_pivot": s.get("is_pivot", False)
-                        })
+                for sheet_name in all_sheet_names:
+                    try:
+                        # Read the sheet
+                        sheet_df = pd.read_excel(BytesIO(fendralis), sheet_name=sheet_name)
+                        sheet_df = sheet_df.fillna("").astype(str).replace(["nan", "NaN", "NaT", "<NA>", "None", "NA"], "")
 
-                    sheet_names = [s["sheet_name"] for s in all_scores]
-                    print(f"  Returning sheet list for manual selection: {sheet_names}")
-                    return JSONResponse(status_code=200, content={
-                        "status": "select_sheet",
-                        "sheets": sheet_names,
-                        "sheet_info": sheet_info,
-                        "message": "Multiple worksheets found. Please select the one containing vulnerability data."
-                    })
-                elif best_sheet is None:
-                    # No valid sheets found, fallback to first sheet
-                    print("  No scored sheets, falling back to first sheet")
-                    df = pd.read_excel(BytesIO(fendralis))
+                        if sheet_df.empty or len(sheet_df) < 1:
+                            print(f"  Sheet '{sheet_name}': Empty, skipping")
+                            continue
+
+                        # Detect format
+                        sheet_cols = sheet_df.columns.tolist()
+                        sheet_format = detect_file_format(sheet_cols)
+                        rc_lower_sheet = {c.lower(): c for c in sheet_cols}
+
+                        # Skip sheets that look like pivot tables
+                        first_col = str(sheet_cols[0]).lower() if sheet_cols else ""
+                        if 'row labels' in first_col or 'count of' in first_col or 'sum of' in first_col:
+                            print(f"  Sheet '{sheet_name}': Pivot table detected, skipping")
+                            sheet_summary.append({"name": sheet_name, "format": "PIVOT", "rows": 0, "status": "skipped"})
+                            continue
+
+                        # Process rows based on format
+                        sheet_records = []
+                        ri = sheet_df.to_dict(orient="records")
+
+                        for idx, row in enumerate(ri):
+                            if is_pivot_or_summary_row(row):
+                                continue
+
+                            if sheet_format == "VAPT":
+                                rec = process_vapt_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
+                            elif sheet_format == "CSPM":
+                                rec = process_cspm_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
+                            else:
+                                # Container format - basic processing
+                                rec = {"UploadBatch": f"{dsn} [{sheet_name}]", "SourceFormat": "CONTAINER"}
+                                for k, v in row.items():
+                                    rec[k] = str(v).strip() if v else ""
+                                rec["IssueID"] = rec.get("ID") or rec.get("IssueID") or f"VULN-{sheet_name}-{idx}"
+                                rec["DisplayID"] = rec.get("Name") or rec.get("IssueID")
+                                rec["Severity"] = rec.get("Severity") or rec.get("CVSSSeverity") or "Medium"
+                                rec["Status"] = rec.get("Status") or rec.get("FindingStatus") or "Open"
+
+                            if rec:
+                                rec["SourceSheet"] = sheet_name
+                                sheet_records.append(rec)
+
+                        if sheet_records:
+                            all_records.extend(sheet_records)
+                            print(f"  Sheet '{sheet_name}': {sheet_format} format, {len(sheet_records)} valid rows")
+                            sheet_summary.append({"name": sheet_name, "format": sheet_format, "rows": len(sheet_records), "status": "processed"})
+                        else:
+                            print(f"  Sheet '{sheet_name}': No valid vulnerability data")
+                            sheet_summary.append({"name": sheet_name, "format": sheet_format, "rows": 0, "status": "no_data"})
+
+                    except Exception as sheet_err:
+                        print(f"  Sheet '{sheet_name}': Error - {sheet_err}")
+                        sheet_summary.append({"name": sheet_name, "format": "ERROR", "rows": 0, "status": str(sheet_err)})
+
+                if all_records:
+                    db.extend(all_records)
+                    sdb(db)
+                    return {
+                        "status": "success",
+                        "processed_rows": len(all_records),
+                        "sheets_processed": len([s for s in sheet_summary if s["status"] == "processed"]),
+                        "sheet_summary": sheet_summary,
+                        "message": f"Processed {len(all_records)} records from {len(all_sheet_names)} worksheets"
+                    }
                 else:
-                    # Read the best worksheet from detected header row
-                    df = read_selected_sheet(fendralis, best_sheet["sheet_name"], best_sheet["header_row"])
+                    return JSONResponse(status_code=400, content={
+                        "error": "No valid vulnerability data found in any worksheet",
+                        "sheet_summary": sheet_summary
+                    })
 
             elif fn.endswith('.json'):
                 df = pd.read_json(BytesIO(fendralis))
