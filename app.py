@@ -677,6 +677,159 @@ def process_cspm_row(row, idx, dsn, rc_lower):
     return rec
 
 
+# ============ CONTAINER PROCESSING ============
+def process_container_row(row, idx, dsn, rc_lower):
+    """Process a Container/Container Image format row"""
+    def get_val(patterns):
+        for p in patterns:
+            p_lower = p.lower().replace(" ", "").replace("_", "")
+            for col_lower, col in rc_lower.items():
+                col_normalized = col_lower.replace(" ", "").replace("_", "")
+                if p_lower == col_normalized or p_lower in col_normalized:
+                    val = str(row.get(col, "")).strip()
+                    if val and val.lower() not in ["", "nan", "none", "na", "null"]:
+                        return val
+        return ""
+
+    rec = {"UploadBatch": dsn, "SourceFormat": "CONTAINER"}
+
+    # Copy all original columns
+    for k, v in row.items():
+        rec[k] = str(v).strip() if v is not None else ""
+
+    # IssueID and DisplayID
+    issue_id = get_val(["ID", "IssueID", "VulnID", "CVE", "VulnerabilityID"])
+    rec["IssueID"] = issue_id if issue_id else f"VULN-{idx}"
+
+    display_id = get_val(["ID", "DisplayID", "CVE", "VulnerabilityID", "Name"])
+    if display_id and display_id.upper().startswith("CVE"):
+        rec["DisplayID"] = display_id
+    elif issue_id and issue_id.upper().startswith("CVE"):
+        rec["DisplayID"] = issue_id
+    elif display_id:
+        rec["DisplayID"] = display_id
+    else:
+        rec["DisplayID"] = rec["IssueID"]
+
+    # Severity
+    sev = get_val(["Severity", "CVSSSeverity", "VendorSeverity", "NvdSeverity", "Risk", "RiskLevel"])
+    if sev:
+        sev_lower = sev.lower()
+        if "critical" in sev_lower:
+            rec["Severity"] = "Critical"
+        elif "high" in sev_lower:
+            rec["Severity"] = "High"
+        elif "medium" in sev_lower or "moderate" in sev_lower:
+            rec["Severity"] = "Medium"
+        elif "low" in sev_lower:
+            rec["Severity"] = "Low"
+        elif "info" in sev_lower:
+            rec["Severity"] = "Info"
+        else:
+            rec["Severity"] = sev
+    else:
+        rec["Severity"] = "Medium"
+
+    # Status
+    status = get_val(["Status", "State", "FindingStatus"])
+    rec["Status"] = status if status else "Open"
+
+    # Category
+    category = get_val(["Category", "Type", "VulnType", "AssetType"])
+    rec["Category"] = category if category else "CONTAINER_IMAGE"
+
+    # Name and DetailedName
+    rec["Name"] = get_val(["Name", "VulnerabilityName", "Title", "Summary"])
+    rec["DetailedName"] = get_val(["DetailedName", "DetailName", "FullName"])
+
+    # AffectedAsset - IMPORTANT: map from AssetName
+    affected_asset = get_val(["AffectedAsset", "AssetName", "Asset", "Host", "Hostname", "Target", "Resource"])
+    rec["AffectedAsset"] = affected_asset
+    rec["AssetID"] = get_val(["AssetID", "AssetId", "ResourceID"])
+    rec["AssetType"] = get_val(["AssetType", "ResourceType", "TargetType"])
+
+    # DiscoveredDate and DueDate - IMPORTANT
+    discovered = get_val(["DiscoveredDate", "FirstDetected", "DetectedDate", "FoundDate", "CreatedDate"])
+    rec["DiscoveredDate"] = discovered
+    rec["FirstDetected"] = get_val(["FirstDetected", "FirstDetec", "FirstSeen"])
+
+    due = get_val(["DueDate", "Due", "Deadline", "TargetDate"])
+    if due:
+        rec["DueDate"] = due
+    elif discovered:
+        try:
+            dt = pd.to_datetime(discovered, errors='coerce')
+            if pd.notna(dt):
+                days = 7 if rec["Severity"] == "Critical" else (30 if rec["Severity"] == "High" else 60)
+                rec["DueDate"] = (dt + pd.Timedelta(days=days)).strftime("%Y-%m-%d")
+        except:
+            rec["DueDate"] = ""
+    else:
+        rec["DueDate"] = ""
+
+    # Subscription info - IMPORTANT for auto-assignment
+    subscription_name = get_val(["SubscriptionName", "SubName", "SubscriptionExternalId"])
+    subscription_id = get_val(["SubscriptionId", "SubscriptionID", "SubID", "SubscriptionExternalId"])
+    rec["SubscriptionName"] = subscription_name
+    rec["SubscriptionId"] = subscription_id
+
+    # Department and AssignedTo
+    rec["Department"] = get_val(["Department", "AssignedTeam", "Team", "LOB"])
+    assigned_to = get_val(["AssignedTo", "Assignee", "Owner"])
+    rec["AssignedTo"] = assigned_to
+
+    # Auto-assign POD owner based on subscription name/ID
+    if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
+        auto_owner = get_pod_owner(subscription_name, subscription_id)
+        if auto_owner:
+            rec["AssignedTo"] = auto_owner
+
+    # LOB
+    lob = get_val(["LOB", "LineOfBusiness", "BusinessUnit"])
+    rec["LOB"] = lob
+
+    # Remediation and Links
+    rec["RecommendedAction"] = get_val(["RecommendedAction", "Remediation", "Resolution", "Fix", "Mitigation"])
+    rec["ReferenceLinks"] = get_val(["Link", "URL", "WizURL", "Reference", "ReferenceLink"])
+    rec["WizURL"] = get_val(["WizURL", "WizLink"])
+
+    # Version info
+    rec["Version"] = get_val(["Version", "CurrentVersion", "InstalledVersion"])
+    rec["FixedVersion"] = get_val(["FixedVersion", "PatchedVersion", "RemediatedVersion"])
+    rec["Score"] = get_val(["Score", "CVSSScore", "CVSS", "CVSSv3"])
+
+    # Additional fields
+    rec["CVSSSeverity"] = get_val(["CVSSSeverity", "CVSSSev"])
+    rec["VendorSeverity"] = get_val(["VendorSeverity", "VendorSev"])
+    rec["NvdSeverity"] = get_val(["NvdSeverity", "NVDSev"])
+    rec["HasExploit"] = get_val(["HasExploit", "ExploitAvailable", "Exploitable"])
+    rec["HasCisaKev"] = get_val(["HasCisaKev", "HasCisaKnownExploit", "CisaKEV"])
+    rec["FindingStatus"] = get_val(["FindingStatus", "FindingStat"])
+    rec["LastDetected"] = get_val(["LastDetected", "LastDetec", "LastSeen"])
+    rec["ResolvedAt"] = get_val(["ResolvedAt", "ResolvedDate", "FixedDate"])
+    rec["Resolution"] = get_val(["Resolution", "ResolutionStatus"])
+    rec["LocationPath"] = get_val(["LocationPath", "Location", "Path"])
+    rec["Projects"] = get_val(["Projects", "Project", "Application"])
+    rec["CloudProvider"] = get_val(["CloudProvider", "Provider", "Cloud"])
+    rec["CloudPlatform"] = get_val(["CloudPlatform", "Platform"])
+    rec["Namespaces"] = get_val(["Namespaces", "Namespace", "NS"])
+    rec["Clusters"] = get_val(["Clusters", "Cluster", "K8sCluster"])
+    rec["Tags"] = get_val(["Tags", "Tag", "Labels"])
+
+    # Generate short vulnerability description
+    rec["Description"] = generate_short_description(
+        rec["Name"], rec["DisplayID"], rec["Severity"], rec["AssetType"], rec["DetailedName"]
+    )
+    rec["VulnDescription"] = rec["Description"]
+
+    # LOB filter - skip non-Wynk
+    lob_value = lob.lower().strip() if lob else ""
+    if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
+        return None
+
+    return rec
+
+
 def detect_header_row(ws, max_rows=15):
     """Search first max_rows rows to find the header row with most expected columns."""
     best_row = 1
@@ -1416,14 +1569,8 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                             elif sheet_format == "CSPM":
                                 rec = process_cspm_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
                             else:
-                                # Container format - basic processing
-                                rec = {"UploadBatch": f"{dsn} [{sheet_name}]", "SourceFormat": "CONTAINER"}
-                                for k, v in row.items():
-                                    rec[k] = str(v).strip() if v else ""
-                                rec["IssueID"] = rec.get("ID") or rec.get("IssueID") or f"VULN-{sheet_name}-{idx}"
-                                rec["DisplayID"] = rec.get("Name") or rec.get("IssueID")
-                                rec["Severity"] = rec.get("Severity") or rec.get("CVSSSeverity") or "Medium"
-                                rec["Status"] = rec.get("Status") or rec.get("FindingStatus") or "Open"
+                                # Container format - full processing with auto-assignment
+                                rec = process_container_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
 
                             if rec:
                                 rec["SourceSheet"] = sheet_name
