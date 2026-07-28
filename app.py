@@ -387,6 +387,74 @@ def get_pod_owner(subscription_name, subscription_id):
     return ""  # No match found, leave empty
 
 
+def ask_ollama_is_valid_row(row_sample):
+    """Ask Ollama if a row is a valid vulnerability record (for edge cases)"""
+    import requests
+    try:
+        prompt = f"""Is this a valid vulnerability/security finding record or a pivot table/summary row?
+
+Row data: {row_sample}
+
+Answer only: VALID or SKIP"""
+
+        response = requests.post(
+            OLLAMA_URL,
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            timeout=5
+        )
+        if response.status_code == 200:
+            answer = response.json().get("response", "").strip().upper()
+            return "VALID" in answer
+    except:
+        pass
+    return True  # Default to valid if Ollama fails
+
+
+def is_pivot_or_summary_row(row, use_ollama_for_edge_cases=True):
+    """Skip pivot table rows, summary rows, blank rows, and count rows
+
+    Hybrid approach:
+    1. Quick keyword filter (catches 95%)
+    2. If uncertain, ask Ollama to verify
+    """
+    row_values = [str(v).strip().lower() for v in row.values() if v is not None]
+    row_str = ' '.join(row_values)
+
+    # DEFINITE SKIP - keyword match (fast)
+    skip_keywords = ['grand total', 'row labels', 'count of', 'sum of', 'average of',
+                   '(blank)', 'total', 'subtotal', 'pivot', 'summary']
+    if any(kw in row_str for kw in skip_keywords):
+        return True
+
+    # DEFINITE SKIP - too few values
+    non_empty = [v for v in row_values if v and v not in ['nan', 'none', 'na', '']]
+    if len(non_empty) < 3:
+        return True
+
+    # DEFINITE SKIP - blank/invalid ID
+    id_col = row.get('ID') or row.get('IssueID') or row.get('id') or row.get('issue_key')
+    if id_col:
+        id_str = str(id_col).strip().lower()
+        if id_str in ['', 'nan', 'none', 'na', 'null'] or id_str.startswith('('):
+            return True
+
+    # DEFINITE VALID - has CVE pattern
+    if 'cve-' in row_str:
+        return False
+
+    # EDGE CASE - uncertain, ask Ollama
+    uncertain_patterns = ['count', 'total', 'blank', 'label', 'header']
+    is_uncertain = any(p in row_str for p in uncertain_patterns)
+
+    if is_uncertain and use_ollama_for_edge_cases:
+        row_sample = dict(list(row.items())[:5])  # First 5 columns
+        is_valid = ask_ollama_is_valid_row(row_sample)
+        print(f"Ollama edge case check: {row_sample} -> {'VALID' if is_valid else 'SKIP'}")
+        return not is_valid
+
+    return False
+
+
 # ============ VAPT PROCESSING ============
 def process_vapt_row(row, idx, dsn, rc_lower):
     """Process a VAPT format row - preserves all VAPT columns for display"""
@@ -1374,6 +1442,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
             ni = []
             ri = df.to_dict(orient="records")
             for idx, row in enumerate(ri):
+                if is_pivot_or_summary_row(row):
+                    print(f"Skipping pivot/summary row {idx}")
+                    continue
                 rec = process_vapt_row(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
@@ -1385,6 +1456,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
             ni = []
             ri = df.to_dict(orient="records")
             for idx, row in enumerate(ri):
+                if is_pivot_or_summary_row(row):
+                    print(f"Skipping pivot/summary row {idx}")
+                    continue
                 rec = process_cspm_row(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
@@ -1470,6 +1544,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
             print(f"First row sample: {dict(list(ri[0].items())[:5])}")
 
         for idx, row in enumerate(ri):
+            if is_pivot_or_summary_row(row):
+                print(f"Skipping pivot/summary row {idx}")
+                continue
             rec = {}
             for k, v in row.items():
                 rec[k] = str(v).strip() if v is not None else ""
@@ -1677,6 +1754,9 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
             ni = []
             ri = df.to_dict(orient="records")
             for idx, row in enumerate(ri):
+                if is_pivot_or_summary_row(row):
+                    print(f"Skipping pivot/summary row {idx}")
+                    continue
                 rec = process_vapt_row(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
@@ -1688,6 +1768,9 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
             ni = []
             ri = df.to_dict(orient="records")
             for idx, row in enumerate(ri):
+                if is_pivot_or_summary_row(row):
+                    print(f"Skipping pivot/summary row {idx}")
+                    continue
                 rec = process_cspm_row(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
@@ -2065,29 +2148,33 @@ SECURITY_KB = {
 
 @app.post("/api/ask-agent")
 async def aa(req: Request):
-    """Security assistant powered by Local Ollama LLM (100% offline)"""
+    """General AI assistant powered by Local Ollama LLM (100% offline)"""
     try:
         data = await req.json()
         message = data.get('message', '')
         context = data.get('context', [])
+        message_lower = message.lower()
 
-        # Build context summary for the AI
+        # Only include security context if user asks about it
+        security_keywords = ['vulnerability', 'vulnerabilities', 'security', 'critical', 'high', 'cve',
+                            'patch', 'remediation', 'sla', 'overdue', 'risk', 'threat', 'exploit',
+                            'dashboard', 'issues', 'findings', 'assets']
+        is_security_question = any(kw in message_lower for kw in security_keywords)
+
         context_summary = ""
-        if context:
+        if is_security_question and context:
             critical_count = sum(1 for c in context if c.get('Severity') == 'Critical')
             high_count = sum(1 for c in context if c.get('Severity') == 'High')
             open_count = sum(1 for c in context if c.get('Status', '').lower() not in ['resolved', 'closed', 'fixed'])
-            context_summary = f"\n\nCurrent Dashboard Context:\n- Total vulnerabilities: {len(context)}\n- Critical: {critical_count}\n- High: {high_count}\n- Open issues: {open_count}"
+            context_summary = f"\n\nDashboard Data:\n- Total: {len(context)}\n- Critical: {critical_count}\n- High: {high_count}\n- Open: {open_count}"
 
-        # Build prompt for Ollama
-        prompt = f"""You are a security operations assistant for Wynk Security Portal.
-Help the user with vulnerability management, prioritization, and remediation guidance.
+        # Build prompt for Ollama - keep it simple
+        if is_security_question and context_summary:
+            prompt = f"""{message}
 
-User Question: {message}
-{context_summary}
-
-Provide a helpful, concise response focused on security operations.
-Keep your answer under 200 words unless more detail is needed."""
+{context_summary}"""
+        else:
+            prompt = message
 
         # Call Local Ollama API (127.0.0.1 only - no internet)
         async with httpx.AsyncClient(timeout=180.0) as client:
@@ -2146,7 +2233,7 @@ def get_fallback_agent_response(message, context):
         response_parts.append(f"\nCurrent Status: {len(context)} vulnerabilities, {critical_count} critical, {open_count} open.")
 
     if not response_parts:
-        response_parts.append("I'm your security assistant. Ask about vulnerabilities, SLA, patches, or risk prioritization.\n\n[Ollama not running - using basic mode. Start Ollama for AI-powered responses.]")
+        response_parts.append("I'm your AI assistant. I can help with anything - just ask!\n\n[Ollama not running - Start Ollama for full AI capabilities.]")
 
     return "\n\n".join(response_parts)
 

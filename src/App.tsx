@@ -1084,7 +1084,8 @@ const AppContent: React.FC = () => {
   const stats = useMemo(() => {
     try {
       const dataSource = filteredActiveIssues || activeIssues || [];
-      const uniqueVulnIds = new Set(dataSource.map(i => i.DisplayID || i.IssueID));
+      const uniqueVulnNames = new Set(dataSource.map(i => i.Name || i.finding_name || i.Summary || i.DisplayID || i.IssueID));
+      const uniqueAssets = new Set(dataSource.map(i => i.AffectedAsset || i.AssetName || i.resource_id || i.IssueID));
       const openIssues = dataSource.filter(i => !isResolved(i.Status));
       const criticalOpenCount = openIssues.filter(i => {
         const sev = i.Severity?.toLowerCase();
@@ -1105,7 +1106,8 @@ const AppContent: React.FC = () => {
 
       return {
         total: dataSource.length,
-        uniqueVulns: uniqueVulnIds.size,
+        uniqueVulns: uniqueVulnNames.size,
+        uniqueAssets: uniqueAssets.size,
         criticalOpen: criticalOpenCount,
         breached: overdueCount,
       };
@@ -1985,15 +1987,15 @@ const AppContent: React.FC = () => {
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
             <Card
-              title="Unique Vulnerabilities"
+              title="Unique CVEs"
               val={stats?.uniqueVulns || 0}
               Icon={Shield}
               color="text-purple-600"
               bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
             />
             <Card
-              title="Total Affected Assets"
-              val={stats?.total || 0}
+              title="Affected Assets"
+              val={stats?.uniqueAssets || 0}
               Icon={Server}
               color="text-blue-600"
               bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
