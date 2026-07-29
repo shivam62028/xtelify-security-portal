@@ -410,12 +410,12 @@ Answer only: VALID or SKIP"""
     return True  # Default to valid if Ollama fails
 
 
-def is_pivot_or_summary_row(row, use_ollama_for_edge_cases=True):
+def is_pivot_or_summary_row(row, use_ollama_for_edge_cases=False):
     """Skip pivot table rows, summary rows, blank rows, and count rows
 
     Hybrid approach:
     1. Quick keyword filter (catches 95%)
-    2. If uncertain, ask Ollama to verify
+    2. If uncertain, ask Ollama to verify (disabled by default for performance)
     """
     row_values = [str(v).strip().lower() for v in row.values() if v is not None]
     row_str = ' '.join(row_values)
