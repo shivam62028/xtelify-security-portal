@@ -85,22 +85,44 @@ VAPT_COLUMNS = {
 def detect_file_format(columns):
     """Auto-detect file format based on column names"""
     cols_lower = {str(c).lower().strip() for c in columns}
-    cols_normalized = {str(c).lower().replace(" ", "").replace("_", "").strip() for c in columns}
+    cols_normalized = {str(c).lower().replace(" ", "").replace("_", "").replace("-", "").strip() for c in columns}
+    cols_str = ' '.join(cols_lower)
 
     # Check for VAPT specific columns first (most distinctive)
     vapt_matches = 0
     for col in cols_lower:
-        if "issue key" in col or col == "issuekey":
-            vapt_matches += 10
-        if "application name" in col or col == "applicationname":
+        # Issue Key variations
+        if "issue key" in col or col == "issuekey" or col == "issue_key":
+            vapt_matches += 15
+        # Application Name
+        if "application name" in col or col == "applicationname" or "app name" in col:
+            vapt_matches += 8
+        # Criticality
+        if "criticality" in col or "criticality status" in col:
+            vapt_matches += 8
+        # Ageing
+        if "ageing" in col or "aging" in col:
+            vapt_matches += 8
+        # Expected Timeline
+        if "expected timeline" in col or "timeline" in col:
             vapt_matches += 5
-        if "criticality status" in col or col == "criticalitystatus":
+        # Application Owner
+        if "application owner" in col or "app owner" in col or "lob head" in col:
             vapt_matches += 5
-        if "ageing" in col:
+        # Compliant/Non-compliant
+        if "compliant" in col or "non-compliant" in col:
             vapt_matches += 5
-        if "expected timeline" in col:
+        # Assignee
+        if col == "assignee" or "multiple assignee" in col:
+            vapt_matches += 5
+        # Summary (VAPT style)
+        if col == "summary" and "issue key" in cols_str:
+            vapt_matches += 5
+        # Reported On
+        if "reported on" in col or "reported" in col:
             vapt_matches += 3
-        if "application owner" in col:
+        # Status (generic but common in VAPT)
+        if col == "status" and "issue key" in cols_str:
             vapt_matches += 3
 
     # Check for CSPM specific columns
@@ -432,15 +454,28 @@ def is_pivot_or_summary_row(row, use_ollama_for_edge_cases=False):
         return True
 
     # DEFINITE SKIP - blank/invalid ID
-    id_col = row.get('ID') or row.get('IssueID') or row.get('id') or row.get('issue_key')
+    # Check various ID column names (case-insensitive)
+    id_col = None
+    for key in row.keys():
+        key_lower = str(key).lower().replace(" ", "").replace("_", "")
+        if key_lower in ['id', 'issueid', 'issuekey', 'issue_key']:
+            id_col = row.get(key)
+            break
+
     if id_col:
         id_str = str(id_col).strip().lower()
         if id_str in ['', 'nan', 'none', 'na', 'null'] or id_str.startswith('('):
             return True
 
-    # DEFINITE VALID - has CVE pattern
+    # DEFINITE VALID - has CVE pattern or looks like a valid issue key
     if 'cve-' in row_str:
         return False
+
+    # Check if any value looks like a VAPT issue key (e.g., contains letters and numbers)
+    for v in row_values:
+        if v and len(v) > 3 and any(c.isalpha() for c in v) and any(c.isdigit() for c in v):
+            if not any(skip in v for skip in ['nan', 'none', 'total', 'count']):
+                return False  # Looks like valid data
 
     # EDGE CASE - uncertain, ask Ollama
     uncertain_patterns = ['count', 'total', 'blank', 'label', 'header']
@@ -534,8 +569,8 @@ def process_vapt_row(row, idx, dsn, rc_lower):
     if not rec["AssignedTo"]:
         rec["AssignedTo"] = multiple_assignee
 
-    # Application Owner
-    app_owner = get_val(["Application Owner", "ApplicationOwner", "App Owner"])
+    # Application Owner / Lob Head
+    app_owner = get_val(["Application Owner", "ApplicationOwner", "App Owner", "Lob Head", "LobHead", "LOB Head"])
     rec["ApplicationOwner"] = app_owner
     rec["Department"] = app_owner
 
@@ -557,12 +592,9 @@ def process_vapt_row(row, idx, dsn, rc_lower):
         if auto_owner:
             rec["AssignedTo"] = auto_owner
 
-    # LOB filter
+    # LOB - for VAPT, don't filter by LOB since it may not have this field
     lob = get_val(["LOB", "Line of Business", "BusinessUnit"])
-    rec["LOB"] = lob
-    lob_value = lob.lower().strip() if lob else ""
-    if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
-        return None  # Skip non-Wynk
+    rec["LOB"] = lob if lob else "VAPT"
 
     return rec
 
