@@ -2934,21 +2934,6 @@ const AppContent: React.FC = () => {
                         </button>
                       </>
                     )}
-                    {selectedFormatFilter === "CSPM" && cspmFindingTypes.length > 0 && (
-                      <>
-                        <div className="w-[1px] bg-slate-300"></div>
-                        <select
-                          value={selectedFindingType}
-                          onChange={(e) => setSelectedFindingType(e.target.value)}
-                          className="px-2 py-1 text-xs font-medium bg-green-50 text-green-800 border border-green-200 rounded cursor-pointer"
-                        >
-                          <option value="All">All Finding Types</option>
-                          {cspmFindingTypes.map(ft => (
-                            <option key={ft} value={ft}>{ft}</option>
-                          ))}
-                        </select>
-                      </>
-                    )}
                     {availableFormats.includes("SAST_DAST") && (
                       <>
                         <div className="w-[1px] bg-slate-300"></div>
@@ -3011,6 +2996,30 @@ const AppContent: React.FC = () => {
                     Critical
                   </button>
                 </div>
+
+                {currentFormat === "CSPM" && cspmFindingTypes.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">Sub-Issue:</span>
+                    <select
+                      value={selectedFindingType}
+                      onChange={(e) => setSelectedFindingType(e.target.value)}
+                      className="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-800 border border-green-300 rounded cursor-pointer min-w-[200px]"
+                    >
+                      <option value="All">All Finding Types ({cspmFindingTypes.length})</option>
+                      {cspmFindingTypes.map(ft => (
+                        <option key={ft} value={ft}>{ft}</option>
+                      ))}
+                    </select>
+                    {selectedFindingType !== "All" && (
+                      <button
+                        onClick={() => setSelectedFindingType("All")}
+                        className="px-2 py-1 text-xs text-green-700 hover:text-green-900"
+                      >
+                        ✕ Clear
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {userRole === "Admin" && (
                   <>
