@@ -14,7 +14,6 @@ import autoTable from "jspdf-autotable";
 import {
   Shield,
   AlertTriangle,
-  CheckCircle,
   Clock,
   Filter,
   Download,
@@ -24,8 +23,6 @@ import {
   Activity,
   FileText,
   ChevronDown,
-  ChevronUp,
-  Database,
   Trash2,
   Server,
   Wrench,
@@ -47,8 +44,6 @@ import {
   Bookmark,
   BookmarkCheck,
   AlertCircle,
-  History,
-  Plus,
   Zap,
 } from "lucide-react";
 import {
@@ -266,7 +261,7 @@ const AppContent: React.FC = () => {
 
   const [filter, setFilter] = useState<string>("All");
   const [searchTerm, setSearchTerm] = useState<string>("");
-  const [selectedOwner, setSelectedOwner] = useState<string>("");
+  const [selectedOwners, setSelectedOwners] = useState<string[]>([]);
   const [selectedFindingType, setSelectedFindingType] = useState<string>("All");
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<string>("");
@@ -913,6 +908,8 @@ const AppContent: React.FC = () => {
 
   const handleFormatFilterChange = (format: string) => {
     setSelectedFormatFilter(format);
+    setSelectedOwners([]);
+    setSelectedFindingType("All");
     if (format === "CSPM") {
       setTableCols(CSPM_COLS);
       setCurrentFormat("CSPM");
@@ -959,6 +956,8 @@ const AppContent: React.FC = () => {
     setSelectedBatches((prev) =>
       prev.includes(batch) ? prev.filter((b) => b !== batch) : [...prev, batch]
     );
+    setSelectedOwners([]);
+    setSelectedFindingType("All");
   };
 
   const displayedIssues = useMemo(() => {
@@ -1014,10 +1013,10 @@ const AppContent: React.FC = () => {
 
   const tableFilteredIssues = useMemo(() => {
     let filtered = displayedIssues || [];
-    if (selectedOwner) {
+    if (selectedOwners.length > 0) {
       filtered = filtered.filter(issue => {
         const owner = issue.AssignedTo && issue.AssignedTo !== "NA" ? issue.AssignedTo : "Unassigned";
-        return owner === selectedOwner;
+        return selectedOwners.includes(owner);
       });
     }
     if (selectedFindingType !== "All") {
@@ -1027,7 +1026,7 @@ const AppContent: React.FC = () => {
       });
     }
     return filtered;
-  }, [displayedIssues, selectedOwner, selectedFindingType]);
+  }, [displayedIssues, selectedOwners, selectedFindingType]);
 
   const totalPages = useMemo(() => Math.ceil((tableFilteredIssues?.length || 0) / rowsPerPage), [tableFilteredIssues, rowsPerPage]);
 
@@ -1039,7 +1038,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [quickFilter, filter, searchTerm, selectedBatches, selectedFormatFilter, selectedOwner, selectedFindingType]);
+  }, [quickFilter, filter, searchTerm, selectedBatches, selectedFormatFilter, selectedOwners, selectedFindingType]);
 
   const groupedIssues = useMemo(() => {
     try {
@@ -2505,88 +2504,95 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
-            <h2 className="font-semibold text-slate-800 text-sm mb-4 border-b border-slate-100 pb-2">
-              Discovery Timeline
-            </h2>
-            <div className="h-64 flex items-center justify-center">
-              {timelineChartData && timelineChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart
-                    data={timelineChartData}
-                    margin={{ bottom: 30, right: 20, top: 10 }}
-                  >
-                    <defs>
-                      <linearGradient
-                        id="colorIssues"
-                        x1="0"
-                        y1="0"
-                        x2="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor="#ef4444"
-                          stopOpacity={0.4}
-                        />
-                        <stop
-                          offset="95%"
-                          stopColor="#ef4444"
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      vertical={false}
-                      stroke="#e2e8f0"
-                    />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fontSize: 11, fill: "#64748b" }}
-                      angle={-45}
-                      textAnchor="end"
-                      height={50}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tick={{ fontSize: 11, fill: "#64748b" }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <RechartsTooltip content={<CustomTimelineTooltip />} />
-                    <Area
-                      type="monotone"
-                      dataKey="Issues"
-                      stroke="#ef4444"
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill="url(#colorIssues)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-slate-400 text-xs uppercase font-semibold">
-                  No active data
-                </p>
-              )}
+          {currentFormat !== "CSPM" && (
+            <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
+              <h2 className="font-semibold text-slate-800 text-sm mb-4 border-b border-slate-100 pb-2">
+                Discovery Timeline
+              </h2>
+              <div className="h-64 flex items-center justify-center">
+                {timelineChartData && timelineChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart
+                      data={timelineChartData}
+                      margin={{ bottom: 30, right: 20, top: 10 }}
+                    >
+                      <defs>
+                        <linearGradient
+                          id="colorIssues"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor="#ef4444"
+                            stopOpacity={0.4}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor="#ef4444"
+                            stopOpacity={0}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#e2e8f0"
+                      />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fontSize: 11, fill: "#64748b" }}
+                        angle={-45}
+                        textAnchor="end"
+                        height={50}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        tick={{ fontSize: 11, fill: "#64748b" }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <RechartsTooltip content={<CustomTimelineTooltip />} />
+                      <Area
+                        type="monotone"
+                        dataKey="Issues"
+                        stroke="#ef4444"
+                        strokeWidth={2}
+                        fillOpacity={1}
+                        fill="url(#colorIssues)"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-slate-400 text-xs uppercase font-semibold">
+                    No active data
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
             <div className="flex items-center justify-between mb-4 border-b pb-2">
               <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
                 Workload & Risk Distribution by Assigned Owner
               </h2>
-              {selectedOwner && (
-                <div className="flex items-center gap-2">
+              {selectedOwners.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-slate-500">Filtered:</span>
-                  <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded flex items-center gap-1">
-                    {selectedOwner}
-                    <button onClick={() => setSelectedOwner("")} className="ml-1 hover:text-blue-900">✕</button>
-                  </span>
+                  {selectedOwners.map(owner => (
+                    <span key={owner} className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded flex items-center gap-1">
+                      {owner}
+                      <button onClick={() => setSelectedOwners(prev => prev.filter(o => o !== owner))} className="ml-1 hover:text-blue-900">✕</button>
+                    </span>
+                  ))}
+                  {selectedOwners.length > 1 && (
+                    <button onClick={() => setSelectedOwners([])} className="text-xs text-slate-500 hover:text-slate-700">Clear all</button>
+                  )}
                 </div>
               )}
             </div>
@@ -2624,14 +2630,14 @@ const AppContent: React.FC = () => {
                       fill="#ef4444"
                       barSize={30}
                       cursor="pointer"
-                      onClick={(data) => data && setSelectedOwner(prev => prev === data.name ? "" : data.name)}
+                      onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
                     />
                     <Bar
                       dataKey="Medium"
                       stackId="a"
                       fill="#3b82f6"
                       cursor="pointer"
-                      onClick={(data) => data && setSelectedOwner(prev => prev === data.name ? "" : data.name)}
+                      onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
                     />
                     <Bar
                       dataKey="Solved"
@@ -2639,7 +2645,7 @@ const AppContent: React.FC = () => {
                       fill="#10b981"
                       radius={[4, 4, 0, 0]}
                       cursor="pointer"
-                      onClick={(data) => data && setSelectedOwner(prev => prev === data.name ? "" : data.name)}
+                      onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
                     />
                   </BarChart>
                 </ResponsiveContainer>
@@ -3260,10 +3266,10 @@ const AppContent: React.FC = () => {
               </table>
             </div>
 
-                        {displayedIssues.length > 0 && (
+                        {tableFilteredIssues.length > 0 && (
               <div className={`flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 border-t ${darkMode ? "border-slate-800 bg-slate-900/50" : "border-slate-200 bg-slate-50"}`}>
                 <div className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
-                  Showing {((currentPage - 1) * rowsPerPage) + 1} to {Math.min(currentPage * rowsPerPage, displayedIssues.length)} of {displayedIssues.length.toLocaleString()} issues
+                  Showing {tableFilteredIssues.length > 0 ? ((currentPage - 1) * rowsPerPage) + 1 : 0} to {Math.min(currentPage * rowsPerPage, tableFilteredIssues.length)} of {tableFilteredIssues.length.toLocaleString()} issues
                 </div>
 
                 <div className="flex items-center gap-4">

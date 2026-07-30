@@ -178,67 +178,78 @@ POD_OWNER_MAPPING = {
     "xstrm": "Shreya",
     "x-stream": "Shreya",
     "x_stream": "Shreya",
-    "xs": "Shreya",
     "adtech": "Satya",
     "ad-tech": "Satya",
     "ad_tech": "Satya",
-    "adt": "Satya",
-    "ads": "Satya",
     "music": "Aakash",
-    "msc": "Aakash",
-    "mus": "Aakash",
     "wcf": "Yash",
-    "w-c-f": "Yash",
     "vmax": "Dheeraj",
     "v-max": "Dheeraj",
     "v_max": "Dheeraj",
-    "vmx": "Dheeraj",
     "iptv-be": "Shreya",
     "iptv_be": "Shreya",
     "iptvbe": "Shreya",
     "iptv-backend": "Shreya",
-    "iptvbackend": "Shreya",
-    "data platform": "Vinod",
-    "dataplatform": "Vinod",
-    "data_platform": "Vinod",
-    "data-platform": "Vinod",
-    "dataplat": "Vinod",
-    "dp": "Vinod",
-    "dplat": "Vinod",
+    "data platform": "Abhinav/Vinod",
+    "dataplatform": "Abhinav/Vinod",
+    "data_platform": "Abhinav/Vinod",
+    "data-platform": "Abhinav/Vinod",
     "msp": "Yash",
-    "m-s-p": "Yash",
     "search": "Mohit",
-    "srch": "Mohit",
-    "src": "Mohit",
     "ml": "Nisha",
-    "m-l": "Nisha",
-    "machine learning": "Nisha",
-    "machinelearning": "Nisha",
     "catalog": "Aakash",
     "catalogue": "Aakash",
-    "cat": "Aakash",
-    "ctlg": "Aakash",
-    "ctg": "Aakash",
     "channels": "Vinod",
     "channel": "Vinod",
-    "chnl": "Vinod",
-    "chnls": "Vinod",
-    "ch": "Vinod",
-    "uclm": "Satya",
-    "u-c-l-m": "Satya",
-    "ucl": "Satya",
+    "uclm": "Dheeraj/Satya",
     "iptv": "Anshu",
-    "ip-tv": "Anshu",
-    "ip_tv": "Anshu",
     "ktv": "Anshu",
-    "k-tv": "Anshu",
-    "k_tv": "Anshu",
     "discovery": "Aakash",
-    "disc": "Aakash",
-    "dscvry": "Aakash",
-    "dscv": "Aakash",
-    "ds": "Aakash",
 }
+
+CSPM_POD_KEYWORDS = [
+    ("xstream", "Shreya"),
+    ("adtech", "Satya"),
+    ("music", "Aakash"),
+    ("wcf", "Yash"),
+    ("vmax", "Dheeraj"),
+    ("iptv-be", "Shreya"),
+    ("iptvbe", "Shreya"),
+    ("data-platform", "Abhinav/Vinod"),
+    ("dataplatform", "Abhinav/Vinod"),
+    ("msp", "Yash"),
+    ("search", "Mohit"),
+    ("ml", "Nisha"),
+    ("catalog", "Aakash"),
+    ("channels", "Vinod"),
+    ("channel", "Vinod"),
+    ("uclm", "Dheeraj/Satya"),
+    ("iptv", "Anshu"),
+    ("ktv", "Anshu"),
+    ("discovery", "Aakash"),
+    ("infra", "Unassigned"),
+    ("monitoring", "Unassigned"),
+    ("focus", "Unassigned"),
+    ("billingexp", "Unassigned"),
+    ("intc", "Unassigned"),
+    ("pre-music", "Aakash"),
+    ("pre-vmax", "Dheeraj"),
+    ("stg-msp", "Yash"),
+    ("prd-channel", "Vinod"),
+]
+
+def get_cspm_pod_owner(account_id, account_name):
+    """
+    Auto-assign CSPM issues based on account_id and account_name matching POD keywords.
+    Returns the POD Owner name or 'Unassigned' if no match.
+    """
+    combined = f"{account_id} {account_name}".lower()
+
+    for keyword, owner in CSPM_POD_KEYWORDS:
+        if keyword.lower() in combined:
+            return owner
+
+    return "Unassigned"
 
 def generate_short_description(vuln_name, cve_id, severity, asset_type, detailed_name):
     desc_parts = []
@@ -721,13 +732,11 @@ def process_cspm_row(row, idx, dsn, rc_lower):
     rec["LOB"] = lob
     lob_value = lob.lower().strip() if lob else ""
     if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
-        return None  # Skip non-Wynk
+        return None
 
-    # Auto-assign based on account name
-    if account_name:
-        auto_owner = get_pod_owner(account_name, "")
-        if auto_owner:
-            rec["AssignedTo"] = auto_owner
+    # Auto-assign for CSPM based on account_id and account_name
+    assigned_owner = get_cspm_pod_owner(account_id, account_name)
+    rec["AssignedTo"] = assigned_owner
 
     return rec
 
