@@ -1138,11 +1138,11 @@ const AppContent: React.FC = () => {
         if (format === "VAPT") {
           sevValue = i["Risk Factor"] || i.RiskFactor || i.Severity || "";
         } else if (format === "SAST_DAST") {
-          sevValue = i.CriticalityStatus || i.Criticality || i.Severity || "";
+          sevValue = i.CriticalityStatus || i.Criticality || i["Criticality Status"] || i.Severity || "";
         } else {
           sevValue = i.Severity || "";
         }
-        const sev = (sevValue || "").toLowerCase();
+        const sev = (sevValue || "").toLowerCase().trim();
         return sev === "critical" || sev === "urgent" || sev === "high";
       }).length;
 
@@ -1196,12 +1196,14 @@ const AppContent: React.FC = () => {
     if (format === "VAPT") {
       sevValue = issue["Risk Factor"] || issue.RiskFactor || issue.Severity || "";
     } else if (format === "SAST_DAST") {
-      sevValue = issue.CriticalityStatus || issue.Criticality || issue.Severity || "";
+      sevValue = issue.CriticalityStatus || issue.Criticality || issue["Criticality Status"] || issue.Severity || "";
     } else {
       sevValue = issue.Severity || "";
     }
 
-    return (sevValue || "Medium").toLowerCase();
+    const sev = (sevValue || "").toLowerCase().trim();
+    if (!sev || sev === "na" || sev === "none") return "medium";
+    return sev;
   };
 
   const ownerChartData = useMemo(() => {
@@ -1294,12 +1296,14 @@ const AppContent: React.FC = () => {
     if (format === "VAPT") {
       sevValue = issue["Risk Factor"] || issue.RiskFactor || issue.Severity || "";
     } else if (format === "SAST_DAST") {
-      sevValue = issue.CriticalityStatus || issue.Criticality || issue.Severity || "";
+      sevValue = issue.CriticalityStatus || issue.Criticality || issue["Criticality Status"] || issue.Severity || "";
     } else {
       sevValue = issue.Severity || "";
     }
 
-    return (sevValue || "Medium").toLowerCase();
+    const sev = (sevValue || "").toLowerCase().trim();
+    if (!sev || sev === "na" || sev === "none") return "medium";
+    return sev;
   };
 
   const severityPieData = useMemo(() => {

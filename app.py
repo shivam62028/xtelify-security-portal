@@ -486,14 +486,15 @@ def process_vapt_row(row, idx, dsn, rc_lower):
     rec["ApplicationName"] = app_name
     rec["AssetType"] = "Application"
 
-    # Criticality Status
-    criticality = get_val(["Criticality Status", "CriticalityStatus", "Criticality", "Severity", "Priority"])
+    # Criticality Status - check "Criticality" column first as it's common in Excel
+    criticality = get_val(["Criticality", "Criticality Status", "CriticalityStatus", "Severity", "Priority"])
     rec["CriticalityStatus"] = criticality
+    rec["Criticality"] = criticality
 
-    # Severity from Criticality Status
+    # Severity from Criticality - preserve the actual value
     sev_map = {"critical": "Critical", "high": "High", "medium": "Medium", "low": "Low",
                "exception": "Medium", "info": "Info"}
-    rec["Severity"] = sev_map.get(criticality.lower(), "Medium") if criticality else "Medium"
+    rec["Severity"] = sev_map.get(criticality.lower(), criticality) if criticality else "Medium"
 
     # Compliant/Non-Compliant = Status
     compliant = get_val(["Compliant/Non-compliant", "Compliant", "Status", "Compliance"])
@@ -594,10 +595,11 @@ def process_vapt_row_new(row, idx, dsn, rc_lower):
     rec["Vulnerability family"] = get_val(["Vulnerability family", "VulnerabilityFamily", "Family", "Category"])
     rec["CVE Number"] = get_val(["CVE Number", "CVENumber", "CVE"])
 
-    risk_factor = get_val(["Risk Factor", "RiskFactor", "Risk"])
+    risk_factor = get_val(["Risk Factor", "RiskFactor", "Risk", "Severity"])
     severity_map = {"critical": "Critical", "high": "High", "medium": "Medium", "low": "Low", "info": "Info"}
-    rec["Severity"] = severity_map.get(risk_factor.lower(), "Medium") if risk_factor else "Medium"
+    rec["Severity"] = severity_map.get(risk_factor.lower(), risk_factor) if risk_factor else "Medium"
     rec["Risk Factor"] = risk_factor
+    rec["RiskFactor"] = risk_factor
 
     rec["vprScore"] = get_val(["vprScore", "VPRScore", "VPR Score", "VPR"])
     rec["Priority"] = get_val(["Priority"])
@@ -683,10 +685,11 @@ def process_cspm_row(row, idx, dsn, rc_lower):
     rec["account_name"] = account_name
     rec["account_id"] = account_id
 
-    # Severity
+    # Severity - preserve actual value from Excel
     severity = get_val(["severity", "Severity", "Risk", "RiskLevel"])
     sev_map = {"critical": "Critical", "high": "High", "medium": "Medium", "low": "Low", "info": "Info"}
-    rec["Severity"] = sev_map.get(severity.lower(), "Medium") if severity else "Medium"
+    rec["Severity"] = sev_map.get(severity.lower(), severity) if severity else "Medium"
+    rec["OriginalSeverity"] = severity
 
     # Risk Score
     risk_score = get_val(["risk_score", "RiskScore", "Risk Score", "Score"])
@@ -774,19 +777,20 @@ def process_container_row(row, idx, dsn, rc_lower):
     else:
         rec["DisplayID"] = rec["IssueID"]
 
-    # Severity
+    # Severity - preserve actual value from Excel
     sev = get_val(["Severity", "CVSSSeverity", "VendorSeverity", "NvdSeverity", "Risk", "RiskLevel"])
+    rec["OriginalSeverity"] = sev
     if sev:
-        sev_lower = sev.lower()
-        if "critical" in sev_lower:
+        sev_lower = sev.lower().strip()
+        if sev_lower == "critical" or "critical" in sev_lower:
             rec["Severity"] = "Critical"
-        elif "high" in sev_lower:
+        elif sev_lower == "high" or "high" in sev_lower:
             rec["Severity"] = "High"
-        elif "medium" in sev_lower or "moderate" in sev_lower:
+        elif sev_lower == "medium" or "medium" in sev_lower or "moderate" in sev_lower:
             rec["Severity"] = "Medium"
-        elif "low" in sev_lower:
+        elif sev_lower == "low" or "low" in sev_lower:
             rec["Severity"] = "Low"
-        elif "info" in sev_lower:
+        elif sev_lower == "info" or "info" in sev_lower:
             rec["Severity"] = "Info"
         else:
             rec["Severity"] = sev
