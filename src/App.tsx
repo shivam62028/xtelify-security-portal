@@ -833,7 +833,7 @@ const AppContent: React.FC = () => {
     }
     if (quickFilter === "critical") {
       return activeIssues.filter(issue => {
-        const sev = issue.Severity?.toLowerCase();
+        const sev = (issue.Severity || issue.CriticalityStatus || "").toLowerCase();
         return sev === "critical" || sev === "urgent" || sev === "high";
       });
     }
@@ -1133,7 +1133,7 @@ const AppContent: React.FC = () => {
       const uniqueAssets = new Set(dataSource.map(i => i.AffectedAsset || i.AssetName || i.resource_id || i.IssueID));
       const openIssues = dataSource.filter(i => !isResolved(i.Status));
       const criticalOpenCount = openIssues.filter(i => {
-        const sev = i.Severity?.toLowerCase();
+        const sev = (i.Severity || i.CriticalityStatus || "").toLowerCase();
         return sev === "critical" || sev === "urgent" || sev === "high";
       }).length;
 
@@ -1262,6 +1262,48 @@ const AppContent: React.FC = () => {
       return [];
     }
   }, [pipeline]);
+
+  const severityPieData = useMemo(() => {
+    try {
+      const openIssues = (activeIssues || []).filter(i => !isResolved(i.Status));
+      const counts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+      openIssues.forEach(i => {
+        const sev = (i.Severity || i.CriticalityStatus || "Medium").toLowerCase();
+        if (sev === "critical" || sev === "urgent") counts.Critical++;
+        else if (sev === "high") counts.High++;
+        else if (sev === "medium" || sev === "moderate") counts.Medium++;
+        else if (sev === "low" || sev === "info") counts.Low++;
+        else counts.Medium++;
+      });
+      return [
+        { name: "Critical", value: counts.Critical, color: "#dc2626" },
+        { name: "High", value: counts.High, color: "#f97316" },
+        { name: "Medium", value: counts.Medium, color: "#eab308" },
+        { name: "Low", value: counts.Low, color: "#22c55e" },
+      ].filter(d => d.value > 0);
+    } catch {
+      return [];
+    }
+  }, [activeIssues]);
+
+  const cspmFindingChartData = useMemo(() => {
+    try {
+      const cspmIssues = (activeIssues || []).filter(i => i.SourceFormat === "CSPM");
+      const findingMap: Record<string, number> = {};
+      cspmIssues.forEach(i => {
+        const findingName = i.finding_name || i.FindingName || "Unknown";
+        if (findingName && findingName !== "NA" && findingName !== "Unknown") {
+          findingMap[findingName] = (findingMap[findingName] || 0) + 1;
+        }
+      });
+      return Object.entries(findingMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([name, count]) => ({ name, count }));
+    } catch {
+      return [];
+    }
+  }, [activeIssues]);
 
   const topRemediations = useMemo(() => {
     try {
@@ -1430,13 +1472,13 @@ const AppContent: React.FC = () => {
 
       const thisWeekCritical = issues.filter(i => {
         const d = getDateValue(i.DiscoveredDate || i.FirstDetected);
-        const sev = i.Severity?.toLowerCase();
+        const sev = (i.Severity || i.CriticalityStatus || "").toLowerCase();
         return d && d >= thisWeekStart && d <= now && (sev === "critical" || sev === "high");
       }).length;
 
       const lastWeekCritical = issues.filter(i => {
         const d = getDateValue(i.DiscoveredDate || i.FirstDetected);
-        const sev = i.Severity?.toLowerCase();
+        const sev = (i.Severity || i.CriticalityStatus || "").toLowerCase();
         return d && d >= lastWeekStart && d < lastWeekEnd && (sev === "critical" || sev === "high");
       }).length;
 
@@ -2015,25 +2057,25 @@ const AppContent: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className={`text-xs ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Filter:</span>
+        <div className={`flex items-center gap-1 p-1.5 rounded-xl ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-slate-100 border border-slate-200"}`}>
           {[
-            { key: "all", label: "All", icon: Filter },
-            { key: "zeroday", label: "Zero Day", icon: Zap },
-            { key: "overdue", label: "Overdue", icon: AlertCircle },
-            { key: "critical", label: "High/Critical", icon: Flame },
-            { key: "unassigned", label: "Unassigned", icon: Users },
-          ].map(qf => (
+            { key: "All", label: "All", icon: Layers },
+            { key: "CONTAINER", label: "Container", icon: Server },
+            { key: "VAPT", label: "VAPT", icon: Shield },
+            { key: "CSPM", label: "CSPM", icon: Activity },
+            { key: "SAST_DAST", label: "SAST/DAST", icon: FileText },
+          ].map(fmt => (
             <button
-              key={qf.key}
-              onClick={() => setQuickFilter(qf.key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                quickFilter === qf.key
-                  ? `${darkMode ? "bg-slate-700 text-white" : "bg-slate-800 text-white"}`
-                  : `${darkMode ? "bg-slate-800 text-slate-400 hover:text-slate-300" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`
+              key={fmt.key}
+              onClick={() => handleFormatFilterChange(fmt.key)}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                selectedFormatFilter === fmt.key
+                  ? `${darkMode ? "bg-blue-600 text-white shadow-lg" : "bg-blue-600 text-white shadow-md"}`
+                  : `${darkMode ? "text-slate-400 hover:text-white hover:bg-slate-700" : "text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-sm"}`
               }`}
             >
-              <qf.icon size={12} /> {qf.label}
+              <fmt.icon size={16} />
+              {fmt.label}
             </button>
           ))}
         </div>
@@ -2153,41 +2195,7 @@ const AppContent: React.FC = () => {
             />
           </div>
 
-                    <div className={`p-5 rounded-xl border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-            <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
-              <TrendingUp size={16} className="text-blue-500" /> Week-over-Week Comparison
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { label: "New Discovered", thisWeek: weekComparison.thisWeek.discovered, lastWeek: weekComparison.lastWeek.discovered, change: weekComparison.change.discovered, goodIfDown: true },
-                { label: "Resolved", thisWeek: weekComparison.thisWeek.resolved, lastWeek: weekComparison.lastWeek.resolved, change: weekComparison.change.resolved, goodIfDown: false },
-                { label: "Critical/High", thisWeek: weekComparison.thisWeek.critical, lastWeek: weekComparison.lastWeek.critical, change: weekComparison.change.critical, goodIfDown: true },
-                { label: "Became Overdue", thisWeek: weekComparison.thisWeek.overdue, lastWeek: weekComparison.lastWeek.overdue, change: weekComparison.change.overdue, goodIfDown: true },
-              ].map((item, idx) => {
-                const isPositive = item.goodIfDown ? item.change <= 0 : item.change >= 0;
-                const changeColor = item.change === 0 ? (darkMode ? "text-slate-400" : "text-slate-500") : isPositive ? "text-emerald-500" : "text-red-500";
-                const bgColor = item.change === 0 ? (darkMode ? "bg-slate-700/50" : "bg-slate-50") : isPositive ? (darkMode ? "bg-emerald-900/20" : "bg-emerald-50") : (darkMode ? "bg-red-900/20" : "bg-red-50");
-
-                return (
-                  <div key={idx} className={`p-4 rounded-lg ${bgColor}`}>
-                    <div className={`text-xs font-medium mb-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{item.label}</div>
-                    <div className="flex items-end justify-between">
-                      <div>
-                        <div className={`text-2xl font-bold ${darkMode ? "text-slate-100" : "text-slate-800"}`}>{item.thisWeek}</div>
-                        <div className={`text-xs ${darkMode ? "text-slate-500" : "text-slate-400"}`}>vs {item.lastWeek} last week</div>
-                      </div>
-                      <div className={`text-sm font-semibold flex items-center gap-1 ${changeColor}`}>
-                        {item.change > 0 ? "↑" : item.change < 0 ? "↓" : "→"}
-                        {Math.abs(item.change)}%
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                         <div className={`p-6 rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md ${darkMode ? "bg-slate-800/80 border-slate-700/50" : "bg-white border-slate-200/60"}`}>
               <h2 className={`font-bold text-sm mb-5 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
                 <div className={`p-1.5 rounded-lg ${darkMode ? "bg-emerald-900/30" : "bg-emerald-50"}`}>
@@ -2258,40 +2266,7 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-                    <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-            <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
-              <TrendingUp size={16} className="text-purple-500" /> 30-Day Trend: Discovered vs Resolved
-            </h2>
-            <div className="h-64 flex items-center justify-center">
-              {trendData && trendData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={trendData} margin={{ bottom: 30, right: 20, top: 10 }}>
-                    <defs>
-                      <linearGradient id="colorDiscovered" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="colorResolved" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
-                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: darkMode ? "#9ca3af" : "#64748b" }} angle={-45} textAnchor="end" height={50} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
-                    <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #e2e8f0", borderRadius: "4px", backgroundColor: darkMode ? "#1f2937" : "#fff" }} />
-                    <Legend wrapperStyle={{ fontSize: "12px" }} />
-                    <Area type="monotone" dataKey="discovered" name="Discovered" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorDiscovered)" />
-                    <Area type="monotone" dataKey="resolved" name="Resolved" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorResolved)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>No trend data available</p>
-              )}
-            </div>
-          </div>
-
-                    <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+          <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
             <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
               <Zap size={16} className="text-amber-500" /> Risk Heatmap: Severity vs Department
             </h2>
@@ -2412,20 +2387,20 @@ const AppContent: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
             <div className={`p-5 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
               <h2 className={`font-semibold text-sm mb-4 border-b pb-2 ${darkMode ? "text-slate-200 border-slate-700" : "text-slate-800 border-slate-100"}`}>
-                Asset Category Distribution
+                Criticality Status
               </h2>
               <div className="h-64 flex items-center justify-center">
-                {stats?.total > 0 && pieChartData && pieChartData.length > 0 ? (
+                {severityPieData && severityPieData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={pieChartData}
+                        data={severityPieData}
                         innerRadius={60}
                         outerRadius={80}
                         paddingAngle={2}
                         dataKey="value"
                       >
-                        {pieChartData.map((entry, index) => (
+                        {severityPieData.map((entry, index) => (
                           <Cell
                             key={`cell-${index}`}
                             fill={entry.color || "#000"}
@@ -2437,6 +2412,7 @@ const AppContent: React.FC = () => {
                           fontSize: "12px",
                           border: "1px solid #e2e8f0",
                           borderRadius: "4px",
+                          backgroundColor: darkMode ? "#1f2937" : "#fff",
                         }}
                       />
                       <Legend
@@ -2446,8 +2422,8 @@ const AppContent: React.FC = () => {
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-slate-400 text-xs uppercase font-semibold">
-                    No active data
+                  <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
+                    No open issues
                   </p>
                 )}
               </div>
@@ -2503,6 +2479,49 @@ const AppContent: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {(currentFormat === "CSPM" || selectedFormatFilter === "CSPM" || selectedFormatFilter === "All") && cspmFindingChartData.length > 0 && (
+            <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+              <h2 className={`font-semibold text-sm mb-4 border-b pb-2 ${darkMode ? "text-slate-200 border-slate-700" : "text-slate-800 border-slate-100"}`}>
+                CSPM Findings by Type
+              </h2>
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={cspmFindingChartData}
+                    margin={{ left: 20, right: 30, bottom: 80 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 10, fill: darkMode ? "#9ca3af" : "#64748b" }}
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                      interval={0}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }}
+                      axisLine={false}
+                      tickLine={false}
+                      allowDecimals={false}
+                    />
+                    <RechartsTooltip
+                      contentStyle={{
+                        fontSize: "12px",
+                        border: "1px solid #e2e8f0",
+                        borderRadius: "4px",
+                        backgroundColor: darkMode ? "#1f2937" : "#fff",
+                      }}
+                    />
+                    <Bar dataKey="count" name="Count" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
 
           {currentFormat !== "CSPM" && (
             <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
