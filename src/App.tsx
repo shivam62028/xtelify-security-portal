@@ -1316,24 +1316,37 @@ const AppContent: React.FC = () => {
 
   const severityPieData = useMemo(() => {
     try {
-      const openIssues = (activeIssues || []).filter(i => !isResolved(i.Status));
+      const allIssues = activeIssues || [];
       const counts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
-      openIssues.forEach(i => {
-        const sev = getSeverityValue(i);
+      allIssues.forEach(i => {
+        const format = i.SourceFormat || "CONTAINER";
+        let sevValue = "";
+        if (format === "SAST_DAST") {
+          sevValue = i.Criticality || i.CriticalityStatus || i["Criticality Status"] || i.Severity || "";
+        } else if (format === "VAPT") {
+          sevValue = i["Risk Factor"] || i.RiskFactor || i.Severity || "";
+        } else {
+          sevValue = i.Severity || "";
+        }
+        const sev = (sevValue || "").toLowerCase().trim();
         if (sev === "critical" || sev === "urgent") counts.Critical++;
         else if (sev === "high") counts.High++;
-        else if (sev === "medium" || sev === "moderate") counts.Medium++;
+        else if (sev === "medium" || sev === "moderate" || sev === "exception") counts.Medium++;
         else if (sev === "low" || sev === "info") counts.Low++;
         else counts.Medium++;
       });
-      return [
-        { name: "Critical", value: counts.Critical, color: "#dc2626" },
-        { name: "High", value: counts.High, color: "#f97316" },
-        { name: "Medium", value: counts.Medium, color: "#eab308" },
-        { name: "Low", value: counts.Low, color: "#22c55e" },
-      ].filter(d => d.value > 0);
+      return {
+        data: [
+          { name: "Critical", value: counts.Critical, color: "#dc2626" },
+          { name: "High", value: counts.High, color: "#f97316" },
+          { name: "Medium", value: counts.Medium, color: "#eab308" },
+          { name: "Low", value: counts.Low, color: "#22c55e" },
+        ].filter(d => d.value > 0),
+        total: allIssues.length,
+        counts
+      };
     } catch {
-      return [];
+      return { data: [], total: 0, counts: { Critical: 0, High: 0, Medium: 0, Low: 0 } };
     }
   }, [activeIssues]);
 
@@ -2441,17 +2454,17 @@ const AppContent: React.FC = () => {
               </h2>
               <div className="flex flex-col items-center">
                 <div className="h-48 w-full flex items-center justify-center">
-                  {severityPieData && severityPieData.length > 0 ? (
+                  {severityPieData.data && severityPieData.data.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
-                          data={severityPieData}
+                          data={severityPieData.data}
                           innerRadius={50}
                           outerRadius={70}
                           paddingAngle={2}
                           dataKey="value"
                         >
-                          {severityPieData.map((entry, index) => (
+                          {severityPieData.data.map((entry, index) => (
                             <Cell
                               key={`cell-${index}`}
                               fill={entry.color || "#000"}
@@ -2470,21 +2483,28 @@ const AppContent: React.FC = () => {
                     </ResponsiveContainer>
                   ) : (
                     <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
-                      No open issues
+                      No issues
                     </p>
                   )}
                 </div>
-                {severityPieData && severityPieData.length > 0 && (
-                  <div className="flex flex-wrap justify-center gap-3 mt-2">
-                    {severityPieData.map((item) => (
-                      <div key={item.name} className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
-                        <span className={`text-xs font-semibold ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                          {item.name}: {item.value}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                {severityPieData.data && severityPieData.data.length > 0 && (
+                  <>
+                    <div className="flex flex-wrap justify-center gap-3 mt-2">
+                      {severityPieData.data.map((item) => (
+                        <div key={item.name} className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
+                          <span className={`text-xs font-semibold ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                            {item.name}: {item.value}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className={`mt-3 pt-2 border-t text-center ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
+                      <span className={`text-sm font-bold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
+                        Total Vulnerabilities: {severityPieData.total}
+                      </span>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
