@@ -2439,42 +2439,52 @@ const AppContent: React.FC = () => {
               <h2 className={`font-semibold text-sm mb-4 border-b pb-2 ${darkMode ? "text-slate-200 border-slate-700" : "text-slate-800 border-slate-100"}`}>
                 Criticality Status
               </h2>
-              <div className="h-64 flex items-center justify-center">
-                {severityPieData && severityPieData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={severityPieData}
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={2}
-                        dataKey="value"
-                      >
-                        {severityPieData.map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={entry.color || "#000"}
-                          />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip
-                        contentStyle={{
-                          fontSize: "12px",
-                          border: "1px solid #e2e8f0",
-                          borderRadius: "4px",
-                          backgroundColor: darkMode ? "#1f2937" : "#fff",
-                        }}
-                      />
-                      <Legend
-                        iconType="circle"
-                        wrapperStyle={{ fontSize: "12px" }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
-                    No open issues
-                  </p>
+              <div className="flex flex-col items-center">
+                <div className="h-48 w-full flex items-center justify-center">
+                  {severityPieData && severityPieData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={severityPieData}
+                          innerRadius={50}
+                          outerRadius={70}
+                          paddingAngle={2}
+                          dataKey="value"
+                        >
+                          {severityPieData.map((entry, index) => (
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={entry.color || "#000"}
+                            />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip
+                          contentStyle={{
+                            fontSize: "12px",
+                            border: "1px solid #e2e8f0",
+                            borderRadius: "4px",
+                            backgroundColor: darkMode ? "#1f2937" : "#fff",
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
+                      No open issues
+                    </p>
+                  )}
+                </div>
+                {severityPieData && severityPieData.length > 0 && (
+                  <div className="flex flex-wrap justify-center gap-3 mt-2">
+                    {severityPieData.map((item) => (
+                      <div key={item.name} className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
+                        <span className={`text-xs font-semibold ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                          {item.name}: {item.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
@@ -2723,89 +2733,6 @@ const AppContent: React.FC = () => {
                   No active data
                 </p>
               )}
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <Users className="text-slate-500" size={18} />
-                <h2 className="font-semibold text-slate-800 text-sm">
-                  Department Asset Accountability
-                </h2>
-              </div>
-              <select
-                value={selectedDepartment}
-                onChange={(e) => setSelectedDepartment(e.target.value)}
-                className="px-3 py-1.5 bg-white border border-slate-300 rounded-sm text-sm font-medium focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-slate-700 min-w-[200px]"
-              >
-                <option value="All">All Departments</option>
-                {uniqueDepartments &&
-                  uniqueDepartments.map((dept) => (
-                    <option key={dept} value={dept}>
-                      {dept}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="space-y-4">
-                <div className="p-4 bg-slate-50 rounded-sm border border-slate-200 flex justify-between items-center">
-                  <p className="text-xs font-semibold text-slate-600 uppercase">
-                    Total Assets Assigned
-                  </p>
-                  <p className="text-xl font-bold text-slate-800">
-                    {deptStats?.total || 0}
-                  </p>
-                </div>
-                <div className="p-4 bg-red-50/50 rounded-sm border border-red-100 flex justify-between items-center">
-                  <p className="text-xs font-semibold text-red-700 uppercase">
-                    Critical Asset Risks
-                  </p>
-                  <p className="text-xl font-bold text-red-700">
-                    {deptStats?.criticalOpen || 0}
-                  </p>
-                </div>
-              </div>
-              <div className="md:col-span-2 h-48 flex items-center justify-center">
-                {deptStats?.total > 0 &&
-                  deptPieData &&
-                  deptPieData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={deptPieData}
-                        innerRadius={50}
-                        outerRadius={70}
-                        paddingAngle={2}
-                        dataKey="value"
-                      >
-                        {deptPieData.map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={entry.color || "#000"}
-                          />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip
-                        contentStyle={{
-                          fontSize: "12px",
-                          border: "1px solid #e2e8f0",
-                          borderRadius: "4px",
-                        }}
-                      />
-                      <Legend
-                        iconType="circle"
-                        wrapperStyle={{ fontSize: "12px" }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <p className="text-slate-400 text-sm">
-                    No metrics for this department
-                  </p>
-                )}
-              </div>
             </div>
           </div>
 
