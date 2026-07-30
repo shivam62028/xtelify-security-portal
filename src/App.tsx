@@ -256,7 +256,8 @@ const AppContent: React.FC = () => {
 
   const CONTAINER_COLS = ["SubscriptionName", "AssignedTo", "AffectedAsset", "VulnDescription", "Severity", "Status", "Version", "FixedVersion", "DueDate", "RecommendedAction"];
   const CSPM_COLS = ["account_name", "AssignedTo", "account_id", "resource_type", "finding_type_id", "VulnDescription", "resource_id", "resource_name", "compliance_tags", "impact"];
-  const VAPT_COLS = ["issue_key", "VulnDescription", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Compliant_NonCompliant", "ExpectedTimeline", "Assignee", "MultipleAssignee", "ApplicationOwner"];
+  const SAST_DAST_COLS = ["issue_key", "VulnDescription", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Compliant_NonCompliant", "ExpectedTimeline", "Assignee", "MultipleAssignee", "ApplicationOwner"];
+  const VAPT_COLS = ["IP", "UUID", "Vulnerability name", "Vulnerability description", "Solution", "Vulnerability Path", "Vulnerability family", "Vulnerability ID", "Application Owner", "Vulnerability Status", "lastSeen"];
 
   const defaultTableCols = CONTAINER_COLS;
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
@@ -297,7 +298,9 @@ const AppContent: React.FC = () => {
 
   const [quickFilter, setQuickFilter] = useState<string>("all");
 
-  
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [rowsPerPage, setRowsPerPage] = useState<number>(100);
+
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [aiRecipient, setAiRecipient] = useState<string>("");
   const [aiPrompt, setAiPrompt] = useState<string>("");
@@ -719,7 +722,7 @@ const AppContent: React.FC = () => {
         Category: i.Category,
         Description: i.Description,
       }))
-      .slice(0, 15); // <--- CHANGED FROM 40 TO 15
+      .slice(0, 15);
     const fendralis = JSON.stringify({
       message: userText,
       history: history,
@@ -889,6 +892,8 @@ const AppContent: React.FC = () => {
       setCurrentFormat(dominantFormat);
       if (dominantFormat === "CSPM") {
         setTableCols(CSPM_COLS);
+      } else if (dominantFormat === "SAST/DAST") {
+        setTableCols(SAST_DAST_COLS);
       } else if (dominantFormat === "VAPT") {
         setTableCols(VAPT_COLS);
       } else {
@@ -902,6 +907,9 @@ const AppContent: React.FC = () => {
     if (format === "CSPM") {
       setTableCols(CSPM_COLS);
       setCurrentFormat("CSPM");
+    } else if (format === "SAST/DAST") {
+      setTableCols(SAST_DAST_COLS);
+      setCurrentFormat("SAST/DAST");
     } else if (format === "VAPT") {
       setTableCols(VAPT_COLS);
       setCurrentFormat("VAPT");
@@ -994,6 +1002,18 @@ const AppContent: React.FC = () => {
       return [];
     }
   }, [activeIssues, filter, searchTerm]);
+
+  const totalPages = useMemo(() => Math.ceil((displayedIssues?.length || 0) / rowsPerPage), [displayedIssues, rowsPerPage]);
+
+  const paginatedIssues = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    const end = start + rowsPerPage;
+    return (displayedIssues || []).slice(start, end);
+  }, [displayedIssues, currentPage, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [quickFilter, filter, searchTerm, selectedBatches, selectedFormatFilter]);
 
   const groupedIssues = useMemo(() => {
     try {
@@ -1339,6 +1359,105 @@ const AppContent: React.FC = () => {
       return [];
     }
   }, [displayedIssues]);
+
+  const weekComparison = useMemo(() => {
+    try {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+
+      const thisWeekStart = new Date(now);
+      thisWeekStart.setDate(now.getDate() - 7);
+
+      const lastWeekStart = new Date(now);
+      lastWeekStart.setDate(now.getDate() - 14);
+
+      const lastWeekEnd = new Date(now);
+      lastWeekEnd.setDate(now.getDate() - 7);
+
+      const issues = activeIssues || [];
+
+      const getDateValue = (dateStr: string) => {
+        if (!dateStr || dateStr === "NA") return null;
+        try {
+          return new Date(dateStr);
+        } catch { return null; }
+      };
+
+      const thisWeekDiscovered = issues.filter(i => {
+        const d = getDateValue(i.DiscoveredDate || i.FirstDetected);
+        return d && d >= thisWeekStart && d <= now;
+      }).length;
+
+      const lastWeekDiscovered = issues.filter(i => {
+        const d = getDateValue(i.DiscoveredDate || i.FirstDetected);
+        return d && d >= lastWeekStart && d < lastWeekEnd;
+      }).length;
+
+      const thisWeekResolved = issues.filter(i => {
+        const d = getDateValue(i.ResolvedAt);
+        return d && d >= thisWeekStart && d <= now;
+      }).length;
+
+      const lastWeekResolved = issues.filter(i => {
+        const d = getDateValue(i.ResolvedAt);
+        return d && d >= lastWeekStart && d < lastWeekEnd;
+      }).length;
+
+      const thisWeekCritical = issues.filter(i => {
+        const d = getDateValue(i.DiscoveredDate || i.FirstDetected);
+        const sev = i.Severity?.toLowerCase();
+        return d && d >= thisWeekStart && d <= now && (sev === "critical" || sev === "high");
+      }).length;
+
+      const lastWeekCritical = issues.filter(i => {
+        const d = getDateValue(i.DiscoveredDate || i.FirstDetected);
+        const sev = i.Severity?.toLowerCase();
+        return d && d >= lastWeekStart && d < lastWeekEnd && (sev === "critical" || sev === "high");
+      }).length;
+
+      const thisWeekOverdue = issues.filter(i => {
+        const due = getDateValue(i.DueDate);
+        return due && due < now && due >= thisWeekStart && !isResolved(i.Status);
+      }).length;
+
+      const lastWeekOverdue = issues.filter(i => {
+        const due = getDateValue(i.DueDate);
+        return due && due < lastWeekEnd && due >= lastWeekStart && !isResolved(i.Status);
+      }).length;
+
+      const calcChange = (current: number, previous: number) => {
+        if (previous === 0) return current > 0 ? 100 : 0;
+        return Math.round(((current - previous) / previous) * 100);
+      };
+
+      return {
+        thisWeek: {
+          discovered: thisWeekDiscovered,
+          resolved: thisWeekResolved,
+          critical: thisWeekCritical,
+          overdue: thisWeekOverdue,
+        },
+        lastWeek: {
+          discovered: lastWeekDiscovered,
+          resolved: lastWeekResolved,
+          critical: lastWeekCritical,
+          overdue: lastWeekOverdue,
+        },
+        change: {
+          discovered: calcChange(thisWeekDiscovered, lastWeekDiscovered),
+          resolved: calcChange(thisWeekResolved, lastWeekResolved),
+          critical: calcChange(thisWeekCritical, lastWeekCritical),
+          overdue: calcChange(thisWeekOverdue, lastWeekOverdue),
+        }
+      };
+    } catch {
+      return {
+        thisWeek: { discovered: 0, resolved: 0, critical: 0, overdue: 0 },
+        lastWeek: { discovered: 0, resolved: 0, critical: 0, overdue: 0 },
+        change: { discovered: 0, resolved: 0, critical: 0, overdue: 0 },
+      };
+    }
+  }, [activeIssues]);
 
   const dueDateAlerts = useMemo(() => {
     try {
@@ -1787,7 +1906,6 @@ const AppContent: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-3 mt-4 md:mt-0">
-          {/* Live Status Indicator */}
           <div className={`flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded border ${darkMode ? "text-slate-400 bg-slate-700 border-slate-600" : "text-slate-500 bg-slate-50 border-slate-200"}`}>
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
@@ -1795,7 +1913,6 @@ const AppContent: React.FC = () => {
             </span>
             Connected
           </div>
-          {/* Dark Mode Toggle */}
           <button
             onClick={() => setDarkMode(!darkMode)}
             className={`p-2 rounded-lg transition-colors ${darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
@@ -1803,7 +1920,6 @@ const AppContent: React.FC = () => {
           >
             {darkMode ? <Sun size={16} /> : <Moon size={16} />}
           </button>
-          {/* Role Selector */}
           <div className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg ${darkMode ? "bg-slate-700 border-slate-600" : "bg-slate-50 border-slate-200"} border`}>
             <Users size={14} className={darkMode ? "text-slate-500" : "text-slate-400"} />
             <select
@@ -1818,7 +1934,6 @@ const AppContent: React.FC = () => {
         </div>
       </header>
 
-      {/* Due Date Alerts Banner */}
       {(dueDateAlerts.overdue.length > 0 || dueDateAlerts.dueToday.length > 0) && (
         <div className={`mb-5 p-4 rounded-lg border-l-4 border-l-slate-400 flex items-center justify-between ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-200"}`}>
           <div className="flex items-center gap-4">
@@ -1854,7 +1969,6 @@ const AppContent: React.FC = () => {
       )}
 
       <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
-        {/* View Mode Toggle */}
         <div className={`flex p-1 rounded-lg ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-slate-100"}`}>
           <button
             onClick={() => setViewMode("Optimized")}
@@ -1876,7 +1990,6 @@ const AppContent: React.FC = () => {
           </button>
         </div>
 
-        {/* Quick Filters */}
         <div className="flex items-center gap-2">
           <span className={`text-xs ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Filter:</span>
           {[
@@ -1900,7 +2013,6 @@ const AppContent: React.FC = () => {
           ))}
         </div>
 
-        {/* Saved Filters */}
         <div className="flex items-center gap-2">
           {savedFilters.slice(0, 3).map(sf => (
             <button
@@ -2016,10 +2128,42 @@ const AppContent: React.FC = () => {
             />
           </div>
 
-          {/* SLA Compliance & Age Distribution */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            {/* SLA Compliance Meter */}
-            <div className={`p-6 rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md ${darkMode ? "bg-slate-800/80 border-slate-700/50" : "bg-white border-slate-200/60"}`}>
+                    <div className={`p-5 rounded-xl border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+            <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+              <TrendingUp size={16} className="text-blue-500" /> Week-over-Week Comparison
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                { label: "New Discovered", thisWeek: weekComparison.thisWeek.discovered, lastWeek: weekComparison.lastWeek.discovered, change: weekComparison.change.discovered, goodIfDown: true },
+                { label: "Resolved", thisWeek: weekComparison.thisWeek.resolved, lastWeek: weekComparison.lastWeek.resolved, change: weekComparison.change.resolved, goodIfDown: false },
+                { label: "Critical/High", thisWeek: weekComparison.thisWeek.critical, lastWeek: weekComparison.lastWeek.critical, change: weekComparison.change.critical, goodIfDown: true },
+                { label: "Became Overdue", thisWeek: weekComparison.thisWeek.overdue, lastWeek: weekComparison.lastWeek.overdue, change: weekComparison.change.overdue, goodIfDown: true },
+              ].map((item, idx) => {
+                const isPositive = item.goodIfDown ? item.change <= 0 : item.change >= 0;
+                const changeColor = item.change === 0 ? (darkMode ? "text-slate-400" : "text-slate-500") : isPositive ? "text-emerald-500" : "text-red-500";
+                const bgColor = item.change === 0 ? (darkMode ? "bg-slate-700/50" : "bg-slate-50") : isPositive ? (darkMode ? "bg-emerald-900/20" : "bg-emerald-50") : (darkMode ? "bg-red-900/20" : "bg-red-50");
+
+                return (
+                  <div key={idx} className={`p-4 rounded-lg ${bgColor}`}>
+                    <div className={`text-xs font-medium mb-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{item.label}</div>
+                    <div className="flex items-end justify-between">
+                      <div>
+                        <div className={`text-2xl font-bold ${darkMode ? "text-slate-100" : "text-slate-800"}`}>{item.thisWeek}</div>
+                        <div className={`text-xs ${darkMode ? "text-slate-500" : "text-slate-400"}`}>vs {item.lastWeek} last week</div>
+                      </div>
+                      <div className={`text-sm font-semibold flex items-center gap-1 ${changeColor}`}>
+                        {item.change > 0 ? "↑" : item.change < 0 ? "↓" : "→"}
+                        {Math.abs(item.change)}%
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <div className={`p-6 rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md ${darkMode ? "bg-slate-800/80 border-slate-700/50" : "bg-white border-slate-200/60"}`}>
               <h2 className={`font-bold text-sm mb-5 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
                 <div className={`p-1.5 rounded-lg ${darkMode ? "bg-emerald-900/30" : "bg-emerald-50"}`}>
                   <Target size={16} className="text-emerald-500" />
@@ -2063,8 +2207,7 @@ const AppContent: React.FC = () => {
               </div>
             </div>
 
-            {/* Age Distribution */}
-            <div className={`p-5 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+                        <div className={`p-5 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
               <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
                 <Clock size={16} className="text-blue-500" /> Vulnerability Age Distribution
               </h2>
@@ -2090,8 +2233,7 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          {/* Trend Chart - Discovered vs Resolved */}
-          <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+                    <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
             <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
               <TrendingUp size={16} className="text-purple-500" /> 30-Day Trend: Discovered vs Resolved
             </h2>
@@ -2124,8 +2266,7 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          {/* Risk Heatmap */}
-          <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+                    <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
             <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
               <Zap size={16} className="text-amber-500" /> Risk Heatmap: Severity vs Department
             </h2>
@@ -2553,8 +2694,7 @@ const AppContent: React.FC = () => {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
 
-                {/* UI TABLE COLUMN SELECTOR */}
-                <div className="relative" ref={tableColDropdownRef}>
+                                <div className="relative" ref={tableColDropdownRef}>
                   <button
                     onClick={() => setIsTableColDropdownOpen(!isTableColDropdownOpen)}
                     className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 rounded-sm text-xs font-semibold hover:bg-slate-50 transition-colors shadow-sm ml-2"
@@ -2674,8 +2814,9 @@ const AppContent: React.FC = () => {
                                 {batch}
                               </span>
                               <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
-                                format === "VAPT" ? "bg-purple-100 text-purple-700" :
+                                format === "SAST/DAST" ? "bg-purple-100 text-purple-700" :
                                 format === "CSPM" ? "bg-green-100 text-green-700" :
+                                format === "VAPT" ? "bg-orange-100 text-orange-700" :
                                 "bg-blue-100 text-blue-700"
                               }`}>
                                 {format}
@@ -2697,8 +2838,7 @@ const AppContent: React.FC = () => {
                   )}
                 </div>
 
-                {/* Format Filter - Shows when multiple formats exist */}
-                {availableFormats.length > 1 && (
+                                {availableFormats.length > 1 && (
                   <div className="flex rounded-sm border border-slate-300 bg-white">
                     <button
                       onClick={() => handleFormatFilterChange("All")}
@@ -2737,13 +2877,27 @@ const AppContent: React.FC = () => {
                         </button>
                       </>
                     )}
+                    {availableFormats.includes("SAST/DAST") && (
+                      <>
+                        <div className="w-[1px] bg-slate-300"></div>
+                        <button
+                          onClick={() => handleFormatFilterChange("SAST/DAST")}
+                          className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "SAST/DAST"
+                            ? "bg-purple-100 text-purple-800"
+                            : "text-slate-600 hover:bg-slate-100"
+                            }`}
+                        >
+                          SAST/DAST
+                        </button>
+                      </>
+                    )}
                     {availableFormats.includes("VAPT") && (
                       <>
                         <div className="w-[1px] bg-slate-300"></div>
                         <button
                           onClick={() => handleFormatFilterChange("VAPT")}
                           className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "VAPT"
-                            ? "bg-purple-100 text-purple-800"
+                            ? "bg-orange-100 text-orange-800"
                             : "text-slate-600 hover:bg-slate-100"
                             }`}
                         >
@@ -2842,7 +2996,7 @@ const AppContent: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className={darkMode ? "bg-slate-900" : "bg-white"}>
-                  {displayedIssues.length === 0 && (
+                  {paginatedIssues.length === 0 && (
                     <tr>
                       <td colSpan={tableCols.length} className={`px-4 py-12 text-center ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
                         <div className="flex flex-col items-center gap-2">
@@ -2852,7 +3006,7 @@ const AppContent: React.FC = () => {
                       </td>
                     </tr>
                   )}
-                  {displayedIssues.map((issue, idx) => {
+                  {paginatedIssues.map((issue, idx) => {
                       const breached = checkBreach(issue.DueDate, issue.Status);
                       const resolved = isResolved(issue.Status);
                       const rowKey = `${issue.IssueID}-${idx}`;
@@ -2919,13 +3073,11 @@ const AppContent: React.FC = () => {
                               );
                             })}
                           </tr>
-                          {/* Expanded Details Row */}
-                          {isExpanded && (
+                                                    {isExpanded && (
                             <tr className={darkMode ? "bg-slate-800/30" : "bg-slate-50"}>
                               <td colSpan={tableCols.length} className="px-6 py-5">
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                  {/* Vulnerability Details */}
-                                  <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
+                                                                    <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
                                     <h4 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                                       Vulnerability Details
                                     </h4>
@@ -2949,8 +3101,7 @@ const AppContent: React.FC = () => {
                                     </div>
                                   </div>
 
-                                  {/* Asset & Assignment Info */}
-                                  <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
+                                                                    <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
                                     <h4 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                                       Asset Information
                                     </h4>
@@ -2974,8 +3125,7 @@ const AppContent: React.FC = () => {
                                     </div>
                                   </div>
 
-                                  {/* Remediation & Timeline */}
-                                  <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
+                                                                    <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
                                     <h4 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                                       Remediation
                                     </h4>
@@ -3000,8 +3150,7 @@ const AppContent: React.FC = () => {
                                   </div>
                                 </div>
 
-                                {/* Additional Details */}
-                                {(issue.Description || issue.ReferenceLinks || issue.WizURL) && (
+                                                                {(issue.Description || issue.ReferenceLinks || issue.WizURL) && (
                                   <div className={`mt-4 p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
                                     {issue.Description && (
                                       <div className="mb-3">
@@ -3029,6 +3178,70 @@ const AppContent: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
+                        {displayedIssues.length > 0 && (
+              <div className={`flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 border-t ${darkMode ? "border-slate-800 bg-slate-900/50" : "border-slate-200 bg-slate-50"}`}>
+                <div className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
+                  Showing {((currentPage - 1) * rowsPerPage) + 1} to {Math.min(currentPage * rowsPerPage, displayedIssues.length)} of {displayedIssues.length.toLocaleString()} issues
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Rows per page:</span>
+                    <select
+                      value={rowsPerPage}
+                      onChange={(e) => {
+                        setRowsPerPage(Number(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                      className={`px-2 py-1 rounded border text-sm ${darkMode ? "bg-slate-800 border-slate-700 text-slate-300" : "bg-white border-slate-300 text-slate-700"}`}
+                    >
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value={250}>250</option>
+                      <option value={500}>500</option>
+                      <option value={1000}>1000</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setCurrentPage(1)}
+                      disabled={currentPage === 1}
+                      className={`px-2 py-1 rounded text-sm font-medium transition-colors ${currentPage === 1 ? (darkMode ? "text-slate-600 cursor-not-allowed" : "text-slate-400 cursor-not-allowed") : (darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-200")}`}
+                    >
+                      First
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className={`px-3 py-1 rounded text-sm font-medium transition-colors ${currentPage === 1 ? (darkMode ? "text-slate-600 cursor-not-allowed" : "text-slate-400 cursor-not-allowed") : (darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-200")}`}
+                    >
+                      Previous
+                    </button>
+
+                    <span className={`px-3 py-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
+                      Page {currentPage} of {totalPages || 1}
+                    </span>
+
+                    <button
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage >= totalPages}
+                      className={`px-3 py-1 rounded text-sm font-medium transition-colors ${currentPage >= totalPages ? (darkMode ? "text-slate-600 cursor-not-allowed" : "text-slate-400 cursor-not-allowed") : (darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-200")}`}
+                    >
+                      Next
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(totalPages)}
+                      disabled={currentPage >= totalPages}
+                      className={`px-2 py-1 rounded text-sm font-medium transition-colors ${currentPage >= totalPages ? (darkMode ? "text-slate-600 cursor-not-allowed" : "text-slate-400 cursor-not-allowed") : (darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-200")}`}
+                    >
+                      Last
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -3207,8 +3420,9 @@ const AppContent: React.FC = () => {
                               <span>{sheet.rows} rows</span>
                               <span>{sheet.columns} columns</span>
                               <span className={`px-1.5 py-0.5 rounded font-bold ${
-                                sheet.format === "VAPT" ? "bg-purple-100 text-purple-700" :
+                                sheet.format === "SAST/DAST" ? "bg-purple-100 text-purple-700" :
                                 sheet.format === "CSPM" ? "bg-green-100 text-green-700" :
+                                sheet.format === "VAPT" ? "bg-orange-100 text-orange-700" :
                                 sheet.format === "CONTAINER" ? "bg-blue-100 text-blue-700" :
                                 "bg-slate-100 text-slate-600"
                               }`}>
@@ -3409,8 +3623,7 @@ const AppContent: React.FC = () => {
         </div>
       )}
 
-      {/* Saved Filter Modal */}
-      {isFilterModalOpen && (
+            {isFilterModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
           <div className={`rounded-lg shadow-2xl w-full max-w-md overflow-hidden ${darkMode ? "bg-slate-800" : "bg-white"}`}>
             <div className="bg-purple-600 p-4 flex justify-between items-center text-white">
@@ -3469,8 +3682,7 @@ const AppContent: React.FC = () => {
         </div>
       )}
 
-      {/* Activity Timeline Modal - trigger from expanded row */}
-      {activeNoteVuln && (
+            {activeNoteVuln && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
           <div className={`rounded-lg shadow-2xl w-full max-w-lg overflow-hidden ${darkMode ? "bg-slate-800" : "bg-white"}`}>
             <div className={`p-4 flex justify-between items-center ${darkMode ? "bg-slate-700" : "bg-slate-100"}`}>

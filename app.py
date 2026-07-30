@@ -11,25 +11,19 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from openpyxl import load_workbook
 
-# Ollama API Configuration (Local LLM - runs on your machine)
-# 100% OFFLINE - No data leaves this machine
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-OLLAMA_MODEL = "llama3"  # Using llama3:latest (4.7GB)
+OLLAMA_MODEL = "llama3"
 
-# Expected columns for detecting data sheets (combines all formats)
 EXPECTED_COLUMNS = {
-    # Container columns
     "id", "name", "severity", "findingstatus", "score", "wizurl",
     "vendorseverity", "cvssseverity", "hasexploit", "hascisakeknownexploit",
     "firstdetected", "lastdetected", "resolvedat", "resolution", "remediation",
     "locationpath", "detailedname", "version", "fixedversion", "status",
     "subscriptionid", "subscriptionname", "namespaces", "clusters", "imageid",
-    # CSPM columns
     "cloudprovider", "cloud_provider", "accountid", "account_id", "accountname", "account_name",
     "resourcetype", "resource_type", "findingtypeid", "finding_type_id", "findingname", "finding_name",
     "resourceid", "resource_id", "resourcename", "resource_name", "compliancetags", "compliance_tags",
     "riskscore", "risk_score", "impact", "remediationtype", "remediation_type", "region",
-    # VAPT columns
     "issuekey", "issue key", "summary", "applicationname", "application name",
     "criticalitystatus", "criticality status", "reportedon", "reported on", "ageing",
     "assignee", "multipleassignee", "multiple assignee", "applicationowner", "application owner",
@@ -40,22 +34,10 @@ HIGH_SCORE_COLS = {"id", "name", "severity", "findingstatus", "issuekey", "issue
 MED_SCORE_COLS = {"score", "cvssseverity", "wizurl", "account_name", "resource_name", "applicationname", "summary"}
 NEGATIVE_PATTERNS = ["grand total", "count of", "pivot", "impacted resources", "summary", "row labels", "column labels", "values", "total"]
 
-# Pivot table detection patterns (these indicate summary/pivot sheets, not raw data)
 PIVOT_INDICATORS = ["count of", "sum of", "average of", "row labels", "column labels", "grand total", "values"]
 
-# LOB Filter - Only process Wynk data
 ALLOWED_LOB = ["wynk"]
 
-# ============ FORMAT DETECTION ============
-# Column patterns to detect file format automatically
-# Based on actual Excel column headers from user's data
-
-# Container/Container Image format columns (Image 1,2,3)
-# Columns: ID, WizURL, Name, CVSSSeverity, HasExploit, HasCisaKnownExploit, FindingStatus, Score, Severity,
-# VendorSeverity, NvdSeverity, FirstDetected, LastDetected, ResolvedAt, Resolution, Remediation, LocationPath,
-# DetailedName, Version, FixedVersion, DetectionLink, Projects, AssetID, AssetName, AssetType, AssetRegion,
-# ProviderUniqueId, CloudProvider, CloudPlatform, Status, SubscriptionId, SubscriptionName, SubscriptionTags,
-# ExecutionContext, Namespaces, Clusters, ImageId, LOB
 CONTAINER_COLUMNS = {
     "wizurl", "cvssseverity", "hasexploit", "hascisaknownexploit", "findingstatus",
     "vendorseverity", "nvdseverity", "firstdetected", "lastdetected", "resolvedat",
@@ -64,68 +46,80 @@ CONTAINER_COLUMNS = {
     "executioncontext", "namespaces", "clusters", "imageid", "locationpath"
 }
 
-# CSPM format columns (Image 4)
-# Columns: cloud_provider, account_id, account_name, resource_type, finding_type_id, finding_name,
-# resource_id, resource_name, severity, compliance_tags, risk_score, impact, remediation_type, region, LOB
 CSPM_COLUMNS = {
     "cloud_provider", "account_id", "account_name", "resource_type", "finding_type_id",
     "finding_name", "resource_id", "resource_name", "compliance_tags", "risk_score",
     "remediation_type", "region"
 }
 
-# VAPT format columns (Image 5)
-# Columns: Issue key, Summary, Application Name, Criticality Status, reported on, Ageing,
-# Compliant/Non-compliant, Expected Timeline, Assignee, Multiple Assignee, Application Owner
-VAPT_COLUMNS = {
+SAST_DAST_COLUMNS = {
     "issue key", "issuekey", "application name", "criticality status", "reported on",
     "ageing", "compliant/non-compliant", "expected timeline", "assignee",
     "multiple assignee", "application owner"
 }
 
+VAPT_COLUMNS = {
+    "hostname", "ip", "protocol", "port", "risk factor", "uuid", "vprscore", "priority",
+    "cve number", "vulnerability name", "vulnerability description", "solution",
+    "vulnerability path", "vulnerability id", "vulnerability family", "repo name",
+    "quarter", "lob name", "application name", "application owner", "vulnerability status",
+    "vulnpubdate", "patchpubdate", "pluginpubdate", "pluginmoddate", "firstseen", "lastseen",
+    "vulnerability type", "internet/non-intern"
+}
+
 def detect_file_format(columns):
-    """Auto-detect file format based on column names"""
     cols_lower = {str(c).lower().strip() for c in columns}
     cols_normalized = {str(c).lower().replace(" ", "").replace("_", "").replace("-", "").strip() for c in columns}
     cols_str = ' '.join(cols_lower)
 
-    # Check for VAPT specific columns first (most distinctive)
     vapt_matches = 0
     for col in cols_lower:
-        # Issue Key variations
-        if "issue key" in col or col == "issuekey" or col == "issue_key":
+        if col == "uuid":
             vapt_matches += 15
-        # Application Name
-        if "application name" in col or col == "applicationname" or "app name" in col:
+        if "vulnerability name" in col:
+            vapt_matches += 10
+        if "vulnerability description" in col:
+            vapt_matches += 10
+        if "vulnerability path" in col:
             vapt_matches += 8
-        # Criticality
-        if "criticality" in col or "criticality status" in col:
+        if "vulnerability family" in col:
             vapt_matches += 8
-        # Ageing
-        if "ageing" in col or "aging" in col:
+        if "vulnerability id" in col:
             vapt_matches += 8
-        # Expected Timeline
-        if "expected timeline" in col or "timeline" in col:
+        if "vulnerability status" in col:
+            vapt_matches += 8
+        if col == "vprscore" or "vpr" in col:
+            vapt_matches += 8
+        if "risk factor" in col:
             vapt_matches += 5
-        # Application Owner
-        if "application owner" in col or "app owner" in col or "lob head" in col:
+        if col == "hostname":
             vapt_matches += 5
-        # Compliant/Non-compliant
-        if "compliant" in col or "non-compliant" in col:
+        if "cve number" in col:
             vapt_matches += 5
-        # Assignee
-        if col == "assignee" or "multiple assignee" in col:
-            vapt_matches += 5
-        # Summary (VAPT style)
-        if col == "summary" and "issue key" in cols_str:
-            vapt_matches += 5
-        # Reported On
-        if "reported on" in col or "reported" in col:
+        if col == "lastseen" or "last seen" in col:
             vapt_matches += 3
-        # Status (generic but common in VAPT)
-        if col == "status" and "issue key" in cols_str:
+        if col == "firstseen" or "first seen" in col:
             vapt_matches += 3
 
-    # Check for CSPM specific columns
+    sast_dast_matches = 0
+    for col in cols_lower:
+        if "issue key" in col or col == "issuekey" or col == "issue_key":
+            sast_dast_matches += 15
+        if "criticality" in col or "criticality status" in col:
+            sast_dast_matches += 8
+        if "ageing" in col or "aging" in col:
+            sast_dast_matches += 8
+        if "expected timeline" in col or "timeline" in col:
+            sast_dast_matches += 5
+        if "compliant" in col or "non-compliant" in col:
+            sast_dast_matches += 5
+        if col == "assignee" or "multiple assignee" in col:
+            sast_dast_matches += 5
+        if col == "summary" and "issue key" in cols_str:
+            sast_dast_matches += 5
+        if "reported on" in col or "reported" in col:
+            sast_dast_matches += 3
+
     cspm_matches = 0
     for col in cols_lower:
         if col == "cloud_provider" or col == "cloudprovider":
@@ -145,7 +139,6 @@ def detect_file_format(columns):
         if col == "risk_score" or col == "riskscore":
             cspm_matches += 3
 
-    # Check for Container/Container Image specific columns
     container_matches = 0
     for col in cols_lower:
         if col == "wizurl" or "wizurl" in col:
@@ -169,55 +162,42 @@ def detect_file_format(columns):
         if col == "imageid":
             container_matches += 5
 
-    print(f"Format detection - Container: {container_matches}, CSPM: {cspm_matches}, VAPT: {vapt_matches}")
+    print(f"Format detection - Container: {container_matches}, CSPM: {cspm_matches}, SAST_DAST: {sast_dast_matches}, VAPT: {vapt_matches}")
 
-    if vapt_matches > cspm_matches and vapt_matches > container_matches:
+    if vapt_matches > sast_dast_matches and vapt_matches > cspm_matches and vapt_matches > container_matches:
         return "VAPT"
+    elif sast_dast_matches > cspm_matches and sast_dast_matches > container_matches:
+        return "SAST_DAST"
     elif cspm_matches > container_matches:
         return "CSPM"
     else:
         return "CONTAINER"
 
-# POD Owner Mapping - Auto-assign based on subscription/project name
-# Maps POD/Section keywords (including abbreviations) to their owners
 POD_OWNER_MAPPING = {
-    # xstream variations
     "xstream": "Shreya",
     "xstrm": "Shreya",
     "x-stream": "Shreya",
     "x_stream": "Shreya",
     "xs": "Shreya",
-
-    # adtech variations
     "adtech": "Satya",
     "ad-tech": "Satya",
     "ad_tech": "Satya",
     "adt": "Satya",
     "ads": "Satya",
-
-    # music variations
     "music": "Aakash",
     "msc": "Aakash",
     "mus": "Aakash",
-
-    # wcf variations
     "wcf": "Yash",
     "w-c-f": "Yash",
-
-    # vmax variations
     "vmax": "Dheeraj",
     "v-max": "Dheeraj",
     "v_max": "Dheeraj",
     "vmx": "Dheeraj",
-
-    # iptv-be variations (backend)
     "iptv-be": "Shreya",
     "iptv_be": "Shreya",
     "iptvbe": "Shreya",
     "iptv-backend": "Shreya",
     "iptvbackend": "Shreya",
-
-    # data platform variations
     "data platform": "Vinod",
     "dataplatform": "Vinod",
     "data_platform": "Vinod",
@@ -225,51 +205,34 @@ POD_OWNER_MAPPING = {
     "dataplat": "Vinod",
     "dp": "Vinod",
     "dplat": "Vinod",
-
-    # msp variations
     "msp": "Yash",
     "m-s-p": "Yash",
-
-    # search variations
     "search": "Mohit",
     "srch": "Mohit",
     "src": "Mohit",
-
-    # ml variations
     "ml": "Nisha",
     "m-l": "Nisha",
     "machine learning": "Nisha",
     "machinelearning": "Nisha",
-
-    # catalog variations
     "catalog": "Aakash",
     "catalogue": "Aakash",
     "cat": "Aakash",
     "ctlg": "Aakash",
     "ctg": "Aakash",
-
-    # channels variations
     "channels": "Vinod",
     "channel": "Vinod",
     "chnl": "Vinod",
     "chnls": "Vinod",
     "ch": "Vinod",
-
-    # uclm variations
     "uclm": "Satya",
     "u-c-l-m": "Satya",
     "ucl": "Satya",
-
-    # iptv/ktv variations (general - Anshu)
-    # Note: IPTV-Be is separate (Shreya), but general IPTV/KTV is Anshu
     "iptv": "Anshu",
     "ip-tv": "Anshu",
     "ip_tv": "Anshu",
     "ktv": "Anshu",
     "k-tv": "Anshu",
     "k_tv": "Anshu",
-
-    # discovery variations
     "discovery": "Aakash",
     "disc": "Aakash",
     "dscvry": "Aakash",
@@ -278,14 +241,7 @@ POD_OWNER_MAPPING = {
 }
 
 def generate_short_description(vuln_name, cve_id, severity, asset_type, detailed_name):
-    """
-    Generate a short 5-7 word vulnerability description.
-    Pure Python - no external AI dependencies.
-    Works offline with Python 3.11.8.
-    """
     desc_parts = []
-
-    # Determine severity prefix
     severity_words = {
         "critical": "Critical security flaw",
         "high": "High-risk vulnerability",
@@ -295,13 +251,10 @@ def generate_short_description(vuln_name, cve_id, severity, asset_type, detailed
     }
     sev_lower = (severity or "medium").lower()
     sev_prefix = severity_words.get(sev_lower, "Security issue")
-
-    # Extract key info from vulnerability name
     name_lower = (vuln_name or "").lower()
     detailed_lower = (detailed_name or "").lower()
     combined = name_lower + " " + detailed_lower
 
-    # Detect vulnerability type from name/details
     vuln_type = ""
     if any(x in combined for x in ["rce", "remote code", "command injection", "code execution"]):
         vuln_type = "allows remote code execution"
@@ -342,7 +295,6 @@ def generate_short_description(vuln_name, cve_id, severity, asset_type, detailed
     elif any(x in combined for x in ["spring", "spring4shell"]):
         vuln_type = "Spring framework vulnerability"
 
-    # Build description
     if vuln_type:
         # Use detected type
         if cve_id and cve_id.upper().startswith("CVE"):
@@ -471,7 +423,7 @@ def is_pivot_or_summary_row(row, use_ollama_for_edge_cases=False):
     if 'cve-' in row_str:
         return False
 
-    # Check if any value looks like a VAPT issue key (e.g., contains letters and numbers)
+    # Check if any value looks like a SAST_DAST issue key (e.g., contains letters and numbers)
     for v in row_values:
         if v and len(v) > 3 and any(c.isalpha() for c in v) and any(c.isdigit() for c in v):
             if not any(skip in v for skip in ['nan', 'none', 'total', 'count']):
@@ -490,9 +442,8 @@ def is_pivot_or_summary_row(row, use_ollama_for_edge_cases=False):
     return False
 
 
-# ============ VAPT PROCESSING ============
 def process_vapt_row(row, idx, dsn, rc_lower):
-    """Process a VAPT format row - preserves all VAPT columns for display"""
+    """Process a SAST_DAST format row - preserves all SAST_DAST columns for display"""
     def get_val(patterns):
         for p in patterns:
             p_lower = p.lower().replace(" ", "").replace("_", "")
@@ -504,11 +455,11 @@ def process_vapt_row(row, idx, dsn, rc_lower):
                         return val
         return ""
 
-    rec = {"UploadBatch": dsn, "SourceFormat": "VAPT"}
+    rec = {"UploadBatch": dsn, "SourceFormat": "SAST_DAST"}
 
     # Issue key (primary ID)
     issue_key = get_val(["Issue key", "IssueKey", "Issue_key", "ID"])
-    rec["IssueID"] = issue_key if issue_key else f"VAPT-{idx}"
+    rec["IssueID"] = issue_key if issue_key else f"SAST_DAST-{idx}"
     rec["DisplayID"] = rec["IssueID"]
     rec["issue_key"] = issue_key  # Preserve original column name
 
@@ -575,7 +526,7 @@ def process_vapt_row(row, idx, dsn, rc_lower):
     rec["Department"] = app_owner
 
     # Category
-    rec["Category"] = "VAPT Finding"
+    rec["Category"] = "SAST_DAST Finding"
 
     # Generate short vulnerability description (5-7 words)
     rec["VulnDescription"] = generate_short_description(
@@ -592,14 +543,86 @@ def process_vapt_row(row, idx, dsn, rc_lower):
         if auto_owner:
             rec["AssignedTo"] = auto_owner
 
-    # LOB - for VAPT, don't filter by LOB since it may not have this field
     lob = get_val(["LOB", "Line of Business", "BusinessUnit"])
-    rec["LOB"] = lob if lob else "VAPT"
+    rec["LOB"] = lob if lob else "SAST_DAST"
 
     return rec
 
 
-# ============ CSPM PROCESSING ============
+def process_vapt_row_new(row, idx, dsn, rc_lower):
+    def get_val(patterns):
+        for p in patterns:
+            p_lower = p.lower().replace(" ", "").replace("_", "")
+            for col_lower, col in rc_lower.items():
+                col_normalized = col_lower.replace(" ", "").replace("_", "")
+                if p_lower == col_normalized or p_lower in col_normalized:
+                    val = str(row.get(col, "")).strip()
+                    if val and val.lower() not in ["", "nan", "none", "na", "null"]:
+                        return val
+        return ""
+
+    rec = {"UploadBatch": dsn, "SourceFormat": "VAPT"}
+
+    uuid = get_val(["UUID", "ID"])
+    rec["IssueID"] = uuid if uuid else f"VAPT-{idx}"
+    rec["UUID"] = uuid
+
+    vuln_name = get_val(["Vulnerability name", "VulnerabilityName", "Vuln Name"])
+    rec["DisplayID"] = vuln_name if vuln_name else rec["IssueID"]
+    rec["Vulnerability name"] = vuln_name
+
+    rec["IP"] = get_val(["IP", "IP Address", "IPAddress"])
+    rec["Hostname"] = get_val(["Hostname", "Host"])
+    rec["Port"] = get_val(["Port"])
+    rec["Protocol"] = get_val(["Protocol"])
+
+    rec["Vulnerability description"] = get_val(["Vulnerability description", "VulnerabilityDescription", "Description"])
+    rec["Solution"] = get_val(["Solution", "Remediation", "Fix"])
+    rec["Vulnerability Path"] = get_val(["Vulnerability Path", "VulnerabilityPath", "Path"])
+    rec["Vulnerability ID"] = get_val(["Vulnerability ID", "VulnerabilityID", "Vuln ID"])
+    rec["Vulnerability family"] = get_val(["Vulnerability family", "VulnerabilityFamily", "Family", "Category"])
+    rec["CVE Number"] = get_val(["CVE Number", "CVENumber", "CVE"])
+
+    risk_factor = get_val(["Risk Factor", "RiskFactor", "Risk"])
+    severity_map = {"critical": "Critical", "high": "High", "medium": "Medium", "low": "Low", "info": "Info"}
+    rec["Severity"] = severity_map.get(risk_factor.lower(), "Medium") if risk_factor else "Medium"
+    rec["Risk Factor"] = risk_factor
+
+    rec["vprScore"] = get_val(["vprScore", "VPRScore", "VPR Score", "VPR"])
+    rec["Priority"] = get_val(["Priority"])
+
+    status = get_val(["Vulnerability Status", "VulnerabilityStatus", "Status"])
+    rec["Status"] = status if status else "Open"
+    rec["Vulnerability Status"] = status if status else "Open"
+
+    rec["Application Owner"] = get_val(["Application Owner", "ApplicationOwner", "Owner", "Assigned To", "AssignedTo"])
+    rec["AssignedTo"] = rec["Application Owner"]
+    rec["Application Name"] = get_val(["Application Name", "ApplicationName", "App Name", "Application"])
+    rec["LOB Name"] = get_val(["LOB Name", "LOBName", "LOB"])
+    rec["Repo Name"] = get_val(["Repo Name", "RepoName", "Repository"])
+
+    rec["firstSeen"] = get_val(["firstSeen", "FirstSeen", "First Seen"])
+    rec["lastSeen"] = get_val(["lastSeen", "LastSeen", "Last Seen"])
+    rec["DiscoveredDate"] = rec["firstSeen"] if rec["firstSeen"] else get_val(["vulnPubDate", "VulnPubDate"])
+    rec["DueDate"] = ""
+
+    rec["Vulnerability Type"] = get_val(["Vulnerability Type", "VulnerabilityType", "Type"])
+    rec["Internet/Non-Intern"] = get_val(["Internet/Non-Intern", "InternetExposed", "Internet"])
+    rec["Quarter"] = get_val(["Quarter"])
+
+    desc = generate_short_description(vuln_name, rec.get("CVENumber", ""), rec["Severity"], "", "")
+    rec["Description"] = desc
+
+    if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
+        auto_owner = get_pod_owner(rec.get("ApplicationName", ""), rec.get("LOBName", ""))
+        if auto_owner:
+            rec["AssignedTo"] = auto_owner
+
+    rec["LOB"] = rec.get("LOBName", "VAPT")
+
+    return rec
+
+
 def process_cspm_row(row, idx, dsn, rc_lower):
     """Process a CSPM format row"""
     def get_val(patterns):
@@ -709,7 +732,6 @@ def process_cspm_row(row, idx, dsn, rc_lower):
     return rec
 
 
-# ============ CONTAINER PROCESSING ============
 def process_container_row(row, idx, dsn, rc_lower):
     """Process a Container/Container Image format row"""
     def get_val(patterns):
@@ -978,8 +1000,7 @@ def score_sheet(ws, sheet_name):
                 score += 1
                 details.append(f"+1 ({col})")
 
-        # Also check for VAPT, CSPM, Container specific columns
-        all_format_cols = VAPT_COLUMNS | CSPM_COLUMNS | CONTAINER_COLUMNS
+        all_format_cols = VAPT_COLUMNS | SAST_DAST_COLUMNS | CSPM_COLUMNS | CONTAINER_COLUMNS
         for col in all_format_cols:
             col_normalized = col.replace(" ", "").replace("_", "")
             if col_normalized in header_values or col in [h for h in header_values_raw]:
@@ -1165,10 +1186,6 @@ async def glb():
     mexwf.sort(key=lambda x: x["points"], reverse=True)
     return mexwf
 
-# OFFLINE MODE - No external API calls
-# All AI features work locally without internet connection
-
-# Local database files for new features
 NOTES_DB = "xtelify_notes.json"
 ACTIVITY_DB = "xtelify_activity.json"
 FILTERS_DB = "xtelify_filters.json"
@@ -1204,7 +1221,6 @@ def save_filters(data):
         json.dump(data, f, indent=2)
 
 
-# ============ NEW API ENDPOINTS FOR FEATURES ============
 
 @app.get("/api/notes")
 async def get_notes():
@@ -1581,11 +1597,20 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                         sheet_format = detect_file_format(sheet_cols)
                         rc_lower_sheet = {c.lower(): c for c in sheet_cols}
 
-                        # Skip sheets that look like pivot tables
+                        # Skip sheets that look like pivot tables or summaries
+                        sheet_name_lower = sheet_name.lower()
                         first_col = str(sheet_cols[0]).lower() if sheet_cols else ""
-                        if 'row labels' in first_col or 'count of' in first_col or 'sum of' in first_col:
-                            print(f"  Sheet '{sheet_name}': Pivot table detected, skipping")
+                        skip_patterns = ['row labels', 'count of', 'sum of', 'grand total', 'pivot', 'summary', 'impacted resources']
+
+                        if any(p in first_col for p in skip_patterns) or any(p in sheet_name_lower for p in skip_patterns):
+                            print(f"  Sheet '{sheet_name}': Pivot/Summary table detected, skipping")
                             sheet_summary.append({"name": sheet_name, "format": "PIVOT", "rows": 0, "status": "skipped"})
+                            continue
+
+                        # Skip sheets with very few columns (likely summary)
+                        if len(sheet_cols) < 5:
+                            print(f"  Sheet '{sheet_name}': Too few columns ({len(sheet_cols)}), skipping")
+                            sheet_summary.append({"name": sheet_name, "format": "SUMMARY", "rows": 0, "status": "skipped"})
                             continue
 
                         # Process rows based on format
@@ -1597,11 +1622,12 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                                 continue
 
                             if sheet_format == "VAPT":
+                                rec = process_vapt_row_new(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
+                            elif sheet_format == "SAST_DAST":
                                 rec = process_vapt_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
                             elif sheet_format == "CSPM":
                                 rec = process_cspm_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
                             else:
-                                # Container format - full processing with auto-assignment
                                 rec = process_container_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
 
                             if rec:
@@ -1662,8 +1688,21 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
 
         t_map_start = time.time()
 
-        # If VAPT or CSPM, use specialized processing
         if file_format == "VAPT":
+            ni = []
+            ri = df.to_dict(orient="records")
+            for idx, row in enumerate(ri):
+                if is_pivot_or_summary_row(row):
+                    print(f"Skipping pivot/summary row {idx}")
+                    continue
+                rec = process_vapt_row_new(row, idx, dsn, rc_lower)
+                if rec:
+                    ni.append(rec)
+            db.extend(ni)
+            sdb(db)
+            return {"status": "success", "processed_rows": len(ni), "format": "VAPT"}
+
+        elif file_format == "SAST_DAST":
             ni = []
             ri = df.to_dict(orient="records")
             for idx, row in enumerate(ri):
@@ -1675,7 +1714,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                     ni.append(rec)
             db.extend(ni)
             sdb(db)
-            return {"status": "success", "processed_rows": len(ni), "format": "VAPT"}
+            return {"status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
 
         elif file_format == "CSPM":
             ni = []
@@ -1690,8 +1729,6 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
             db.extend(ni)
             sdb(db)
             return {"status": "success", "processed_rows": len(ni), "format": "CSPM"}
-
-        # Container format (original processing)
         def find_col(patterns):
             for p in patterns:
                 p_lower = p.lower()
@@ -1970,12 +2007,24 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
         rc = df.columns.tolist()
         rc_lower = {c.lower(): c for c in rc}
 
-        # Auto-detect file format
         file_format = detect_file_format(rc)
         print(f"Detected file format: {file_format}")
 
-        # If VAPT or CSPM, use specialized processing
         if file_format == "VAPT":
+            ni = []
+            ri = df.to_dict(orient="records")
+            for idx, row in enumerate(ri):
+                if is_pivot_or_summary_row(row):
+                    print(f"Skipping pivot/summary row {idx}")
+                    continue
+                rec = process_vapt_row_new(row, idx, dsn, rc_lower)
+                if rec:
+                    ni.append(rec)
+            db.extend(ni)
+            sdb(db)
+            return {"status": "success", "processed_rows": len(ni), "format": "VAPT"}
+
+        elif file_format == "SAST_DAST":
             ni = []
             ri = df.to_dict(orient="records")
             for idx, row in enumerate(ri):
@@ -1987,7 +2036,7 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
                     ni.append(rec)
             db.extend(ni)
             sdb(db)
-            return {"status": "success", "processed_rows": len(ni), "format": "VAPT"}
+            return {"status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
 
         elif file_format == "CSPM":
             ni = []
@@ -2003,7 +2052,6 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
             sdb(db)
             return {"status": "success", "processed_rows": len(ni), "format": "CSPM"}
 
-        # Container format (original processing)
         def find_col(patterns):
             for p in patterns:
                 p_lower = p.lower()
@@ -2212,7 +2260,6 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-# ============ OFFLINE AI ENDPOINTS ============
 # No internet connection required - all analysis is done locally
 
 # Remediation templates for common vulnerability types
@@ -2518,7 +2565,7 @@ async def smart_search(req: Request):
 
         # Format detection
         if "vapt" in query_lower:
-            filters["format"] = "VAPT"
+            filters["format"] = "SAST_DAST"
         elif "cspm" in query_lower or "cloud" in query_lower:
             filters["format"] = "CSPM"
         elif "container" in query_lower:
