@@ -2732,3 +2732,8 @@ async def sr(fp: str):
     if os.path.exists("dist/index.html"):
         return FileResponse("dist/index.html")
     return JSONResponse({"message": "Frontend not built. Run 'npm run dev' for development or 'npm run build' for production."})
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

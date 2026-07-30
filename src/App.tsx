@@ -67,7 +67,7 @@ const BACKEND_URL = (() => {
   if (hostname === "localhost" || hostname === "127.0.0.1") {
     return "http://127.0.0.1:8000";
   }
-  return "";
+  return `http://${window.location.hostname}:8000`;
 })();
 
 interface Issue {
