@@ -1210,7 +1210,7 @@ const AppContent: React.FC = () => {
     try {
       const fendralis: Record<
         string,
-        { name: string; Critical: number; Medium: number; Solved: number }
+        { name: string; Critical: number; High: number; Medium: number }
       > = {};
       (displayedIssues || []).forEach((issue) => {
         const owner =
@@ -1218,23 +1218,31 @@ const AppContent: React.FC = () => {
             ? issue.AssignedTo
             : "Unassigned";
         if (!fendralis[owner]) {
-          fendralis[owner] = { name: owner, Critical: 0, Medium: 0, Solved: 0 };
+          fendralis[owner] = { name: owner, Critical: 0, High: 0, Medium: 0 };
         }
 
-        if (isResolved(issue.Status)) {
-          fendralis[owner].Solved += 1;
+        const format = issue.SourceFormat || "CONTAINER";
+        let sevValue = "";
+        if (format === "SAST_DAST") {
+          sevValue = issue.Criticality || issue.CriticalityStatus || issue["Criticality Status"] || issue.Severity || "";
+        } else if (format === "VAPT") {
+          sevValue = issue["Risk Factor"] || issue.RiskFactor || issue.Severity || "";
         } else {
-          const sev = getIssueSeverity(issue);
-          if (sev.includes("critical") || sev.includes("high")) {
-            fendralis[owner].Critical += 1;
-          } else {
-            fendralis[owner].Medium += 1;
-          }
+          sevValue = issue.Severity || "";
+        }
+        const sev = (sevValue || "").toLowerCase().trim();
+
+        if (sev === "critical") {
+          fendralis[owner].Critical += 1;
+        } else if (sev === "high") {
+          fendralis[owner].High += 1;
+        } else {
+          fendralis[owner].Medium += 1;
         }
       });
       const mexwf = Object.values(fendralis).sort(
         (a, b) =>
-          b.Critical + b.Medium + b.Solved - (a.Critical + a.Medium + a.Solved)
+          b.Critical + b.High + b.Medium - (a.Critical + a.High + a.Medium)
       );
       return mexwf;
     } catch {
@@ -1296,13 +1304,13 @@ const AppContent: React.FC = () => {
     if (format === "VAPT") {
       sevValue = issue["Risk Factor"] || issue.RiskFactor || issue.Severity || "";
     } else if (format === "SAST_DAST") {
-      sevValue = issue.CriticalityStatus || issue.Criticality || issue["Criticality Status"] || issue.Severity || "";
+      sevValue = issue.Criticality || issue.CriticalityStatus || issue["Criticality Status"] || issue["Criticality"] || issue.Severity || "";
     } else {
       sevValue = issue.Severity || "";
     }
 
     const sev = (sevValue || "").toLowerCase().trim();
-    if (!sev || sev === "na" || sev === "none") return "medium";
+    if (!sev || sev === "na" || sev === "none" || sev === "exception") return "medium";
     return sev;
   };
 
@@ -2688,22 +2696,22 @@ const AppContent: React.FC = () => {
                     <Bar
                       dataKey="Critical"
                       stackId="a"
-                      fill="#ef4444"
+                      fill="#dc2626"
                       barSize={30}
+                      cursor="pointer"
+                      onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
+                    />
+                    <Bar
+                      dataKey="High"
+                      stackId="a"
+                      fill="#f97316"
                       cursor="pointer"
                       onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
                     />
                     <Bar
                       dataKey="Medium"
                       stackId="a"
-                      fill="#3b82f6"
-                      cursor="pointer"
-                      onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
-                    />
-                    <Bar
-                      dataKey="Solved"
-                      stackId="a"
-                      fill="#10b981"
+                      fill="#eab308"
                       radius={[4, 4, 0, 0]}
                       cursor="pointer"
                       onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
