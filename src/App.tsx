@@ -1133,7 +1133,16 @@ const AppContent: React.FC = () => {
       const uniqueAssets = new Set(dataSource.map(i => i.AffectedAsset || i.AssetName || i.resource_id || i.IssueID));
       const openIssues = dataSource.filter(i => !isResolved(i.Status));
       const criticalOpenCount = openIssues.filter(i => {
-        const sev = (i.Severity || i.CriticalityStatus || "").toLowerCase();
+        const format = i.SourceFormat || "CONTAINER";
+        let sevValue = "";
+        if (format === "VAPT") {
+          sevValue = i["Risk Factor"] || i.RiskFactor || i.Severity || "";
+        } else if (format === "SAST_DAST") {
+          sevValue = i.CriticalityStatus || i.Criticality || i.Severity || "";
+        } else {
+          sevValue = i.Severity || "";
+        }
+        const sev = (sevValue || "").toLowerCase();
         return sev === "critical" || sev === "urgent" || sev === "high";
       }).length;
 
@@ -1180,6 +1189,21 @@ const AppContent: React.FC = () => {
     }
   }, [displayedIssues]);
 
+  const getIssueSeverity = (issue: Issue): string => {
+    const format = issue.SourceFormat || "CONTAINER";
+    let sevValue = "";
+
+    if (format === "VAPT") {
+      sevValue = issue["Risk Factor"] || issue.RiskFactor || issue.Severity || "";
+    } else if (format === "SAST_DAST") {
+      sevValue = issue.CriticalityStatus || issue.Criticality || issue.Severity || "";
+    } else {
+      sevValue = issue.Severity || "";
+    }
+
+    return (sevValue || "Medium").toLowerCase();
+  };
+
   const ownerChartData = useMemo(() => {
     try {
       const fendralis: Record<
@@ -1198,7 +1222,7 @@ const AppContent: React.FC = () => {
         if (isResolved(issue.Status)) {
           fendralis[owner].Solved += 1;
         } else {
-          const sev = String(issue.Severity).toLowerCase();
+          const sev = getIssueSeverity(issue);
           if (sev.includes("critical") || sev.includes("high")) {
             fendralis[owner].Critical += 1;
           } else {
@@ -1263,12 +1287,27 @@ const AppContent: React.FC = () => {
     }
   }, [pipeline]);
 
+  const getSeverityValue = (issue: Issue): string => {
+    const format = issue.SourceFormat || "CONTAINER";
+    let sevValue = "";
+
+    if (format === "VAPT") {
+      sevValue = issue["Risk Factor"] || issue.RiskFactor || issue.Severity || "";
+    } else if (format === "SAST_DAST") {
+      sevValue = issue.CriticalityStatus || issue.Criticality || issue.Severity || "";
+    } else {
+      sevValue = issue.Severity || "";
+    }
+
+    return (sevValue || "Medium").toLowerCase();
+  };
+
   const severityPieData = useMemo(() => {
     try {
       const openIssues = (activeIssues || []).filter(i => !isResolved(i.Status));
       const counts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
       openIssues.forEach(i => {
-        const sev = (i.Severity || i.CriticalityStatus || "Medium").toLowerCase();
+        const sev = getSeverityValue(i);
         if (sev === "critical" || sev === "urgent") counts.Critical++;
         else if (sev === "high") counts.High++;
         else if (sev === "medium" || sev === "moderate") counts.Medium++;
@@ -2059,7 +2098,6 @@ const AppContent: React.FC = () => {
 
         <div className={`flex items-center gap-1 p-1.5 rounded-xl ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-slate-100 border border-slate-200"}`}>
           {[
-            { key: "All", label: "All", icon: Layers },
             { key: "CONTAINER", label: "Container", icon: Server },
             { key: "VAPT", label: "VAPT", icon: Shield },
             { key: "CSPM", label: "CSPM", icon: Activity },
@@ -2480,7 +2518,7 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          {(currentFormat === "CSPM" || selectedFormatFilter === "CSPM" || selectedFormatFilter === "All") && cspmFindingChartData.length > 0 && (
+          {(currentFormat === "CSPM" || selectedFormatFilter === "CSPM") && cspmFindingChartData.length > 0 && (
             <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
               <h2 className={`font-semibold text-sm mb-4 border-b pb-2 ${darkMode ? "text-slate-200 border-slate-700" : "text-slate-800 border-slate-100"}`}>
                 CSPM Findings by Type
