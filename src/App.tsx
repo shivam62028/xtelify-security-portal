@@ -892,7 +892,7 @@ const AppContent: React.FC = () => {
       setCurrentFormat(dominantFormat);
       if (dominantFormat === "CSPM") {
         setTableCols(CSPM_COLS);
-      } else if (dominantFormat === "SAST/DAST") {
+      } else if (dominantFormat === "SAST_DAST") {
         setTableCols(SAST_DAST_COLS);
       } else if (dominantFormat === "VAPT") {
         setTableCols(VAPT_COLS);
@@ -907,9 +907,9 @@ const AppContent: React.FC = () => {
     if (format === "CSPM") {
       setTableCols(CSPM_COLS);
       setCurrentFormat("CSPM");
-    } else if (format === "SAST/DAST") {
+    } else if (format === "SAST_DAST") {
       setTableCols(SAST_DAST_COLS);
-      setCurrentFormat("SAST/DAST");
+      setCurrentFormat("SAST_DAST");
     } else if (format === "VAPT") {
       setTableCols(VAPT_COLS);
       setCurrentFormat("VAPT");
@@ -2814,12 +2814,12 @@ const AppContent: React.FC = () => {
                                 {batch}
                               </span>
                               <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
-                                format === "SAST/DAST" ? "bg-purple-100 text-purple-700" :
+                                format === "SAST_DAST" ? "bg-purple-100 text-purple-700" :
                                 format === "CSPM" ? "bg-green-100 text-green-700" :
                                 format === "VAPT" ? "bg-orange-100 text-orange-700" :
                                 "bg-blue-100 text-blue-700"
                               }`}>
-                                {format}
+                                {format === "SAST_DAST" ? "SAST/DAST" : format}
                               </span>
                             </div>
                           )})}
@@ -2877,12 +2877,12 @@ const AppContent: React.FC = () => {
                         </button>
                       </>
                     )}
-                    {availableFormats.includes("SAST/DAST") && (
+                    {availableFormats.includes("SAST_DAST") && (
                       <>
                         <div className="w-[1px] bg-slate-300"></div>
                         <button
-                          onClick={() => handleFormatFilterChange("SAST/DAST")}
-                          className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "SAST/DAST"
+                          onClick={() => handleFormatFilterChange("SAST_DAST")}
+                          className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "SAST_DAST"
                             ? "bg-purple-100 text-purple-800"
                             : "text-slate-600 hover:bg-slate-100"
                             }`}
@@ -3420,13 +3420,13 @@ const AppContent: React.FC = () => {
                               <span>{sheet.rows} rows</span>
                               <span>{sheet.columns} columns</span>
                               <span className={`px-1.5 py-0.5 rounded font-bold ${
-                                sheet.format === "SAST/DAST" ? "bg-purple-100 text-purple-700" :
+                                sheet.format === "SAST_DAST" ? "bg-purple-100 text-purple-700" :
                                 sheet.format === "CSPM" ? "bg-green-100 text-green-700" :
                                 sheet.format === "VAPT" ? "bg-orange-100 text-orange-700" :
                                 sheet.format === "CONTAINER" ? "bg-blue-100 text-blue-700" :
                                 "bg-slate-100 text-slate-600"
                               }`}>
-                                {sheet.format}
+                                {sheet.format === "SAST_DAST" ? "SAST/DAST" : sheet.format}
                               </span>
                             </div>
                           </div>
