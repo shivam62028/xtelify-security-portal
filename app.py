@@ -205,6 +205,10 @@ POD_OWNER_MAPPING = {
     "iptv": "Anshu",
     "ktv": "Anshu",
     "discovery": "Aakash",
+    "disco": "Aakash",
+    "dp": "Vinod",
+    "cmn": "Shiv Kumar",
+    "ds": "Shiv Kumar",
 }
 
 CSPM_POD_KEYWORDS = [

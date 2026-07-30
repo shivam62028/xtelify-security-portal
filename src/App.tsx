@@ -1335,18 +1335,20 @@ const AppContent: React.FC = () => {
         else if (sev === "low" || sev === "info") counts.Low++;
         else counts.Medium++;
       });
+      const allData = [
+        { name: "Critical", value: counts.Critical, color: "#dc2626" },
+        { name: "High", value: counts.High, color: "#f97316" },
+        { name: "Medium", value: counts.Medium, color: "#eab308" },
+        { name: "Low", value: counts.Low, color: "#22c55e" },
+      ];
       return {
-        data: [
-          { name: "Critical", value: counts.Critical, color: "#dc2626" },
-          { name: "High", value: counts.High, color: "#f97316" },
-          { name: "Medium", value: counts.Medium, color: "#eab308" },
-          { name: "Low", value: counts.Low, color: "#22c55e" },
-        ].filter(d => d.value > 0),
+        data: allData.filter(d => d.value > 0),
+        allData: allData,
         total: allIssues.length,
         counts
       };
     } catch {
-      return { data: [], total: 0, counts: { Critical: 0, High: 0, Medium: 0, Low: 0 } };
+      return { data: [], total: 0, allData: [], counts: { Critical: 0, High: 0, Medium: 0, Low: 0 } };
     }
   }, [activeIssues]);
 
@@ -2487,10 +2489,10 @@ const AppContent: React.FC = () => {
                     </p>
                   )}
                 </div>
-                {severityPieData.data && severityPieData.data.length > 0 && (
+                {severityPieData.allData && severityPieData.allData.length > 0 && (
                   <>
                     <div className="flex flex-wrap justify-center gap-3 mt-2">
-                      {severityPieData.data.map((item) => (
+                      {severityPieData.allData.filter(item => item.value > 0).map((item) => (
                         <div key={item.name} className="flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
                           <span className={`text-xs font-semibold ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
