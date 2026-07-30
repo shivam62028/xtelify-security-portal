@@ -255,7 +255,7 @@ const AppContent: React.FC = () => {
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
 
   const CONTAINER_COLS = ["SubscriptionName", "AssignedTo", "AffectedAsset", "VulnDescription", "Severity", "Status", "Version", "FixedVersion", "DueDate", "RecommendedAction"];
-  const CSPM_COLS = ["account_name", "AssignedTo", "account_id", "resource_type", "finding_type_id", "VulnDescription", "resource_id", "resource_name", "compliance_tags", "impact"];
+  const CSPM_COLS = ["account_name", "AssignedTo", "VulnDescription", "finding_name", "resource_type", "resource_id", "resource_name", "impact", "Severity", "Status"];
   const SAST_DAST_COLS = ["issue_key", "VulnDescription", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Compliant_NonCompliant", "ExpectedTimeline", "Assignee", "MultipleAssignee", "ApplicationOwner"];
   const VAPT_COLS = ["IP", "UUID", "Vulnerability name", "Vulnerability description", "Solution", "Vulnerability Path", "Vulnerability family", "Vulnerability ID", "Application Owner", "Vulnerability Status", "lastSeen"];
 
@@ -266,6 +266,8 @@ const AppContent: React.FC = () => {
 
   const [filter, setFilter] = useState<string>("All");
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [selectedOwner, setSelectedOwner] = useState<string>("");
+  const [selectedFindingType, setSelectedFindingType] = useState<string>("All");
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<string>("");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
@@ -887,20 +889,27 @@ const AppContent: React.FC = () => {
     return sorted[0] ? sorted[0][0] : "CONTAINER";
   }, [activeIssues, selectedFormatFilter]);
 
+  const cspmFindingTypes = useMemo(() => {
+    const types = new Set<string>();
+    (activeIssues || []).filter(i => i.SourceFormat === "CSPM").forEach(i => {
+      const findingName = i.finding_name || i.FindingName || "";
+      if (findingName && findingName !== "NA") types.add(findingName);
+    });
+    return Array.from(types).sort();
+  }, [activeIssues]);
+
   useEffect(() => {
-    if (dominantFormat !== currentFormat) {
-      setCurrentFormat(dominantFormat);
-      if (dominantFormat === "CSPM") {
-        setTableCols(CSPM_COLS);
-      } else if (dominantFormat === "SAST_DAST") {
-        setTableCols(SAST_DAST_COLS);
-      } else if (dominantFormat === "VAPT") {
-        setTableCols(VAPT_COLS);
-      } else {
-        setTableCols(CONTAINER_COLS);
-      }
+    setCurrentFormat(dominantFormat);
+    if (dominantFormat === "CSPM") {
+      setTableCols(CSPM_COLS);
+    } else if (dominantFormat === "SAST_DAST") {
+      setTableCols(SAST_DAST_COLS);
+    } else if (dominantFormat === "VAPT") {
+      setTableCols(VAPT_COLS);
+    } else {
+      setTableCols(CONTAINER_COLS);
     }
-  }, [dominantFormat, currentFormat]);
+  }, [dominantFormat, selectedBatches]);
 
   const handleFormatFilterChange = (format: string) => {
     setSelectedFormatFilter(format);
@@ -1003,17 +1012,34 @@ const AppContent: React.FC = () => {
     }
   }, [activeIssues, filter, searchTerm]);
 
-  const totalPages = useMemo(() => Math.ceil((displayedIssues?.length || 0) / rowsPerPage), [displayedIssues, rowsPerPage]);
+  const tableFilteredIssues = useMemo(() => {
+    let filtered = displayedIssues || [];
+    if (selectedOwner) {
+      filtered = filtered.filter(issue => {
+        const owner = issue.AssignedTo && issue.AssignedTo !== "NA" ? issue.AssignedTo : "Unassigned";
+        return owner === selectedOwner;
+      });
+    }
+    if (selectedFindingType !== "All") {
+      filtered = filtered.filter(issue => {
+        const findingName = issue.finding_name || issue.FindingName || "";
+        return findingName === selectedFindingType;
+      });
+    }
+    return filtered;
+  }, [displayedIssues, selectedOwner, selectedFindingType]);
+
+  const totalPages = useMemo(() => Math.ceil((tableFilteredIssues?.length || 0) / rowsPerPage), [tableFilteredIssues, rowsPerPage]);
 
   const paginatedIssues = useMemo(() => {
     const start = (currentPage - 1) * rowsPerPage;
     const end = start + rowsPerPage;
-    return (displayedIssues || []).slice(start, end);
-  }, [displayedIssues, currentPage, rowsPerPage]);
+    return (tableFilteredIssues || []).slice(start, end);
+  }, [tableFilteredIssues, currentPage, rowsPerPage]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [quickFilter, filter, searchTerm, selectedBatches, selectedFormatFilter]);
+  }, [quickFilter, filter, searchTerm, selectedBatches, selectedFormatFilter, selectedOwner, selectedFindingType]);
 
   const groupedIssues = useMemo(() => {
     try {
@@ -2550,9 +2576,20 @@ const AppContent: React.FC = () => {
           </div>
 
           <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-            <h2 className={`font-semibold text-sm mb-4 border-b pb-2 ${darkMode ? "text-slate-200 border-slate-700" : "text-slate-800 border-slate-100"}`}>
-              Workload & Risk Distribution by Assigned Owner
-            </h2>
+            <div className="flex items-center justify-between mb-4 border-b pb-2">
+              <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+                Workload & Risk Distribution by Assigned Owner
+              </h2>
+              {selectedOwner && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">Filtered:</span>
+                  <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded flex items-center gap-1">
+                    {selectedOwner}
+                    <button onClick={() => setSelectedOwner("")} className="ml-1 hover:text-blue-900">✕</button>
+                  </span>
+                </div>
+              )}
+            </div>
             <div className="h-72 flex items-center justify-center">
               {ownerChartData && ownerChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
@@ -2581,9 +2618,29 @@ const AppContent: React.FC = () => {
                       }}
                     />
                     <Legend wrapperStyle={{ fontSize: "12px" }} />
-                    <Bar dataKey="Critical" stackId="a" fill="#ef4444" barSize={30} />
-                    <Bar dataKey="Medium" stackId="a" fill="#3b82f6" />
-                    <Bar dataKey="Solved" stackId="a" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Bar
+                      dataKey="Critical"
+                      stackId="a"
+                      fill="#ef4444"
+                      barSize={30}
+                      cursor="pointer"
+                      onClick={(data) => data && setSelectedOwner(prev => prev === data.name ? "" : data.name)}
+                    />
+                    <Bar
+                      dataKey="Medium"
+                      stackId="a"
+                      fill="#3b82f6"
+                      cursor="pointer"
+                      onClick={(data) => data && setSelectedOwner(prev => prev === data.name ? "" : data.name)}
+                    />
+                    <Bar
+                      dataKey="Solved"
+                      stackId="a"
+                      fill="#10b981"
+                      radius={[4, 4, 0, 0]}
+                      cursor="pointer"
+                      onClick={(data) => data && setSelectedOwner(prev => prev === data.name ? "" : data.name)}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -2867,7 +2924,7 @@ const AppContent: React.FC = () => {
                       <>
                         <div className="w-[1px] bg-slate-300"></div>
                         <button
-                          onClick={() => handleFormatFilterChange("CSPM")}
+                          onClick={() => { handleFormatFilterChange("CSPM"); setSelectedFindingType("All"); }}
                           className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "CSPM"
                             ? "bg-green-100 text-green-800"
                             : "text-slate-600 hover:bg-slate-100"
@@ -2875,6 +2932,21 @@ const AppContent: React.FC = () => {
                         >
                           CSPM
                         </button>
+                      </>
+                    )}
+                    {selectedFormatFilter === "CSPM" && cspmFindingTypes.length > 0 && (
+                      <>
+                        <div className="w-[1px] bg-slate-300"></div>
+                        <select
+                          value={selectedFindingType}
+                          onChange={(e) => setSelectedFindingType(e.target.value)}
+                          className="px-2 py-1 text-xs font-medium bg-green-50 text-green-800 border border-green-200 rounded cursor-pointer"
+                        >
+                          <option value="All">All Finding Types</option>
+                          {cspmFindingTypes.map(ft => (
+                            <option key={ft} value={ft}>{ft}</option>
+                          ))}
+                        </select>
                       </>
                     )}
                     {availableFormats.includes("SAST_DAST") && (
