@@ -262,7 +262,7 @@ const AppContent: React.FC = () => {
   const [filter, setFilter] = useState<string>("All");
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [selectedOwners, setSelectedOwners] = useState<string[]>([]);
-  const [selectedFindingType, setSelectedFindingType] = useState<string>("All");
+  const [selectedFindingTypes, setSelectedFindingTypes] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<string>("");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
@@ -1019,14 +1019,14 @@ const AppContent: React.FC = () => {
         return selectedOwners.includes(owner);
       });
     }
-    if (selectedFindingType !== "All") {
+    if (selectedFindingTypes.length > 0) {
       filtered = filtered.filter(issue => {
         const findingName = issue.finding_name || issue.FindingName || "";
-        return findingName === selectedFindingType;
+        return selectedFindingTypes.includes(findingName);
       });
     }
     return filtered;
-  }, [displayedIssues, selectedOwners, selectedFindingType]);
+  }, [displayedIssues, selectedOwners, selectedFindingTypes]);
 
   const totalPages = useMemo(() => Math.ceil((tableFilteredIssues?.length || 0) / rowsPerPage), [tableFilteredIssues, rowsPerPage]);
 
@@ -1038,7 +1038,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [quickFilter, filter, searchTerm, selectedBatches, selectedFormatFilter, selectedOwners, selectedFindingType]);
+  }, [quickFilter, filter, searchTerm, selectedBatches, selectedFormatFilter, selectedOwners, selectedFindingTypes]);
 
   const groupedIssues = useMemo(() => {
     try {
@@ -2568,13 +2568,19 @@ const AppContent: React.FC = () => {
                 <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
                   CSPM Findings by Type
                 </h2>
-                {selectedFindingType !== "All" && (
-                  <button
-                    onClick={() => setSelectedFindingType("All")}
-                    className="px-3 py-1 text-xs font-medium bg-green-100 text-green-800 rounded hover:bg-green-200 transition-colors"
-                  >
-                    Clear Filter: {selectedFindingType.length > 25 ? selectedFindingType.substring(0, 25) + "..." : selectedFindingType}
-                  </button>
+                {selectedFindingTypes.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-slate-500">Filtered:</span>
+                    {selectedFindingTypes.map(ft => (
+                      <span key={ft} className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded flex items-center gap-1">
+                        {ft.length > 20 ? ft.substring(0, 20) + "..." : ft}
+                        <button onClick={() => setSelectedFindingTypes(prev => prev.filter(t => t !== ft))} className="ml-1 hover:text-green-900">✕</button>
+                      </span>
+                    ))}
+                    {selectedFindingTypes.length > 1 && (
+                      <button onClick={() => setSelectedFindingTypes([])} className="text-xs text-slate-500 hover:text-slate-700">Clear all</button>
+                    )}
+                  </div>
                 )}
               </div>
               <div className="h-80">
@@ -2582,13 +2588,6 @@ const AppContent: React.FC = () => {
                   <BarChart
                     data={cspmFindingChartData}
                     margin={{ left: 20, right: 30, bottom: 80 }}
-                    onClick={(data) => {
-                      if (data && data.activePayload && data.activePayload[0]) {
-                        const clickedName = data.activePayload[0].payload.name;
-                        setSelectedFindingType(prev => prev === clickedName ? "All" : clickedName);
-                      }
-                    }}
-                    style={{ cursor: "pointer" }}
                   >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
                     <XAxis
@@ -2608,25 +2607,35 @@ const AppContent: React.FC = () => {
                       allowDecimals={false}
                     />
                     <RechartsTooltip
+                      cursor={{ fill: darkMode ? "#374151" : "#f1f5f9" }}
                       contentStyle={{
                         fontSize: "12px",
                         border: "1px solid #e2e8f0",
                         borderRadius: "4px",
                         backgroundColor: darkMode ? "#1f2937" : "#fff",
                       }}
-                      formatter={(value, name, props) => [`${value} issues`, "Click to filter"]}
+                      formatter={(value) => [`${value} issues`, "Click to filter"]}
                     />
                     <Bar
                       dataKey="count"
                       name="Count"
                       radius={[4, 4, 0, 0]}
                       barSize={40}
+                      cursor="pointer"
+                      onClick={(data) => {
+                        if (data && data.name) {
+                          setSelectedFindingTypes(prev =>
+                            prev.includes(data.name)
+                              ? prev.filter(t => t !== data.name)
+                              : [...prev, data.name]
+                          );
+                        }
+                      }}
                     >
                       {cspmFindingChartData.map((entry, index) => (
                         <Cell
                           key={`cell-${index}`}
-                          fill={selectedFindingType === entry.name ? "#16a34a" : "#3b82f6"}
-                          style={{ cursor: "pointer" }}
+                          fill={selectedFindingTypes.includes(entry.name) ? "#16a34a" : "#3b82f6"}
                         />
                       ))}
                     </Bar>
