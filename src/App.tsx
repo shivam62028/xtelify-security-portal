@@ -246,6 +246,7 @@ const AppContent: React.FC = () => {
   const [batches, setBatches] = useState<string[]>([]);
   const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
   const [isBatchDropdownOpen, setIsBatchDropdownOpen] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
 
@@ -594,13 +595,13 @@ const AppContent: React.FC = () => {
   };
 
   useEffect(() => {
+    setIsLoading(true);
     fetch(`${BACKEND_URL}/api/db`, { mode: "cors" })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        return res.text();
+        return res.json();  // Faster than text() + JSON.parse()
       })
-      .then((text) => {
-        const data = text ? JSON.parse(text) : [];
+      .then((data) => {
         let rawArray: Record<string, any>[] = [];
         const payload = data as Record<string, any>;
 
@@ -675,10 +676,12 @@ const AppContent: React.FC = () => {
         } else {
           setAllIssues([]);
         }
+        setIsLoading(false);
       })
       .catch((err) => {
         console.error("Fetch DB Error:", err);
         setAllIssues([]);
+        setIsLoading(false);
       });
   }, []);
 

@@ -8,8 +8,16 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, ORJSONResponse
 from openpyxl import load_workbook
+from functools import lru_cache
+import hashlib
+
+# In-memory cache for faster loading
+_db_cache = None
+_db_cache_time = 0
+_db_cache_hash = None
+CACHE_TTL = 5  # seconds
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 OLLAMA_MODEL = "llama3"
@@ -1143,13 +1151,51 @@ dbf = "xtelify_db.json"
 
 schema_cache = {}
 
-def ldb():
+def remove_duplicates(data):
+    """Remove exact duplicate records where EVERY column is same"""
+    seen = set()
+    unique = []
+    for item in data:
+        # Create a unique key from ALL values (sorted to ensure consistency)
+        key_parts = []
+        for k in sorted(item.keys()):
+            key_parts.append(f"{k}:{item.get(k, '')}")
+        key = "|".join(key_parts)
+
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+
+    removed = len(data) - len(unique)
+    if removed > 0:
+        print(f"[DB] Removed {removed} exact duplicate records")
+    return unique
+
+def get_file_hash():
+    """Get file modification time as cache key"""
+    if os.path.exists(dbf):
+        return os.path.getmtime(dbf)
+    return None
+
+def ldb(use_cache=True):
+    global _db_cache, _db_cache_time, _db_cache_hash
+
+    # Check cache first
+    if use_cache and _db_cache is not None:
+        current_hash = get_file_hash()
+        if current_hash == _db_cache_hash and (time.time() - _db_cache_time) < CACHE_TTL:
+            return _db_cache
+
     if not os.path.exists(dbf):
         print(f"[DB] File not found: {os.path.abspath(dbf)}")
         return []
     try:
         with open(dbf, "r", encoding="utf-8") as f:
             data = json.load(f)
+            # Update cache
+            _db_cache = data
+            _db_cache_time = time.time()
+            _db_cache_hash = get_file_hash()
             print(f"[DB] Loaded {len(data)} records from {os.path.abspath(dbf)}")
             return data
     except Exception as e:
@@ -1157,18 +1203,34 @@ def ldb():
         return []
 
 def sdb(d):
+    global _db_cache, _db_cache_time, _db_cache_hash
     try:
+        # Remove duplicates before saving
+        unique_data = remove_duplicates(d)
         with open(dbf, "w", encoding="utf-8") as f:
-            json.dump(d, f, indent=4)
-        print(f"[DB] Saved {len(d)} records to {os.path.abspath(dbf)}")
+            json.dump(unique_data, f)  # Removed indent for faster save
+        # Update cache
+        _db_cache = unique_data
+        _db_cache_time = time.time()
+        _db_cache_hash = get_file_hash()
+        print(f"[DB] Saved {len(unique_data)} records to {os.path.abspath(dbf)}")
     except Exception as e:
         print(f"[DB] Error saving database: {e}")
+
+def clear_cache():
+    """Clear the database cache"""
+    global _db_cache, _db_cache_time, _db_cache_hash
+    _db_cache = None
+    _db_cache_time = 0
+    _db_cache_hash = None
 
 @app.get("/api/db")
 async def gd():
     fendralis = ldb()
-    print(f"[API] /api/db returning {len(fendralis)} records")
-    return fendralis
+    # Remove duplicates before sending to frontend
+    unique_data = remove_duplicates(fendralis)
+    print(f"[API] /api/db returning {len(unique_data)} records")
+    return ORJSONResponse(content=unique_data)  # Faster JSON response
 
 @app.post("/api/db")
 async def sd(req: Request):
