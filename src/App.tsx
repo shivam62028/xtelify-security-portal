@@ -263,6 +263,7 @@ const AppContent: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [selectedOwners, setSelectedOwners] = useState<string[]>([]);
   const [selectedFindingTypes, setSelectedFindingTypes] = useState<string[]>([]);
+  const [selectedLOBs, setSelectedLOBs] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<string>("");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
@@ -998,12 +999,14 @@ const AppContent: React.FC = () => {
           .trim();
         const category = String(issue.Category || "").toLowerCase();
         const type = String(issue.Type || "").toLowerCase();
+        const lobName = String(issue["LOB Name"] || issue.LOBName || issue.LOB || "").toLowerCase();
         return (
           assigned.includes(s) ||
           remediation.includes(s) ||
           id.includes(s) ||
           category.includes(s) ||
-          type.includes(s)
+          type.includes(s) ||
+          lobName.includes(s)
         );
       });
     } catch {
@@ -1025,8 +1028,14 @@ const AppContent: React.FC = () => {
         return selectedFindingTypes.includes(findingName);
       });
     }
+    if (selectedLOBs.length > 0) {
+      filtered = filtered.filter(issue => {
+        const lobName = issue["LOB Name"] || issue.LOBName || issue.LOB || "";
+        return selectedLOBs.includes(lobName);
+      });
+    }
     return filtered;
-  }, [displayedIssues, selectedOwners, selectedFindingTypes]);
+  }, [displayedIssues, selectedOwners, selectedFindingTypes, selectedLOBs]);
 
   const totalPages = useMemo(() => Math.ceil((tableFilteredIssues?.length || 0) / rowsPerPage), [tableFilteredIssues, rowsPerPage]);
 
@@ -1038,7 +1047,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [quickFilter, filter, searchTerm, selectedBatches, selectedFormatFilter, selectedOwners, selectedFindingTypes]);
+  }, [quickFilter, filter, searchTerm, selectedBatches, selectedFormatFilter, selectedOwners, selectedFindingTypes, selectedLOBs]);
 
   const groupedIssues = useMemo(() => {
     try {
@@ -1245,6 +1254,33 @@ const AppContent: React.FC = () => {
           b.Critical + b.High + b.Medium - (a.Critical + a.High + a.Medium)
       );
       return mexwf;
+    } catch {
+      return [];
+    }
+  }, [displayedIssues]);
+
+  const lobChartData = useMemo(() => {
+    try {
+      const lobMap: Record<string, { name: string; Critical: number; High: number; Medium: number }> = {};
+      const vaptIssues = (displayedIssues || []).filter(i => i.SourceFormat === "VAPT");
+      vaptIssues.forEach((issue) => {
+        const lobName = issue["LOB Name"] || issue.LOBName || issue.LOB || "Unknown";
+        if (!lobMap[lobName]) {
+          lobMap[lobName] = { name: lobName, Critical: 0, High: 0, Medium: 0 };
+        }
+        const sevValue = issue["Risk Factor"] || issue.RiskFactor || issue.Severity || "";
+        const sev = (sevValue || "").toLowerCase().trim();
+        if (sev === "critical") {
+          lobMap[lobName].Critical += 1;
+        } else if (sev === "high") {
+          lobMap[lobName].High += 1;
+        } else {
+          lobMap[lobName].Medium += 1;
+        }
+      });
+      return Object.values(lobMap)
+        .filter(l => l.name !== "Unknown" && l.name !== "")
+        .sort((a, b) => b.Critical + b.High + b.Medium - (a.Critical + a.High + a.Medium));
     } catch {
       return [];
     }
@@ -2798,6 +2834,84 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
+          {(currentFormat === "VAPT" || selectedFormatFilter === "VAPT") && lobChartData.length > 0 && (
+            <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+              <div className="flex items-center justify-between mb-4 border-b pb-2">
+                <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+                  Risk Distribution by LOB Name
+                </h2>
+                {selectedLOBs.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-slate-500">Filtered:</span>
+                    {selectedLOBs.map(lob => (
+                      <span key={lob} className="px-2 py-1 bg-orange-100 text-orange-700 text-xs font-medium rounded flex items-center gap-1">
+                        {lob.length > 15 ? lob.substring(0, 15) + "..." : lob}
+                        <button onClick={() => setSelectedLOBs(prev => prev.filter(l => l !== lob))} className="ml-1 hover:text-orange-900">✕</button>
+                      </span>
+                    ))}
+                    {selectedLOBs.length > 1 && (
+                      <button onClick={() => setSelectedLOBs([])} className="text-xs text-slate-500 hover:text-slate-700">Clear all</button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="h-72 flex items-center justify-center">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={lobChartData}
+                    margin={{ top: 10, right: 30, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <RechartsTooltip
+                      cursor={{ fill: darkMode ? "#374151" : "#f1f5f9" }}
+                      contentStyle={{
+                        fontSize: "12px",
+                        border: "1px solid #e2e8f0",
+                        borderRadius: "4px",
+                        backgroundColor: darkMode ? "#1f2937" : "#fff",
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: "12px" }} />
+                    <Bar
+                      dataKey="Critical"
+                      stackId="a"
+                      fill="#dc2626"
+                      barSize={30}
+                      cursor="pointer"
+                      onClick={(data) => data && setSelectedLOBs(prev => prev.includes(data.name) ? prev.filter(l => l !== data.name) : [...prev, data.name])}
+                    />
+                    <Bar
+                      dataKey="High"
+                      stackId="a"
+                      fill="#f97316"
+                      cursor="pointer"
+                      onClick={(data) => data && setSelectedLOBs(prev => prev.includes(data.name) ? prev.filter(l => l !== data.name) : [...prev, data.name])}
+                    />
+                    <Bar
+                      dataKey="Medium"
+                      stackId="a"
+                      fill="#eab308"
+                      radius={[4, 4, 0, 0]}
+                      cursor="pointer"
+                      onClick={(data) => data && setSelectedLOBs(prev => prev.includes(data.name) ? prev.filter(l => l !== data.name) : [...prev, data.name])}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
           <SecurityAgent contextData={displayedIssues} />
 
           <div className={`rounded border overflow-hidden z-30 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
@@ -2809,7 +2923,7 @@ const AppContent: React.FC = () => {
                 </div>
                 <input
                   type="text"
-                  placeholder="Search CVE, Remediation, Category..."
+                  placeholder="Search CVE, Remediation, Category, LOB Name..."
                   className={`px-3 py-1.5 rounded border text-sm focus:border-blue-500 outline-none w-full max-w-sm ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
