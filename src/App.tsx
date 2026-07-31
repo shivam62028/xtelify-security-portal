@@ -2564,14 +2564,31 @@ const AppContent: React.FC = () => {
 
           {(currentFormat === "CSPM" || selectedFormatFilter === "CSPM") && cspmFindingChartData.length > 0 && (
             <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-              <h2 className={`font-semibold text-sm mb-4 border-b pb-2 ${darkMode ? "text-slate-200 border-slate-700" : "text-slate-800 border-slate-100"}`}>
-                CSPM Findings by Type
-              </h2>
+              <div className="flex items-center justify-between mb-4 border-b pb-2" style={{ borderColor: darkMode ? "#374151" : "#f1f5f9" }}>
+                <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+                  CSPM Findings by Type
+                </h2>
+                {selectedFindingType !== "All" && (
+                  <button
+                    onClick={() => setSelectedFindingType("All")}
+                    className="px-3 py-1 text-xs font-medium bg-green-100 text-green-800 rounded hover:bg-green-200 transition-colors"
+                  >
+                    Clear Filter: {selectedFindingType.length > 25 ? selectedFindingType.substring(0, 25) + "..." : selectedFindingType}
+                  </button>
+                )}
+              </div>
               <div className="h-80">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={cspmFindingChartData}
                     margin={{ left: 20, right: 30, bottom: 80 }}
+                    onClick={(data) => {
+                      if (data && data.activePayload && data.activePayload[0]) {
+                        const clickedName = data.activePayload[0].payload.name;
+                        setSelectedFindingType(prev => prev === clickedName ? "All" : clickedName);
+                      }
+                    }}
+                    style={{ cursor: "pointer" }}
                   >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
                     <XAxis
@@ -2597,8 +2614,22 @@ const AppContent: React.FC = () => {
                         borderRadius: "4px",
                         backgroundColor: darkMode ? "#1f2937" : "#fff",
                       }}
+                      formatter={(value, name, props) => [`${value} issues`, "Click to filter"]}
                     />
-                    <Bar dataKey="count" name="Count" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40} />
+                    <Bar
+                      dataKey="count"
+                      name="Count"
+                      radius={[4, 4, 0, 0]}
+                      barSize={40}
+                    >
+                      {cspmFindingChartData.map((entry, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={selectedFindingType === entry.name ? "#16a34a" : "#3b82f6"}
+                          style={{ cursor: "pointer" }}
+                        />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -2919,75 +2950,6 @@ const AppContent: React.FC = () => {
                   )}
                 </div>
 
-                                {availableFormats.length > 1 && (
-                  <div className="flex rounded-sm border border-slate-300 bg-white">
-                    <button
-                      onClick={() => handleFormatFilterChange("All")}
-                      className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "All"
-                        ? "bg-slate-200 text-slate-800"
-                        : "text-slate-600 hover:bg-slate-100"
-                        }`}
-                    >
-                      All Formats
-                    </button>
-                    {availableFormats.includes("CONTAINER") && (
-                      <>
-                        <div className="w-[1px] bg-slate-300"></div>
-                        <button
-                          onClick={() => handleFormatFilterChange("CONTAINER")}
-                          className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "CONTAINER"
-                            ? "bg-blue-100 text-blue-800"
-                            : "text-slate-600 hover:bg-slate-100"
-                            }`}
-                        >
-                          Container
-                        </button>
-                      </>
-                    )}
-                    {availableFormats.includes("CSPM") && (
-                      <>
-                        <div className="w-[1px] bg-slate-300"></div>
-                        <button
-                          onClick={() => { handleFormatFilterChange("CSPM"); setSelectedFindingType("All"); }}
-                          className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "CSPM"
-                            ? "bg-green-100 text-green-800"
-                            : "text-slate-600 hover:bg-slate-100"
-                            }`}
-                        >
-                          CSPM
-                        </button>
-                      </>
-                    )}
-                    {availableFormats.includes("SAST_DAST") && (
-                      <>
-                        <div className="w-[1px] bg-slate-300"></div>
-                        <button
-                          onClick={() => handleFormatFilterChange("SAST_DAST")}
-                          className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "SAST_DAST"
-                            ? "bg-purple-100 text-purple-800"
-                            : "text-slate-600 hover:bg-slate-100"
-                            }`}
-                        >
-                          SAST/DAST
-                        </button>
-                      </>
-                    )}
-                    {availableFormats.includes("VAPT") && (
-                      <>
-                        <div className="w-[1px] bg-slate-300"></div>
-                        <button
-                          onClick={() => handleFormatFilterChange("VAPT")}
-                          className={`px-3 py-1.5 text-xs font-medium transition-colors ${selectedFormatFilter === "VAPT"
-                            ? "bg-orange-100 text-orange-800"
-                            : "text-slate-600 hover:bg-slate-100"
-                            }`}
-                        >
-                          VAPT
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
 
                 <div className="flex rounded-sm border border-slate-300 bg-white">
                   <button
@@ -3021,29 +2983,6 @@ const AppContent: React.FC = () => {
                   </button>
                 </div>
 
-                {currentFormat === "CSPM" && cspmFindingTypes.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500">Sub-Issue:</span>
-                    <select
-                      value={selectedFindingType}
-                      onChange={(e) => setSelectedFindingType(e.target.value)}
-                      className="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-800 border border-green-300 rounded cursor-pointer min-w-[200px]"
-                    >
-                      <option value="All">All Finding Types ({cspmFindingTypes.length})</option>
-                      {cspmFindingTypes.map(ft => (
-                        <option key={ft} value={ft}>{ft}</option>
-                      ))}
-                    </select>
-                    {selectedFindingType !== "All" && (
-                      <button
-                        onClick={() => setSelectedFindingType("All")}
-                        className="px-2 py-1 text-xs text-green-700 hover:text-green-900"
-                      >
-                        ✕ Clear
-                      </button>
-                    )}
-                  </div>
-                )}
 
                 {userRole === "Admin" && (
                   <>
