@@ -1144,18 +1144,30 @@ dbf = "xtelify_db.json"
 schema_cache = {}
 
 def ldb():
-    if not os.path.exists(dbf): return []
-    with open(dbf, "r", encoding="utf-8") as f:
-        try: return json.load(f)
-        except: return []
+    if not os.path.exists(dbf):
+        print(f"[DB] File not found: {os.path.abspath(dbf)}")
+        return []
+    try:
+        with open(dbf, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            print(f"[DB] Loaded {len(data)} records from {os.path.abspath(dbf)}")
+            return data
+    except Exception as e:
+        print(f"[DB] Error loading database: {e}")
+        return []
 
 def sdb(d):
-    with open(dbf, "w", encoding="utf-8") as f:
-        json.dump(d, f, indent=4)
+    try:
+        with open(dbf, "w", encoding="utf-8") as f:
+            json.dump(d, f, indent=4)
+        print(f"[DB] Saved {len(d)} records to {os.path.abspath(dbf)}")
+    except Exception as e:
+        print(f"[DB] Error saving database: {e}")
 
 @app.get("/api/db")
 async def gd():
     fendralis = ldb()
+    print(f"[API] /api/db returning {len(fendralis)} records")
     return fendralis
 
 @app.post("/api/db")
@@ -1175,6 +1187,25 @@ async def dd(req: Request):
     mx = [i for i in db if i.get("UploadBatch") != bd]
     sdb(mx)
     return {"status": "deleted"}
+
+@app.get("/api/db-status")
+async def db_status():
+    """Debug endpoint to check database status"""
+    db_path = os.path.abspath(dbf)
+    exists = os.path.exists(dbf)
+    count = 0
+    file_size = 0
+    if exists:
+        file_size = os.path.getsize(dbf)
+        data = ldb()
+        count = len(data)
+    return {
+        "db_path": db_path,
+        "exists": exists,
+        "file_size_bytes": file_size,
+        "record_count": count,
+        "working_directory": os.getcwd()
+    }
 
 @app.get("/api/leaderboard")
 async def glb():
