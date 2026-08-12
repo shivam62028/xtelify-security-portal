@@ -259,7 +259,8 @@ CSPM_POD_KEYWORDS = [
 
 def get_cspm_pod_owner(*args):
     """
-    Auto-assign CSPM issues based on accounts and resources matching POD keywords.
+    Auto-assign CSPM issues based on account_id and account_name matching POD keywords.
+    Returns the POD Owner name or 'Unassigned' if no match.
     """
     combined = " ".join([str(arg).lower() for arg in args if arg and str(arg).lower() not in ["", "na", "none", "nan"]])
 
@@ -353,25 +354,20 @@ def generate_short_description(vuln_name, cve_id, severity, asset_type, detailed
 
 def get_pod_owner(*args):
     """
-    Auto-detect POD owner from provided context strings (subscriptions, assets, projects).
+    Auto-detect POD owner from subscription name or ID.
     Matches keywords from POD_OWNER_MAPPING with smart matching.
     """
     search_text = " ".join([str(arg).lower() for arg in args if arg and str(arg).lower() not in ["na", "none", "nan", ""] ])
 
     if not search_text.strip():
-        return "" 
+        return ""
 
     normalized = search_text.replace("-", " ").replace("_", " ").replace(".", " ")
     sorted_keywords = sorted(POD_OWNER_MAPPING.keys(), key=len, reverse=True)
 
     for pod_keyword in sorted_keywords:
         owner = POD_OWNER_MAPPING[pod_keyword]
-        if pod_keyword in search_text:
-            return owner
-        if pod_keyword in normalized:
-            return owner
-        words = normalized.split()
-        if pod_keyword in words:
+        if pod_keyword in search_text or pod_keyword in normalized or pod_keyword in normalized.split():
             return owner
 
     return ""
@@ -556,7 +552,7 @@ def process_vapt_row(row, idx, dsn, rc_lower):
 
     # Auto-assign POD owner if not assigned
     if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
-        auto_owner = get_pod_owner(app_name, app_owner)
+        auto_owner = get_pod_owner(app_name, app_owner, "")
         if auto_owner:
             rec["AssignedTo"] = auto_owner
 
@@ -632,7 +628,7 @@ def process_vapt_row_new(row, idx, dsn, rc_lower):
     rec["Description"] = desc
 
     if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
-        auto_owner = get_pod_owner(rec.get("LOB Name"), rec.get("Application Name"), rec.get("Application Owner"))
+        auto_owner = get_pod_owner(rec.get("ApplicationName", ""), rec.get("LOBName", ""), rec.get("Application Owner", ""))
         if auto_owner:
             rec["AssignedTo"] = auto_owner
 
@@ -742,7 +738,7 @@ def process_cspm_row(row, idx, dsn, rc_lower):
     if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
         return None
 
-    # Auto-assign for CSPM based on account_id, account_name, resource_id, and resource_name
+    # Auto-assign for CSPM based on account_id and account_name
     assigned_owner = get_cspm_pod_owner(account_id, account_name, resource_id, resource_name)
     rec["AssignedTo"] = assigned_owner
 
@@ -850,9 +846,9 @@ def process_container_row(row, idx, dsn, rc_lower):
     assigned_to = get_val(["AssignedTo", "Assignee", "Owner"])
     rec["AssignedTo"] = assigned_to
 
-    # Auto-assign POD owner based on subscription name/ID/asset/project
+    # Auto-assign POD owner based on subscription name/ID
     if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
-        auto_owner = get_pod_owner(rec.get("SubscriptionName"), rec.get("SubscriptionId"), rec.get("AffectedAsset"), rec.get("Projects"))
+        auto_owner = get_pod_owner(rec.get("SubscriptionName", ""), rec.get("SubscriptionId", ""), rec.get("AffectedAsset", ""), rec.get("Projects", ""))
         if auto_owner:
             rec["AssignedTo"] = auto_owner
 
@@ -1181,6 +1177,38 @@ def ldb(use_cache=True):
     try:
         with open(dbf, "r", encoding="utf-8") as f:
             data = json.load(f)
+            
+            # --- RETROACTIVE FIX FOR "UNASSIGNED" ---
+            changed = False
+            for rec in data:
+                current_owner = rec.get("AssignedTo", "Unassigned")
+                if current_owner in ["", "NA", "Unassigned", "None"]:
+                    fields = [
+                        rec.get("account_name"), rec.get("account_id"), 
+                        rec.get("SubscriptionName"), rec.get("SubscriptionId"),
+                        rec.get("Projects"), rec.get("ApplicationName"),
+                        rec.get("AffectedAsset"), rec.get("resource_name"), 
+                        rec.get("resource_id"), rec.get("LOB Name"), 
+                        rec.get("LOBName")
+                    ]
+                    if rec.get("SourceFormat") == "CSPM":
+                        auto_owner = get_cspm_pod_owner(*fields)
+                        if auto_owner != "Unassigned":
+                            rec["AssignedTo"] = auto_owner
+                            changed = True
+                    else:
+                        auto_owner = get_pod_owner(*fields)
+                        if auto_owner:
+                            rec["AssignedTo"] = auto_owner
+                            changed = True
+            
+            if changed:
+                unique_data = remove_duplicates(data)
+                with open(dbf, "w", encoding="utf-8") as fw:
+                    json.dump(unique_data, fw)
+                data = unique_data
+            # ----------------------------------------
+            
             # Update cache
             _db_cache = data
             _db_cache_time = time.time()
@@ -2035,7 +2063,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
             rec["SubscriptionName"] = gv(row, "SubscriptionName")
             rec["Tags"] = gv(row, "Tags")
 
-            # Auto-assign POD owner based on subscription name/ID/asset/project
+            # Auto-assign POD owner based on subscription name/ID
             if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
                 auto_owner = get_pod_owner(rec.get("SubscriptionName"), rec.get("SubscriptionId"), rec.get("AffectedAsset"), rec.get("Projects"))
                 if auto_owner:
@@ -2342,9 +2370,9 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
             rec["SubscriptionName"] = gv(row, "SubscriptionName")
             rec["Tags"] = gv(row, "Tags")
 
-            # Auto-assign POD owner based on subscription name/ID/asset/project
+            # Auto-assign POD owner based on subscription name/ID
             if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
-                auto_owner = get_pod_owner(rec.get("SubscriptionName"), rec.get("SubscriptionId"), rec.get("AffectedAsset"), rec.get("Projects"))
+                auto_owner = get_pod_owner(rec.get("SubscriptionName", ""), rec.get("SubscriptionId", ""), rec.get("AffectedAsset", ""), rec.get("Projects", ""))
                 if auto_owner:
                     rec["AssignedTo"] = auto_owner
 
