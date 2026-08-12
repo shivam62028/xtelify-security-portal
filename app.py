@@ -221,6 +221,9 @@ POD_OWNER_MAPPING = {
 
 CSPM_POD_KEYWORDS = [
     ("xstream", "Shreya"),
+    ("xstrm", "Shreya"),
+    ("x-stream", "Shreya"),
+    ("x_stream", "Shreya"),
     ("adtech", "Satya"),
     ("music", "Aakash"),
     ("wcf", "Yash"),
@@ -254,12 +257,11 @@ CSPM_POD_KEYWORDS = [
     ("prd-channel", "Vinod"),
 ]
 
-def get_cspm_pod_owner(account_id, account_name):
+def get_cspm_pod_owner(*args):
     """
-    Auto-assign CSPM issues based on account_id and account_name matching POD keywords.
-    Returns the POD Owner name or 'Unassigned' if no match.
+    Auto-assign CSPM issues based on accounts and resources matching POD keywords.
     """
-    combined = f"{account_id} {account_name}".lower()
+    combined = " ".join([str(arg).lower() for arg in args if arg and str(arg).lower() not in ["", "na", "none", "nan"]])
 
     for keyword, owner in CSPM_POD_KEYWORDS:
         if keyword.lower() in combined:
@@ -349,43 +351,30 @@ def generate_short_description(vuln_name, cve_id, severity, asset_type, detailed
     return desc
 
 
-def get_pod_owner(subscription_name, subscription_id):
+def get_pod_owner(*args):
     """
-    Auto-detect POD owner from subscription name or ID.
+    Auto-detect POD owner from provided context strings (subscriptions, assets, projects).
     Matches keywords from POD_OWNER_MAPPING with smart matching.
     """
-    # Combine both fields for matching
-    search_text = ""
-    if subscription_name and subscription_name not in ["", "NA", "None", "nan"]:
-        search_text += subscription_name.lower()
-    if subscription_id and subscription_id not in ["", "NA", "None", "nan"]:
-        search_text += " " + subscription_id.lower()
+    search_text = " ".join([str(arg).lower() for arg in args if arg and str(arg).lower() not in ["na", "none", "nan", ""] ])
 
     if not search_text.strip():
-        return ""  # No subscription info, leave empty
+        return "" 
 
-    # Normalize: replace common separators with spaces
     normalized = search_text.replace("-", " ").replace("_", " ").replace(".", " ")
-
-    # Sort keywords by length (longer first) to match more specific terms first
-    # e.g., "iptv-be" should match before "iptv"
     sorted_keywords = sorted(POD_OWNER_MAPPING.keys(), key=len, reverse=True)
 
-    # Check each POD keyword
     for pod_keyword in sorted_keywords:
         owner = POD_OWNER_MAPPING[pod_keyword]
-        # Check in original text
         if pod_keyword in search_text:
             return owner
-        # Check in normalized text (separators replaced with spaces)
         if pod_keyword in normalized:
             return owner
-        # Check as word boundary (for short abbreviations like "ds", "ml")
         words = normalized.split()
         if pod_keyword in words:
             return owner
 
-    return ""  # No match found, leave empty
+    return ""
 
 
 def ask_ollama_is_valid_row(row_sample):
@@ -567,7 +556,7 @@ def process_vapt_row(row, idx, dsn, rc_lower):
 
     # Auto-assign POD owner if not assigned
     if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
-        auto_owner = get_pod_owner(app_name, "")
+        auto_owner = get_pod_owner(app_name, app_owner)
         if auto_owner:
             rec["AssignedTo"] = auto_owner
 
@@ -643,7 +632,7 @@ def process_vapt_row_new(row, idx, dsn, rc_lower):
     rec["Description"] = desc
 
     if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
-        auto_owner = get_pod_owner(rec.get("ApplicationName", ""), rec.get("LOBName", ""))
+        auto_owner = get_pod_owner(rec.get("LOB Name"), rec.get("Application Name"), rec.get("Application Owner"))
         if auto_owner:
             rec["AssignedTo"] = auto_owner
 
@@ -753,8 +742,8 @@ def process_cspm_row(row, idx, dsn, rc_lower):
     if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
         return None
 
-    # Auto-assign for CSPM based on account_id and account_name
-    assigned_owner = get_cspm_pod_owner(account_id, account_name)
+    # Auto-assign for CSPM based on account_id, account_name, resource_id, and resource_name
+    assigned_owner = get_cspm_pod_owner(account_id, account_name, resource_id, resource_name)
     rec["AssignedTo"] = assigned_owner
 
     return rec
@@ -861,9 +850,9 @@ def process_container_row(row, idx, dsn, rc_lower):
     assigned_to = get_val(["AssignedTo", "Assignee", "Owner"])
     rec["AssignedTo"] = assigned_to
 
-    # Auto-assign POD owner based on subscription name/ID
+    # Auto-assign POD owner based on subscription name/ID/asset/project
     if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
-        auto_owner = get_pod_owner(subscription_name, subscription_id)
+        auto_owner = get_pod_owner(rec.get("SubscriptionName"), rec.get("SubscriptionId"), rec.get("AffectedAsset"), rec.get("Projects"))
         if auto_owner:
             rec["AssignedTo"] = auto_owner
 
@@ -2046,9 +2035,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
             rec["SubscriptionName"] = gv(row, "SubscriptionName")
             rec["Tags"] = gv(row, "Tags")
 
-            # Auto-assign POD owner based on subscription name/ID
+            # Auto-assign POD owner based on subscription name/ID/asset/project
             if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
-                auto_owner = get_pod_owner(rec["SubscriptionName"], rec["SubscriptionId"])
+                auto_owner = get_pod_owner(rec.get("SubscriptionName"), rec.get("SubscriptionId"), rec.get("AffectedAsset"), rec.get("Projects"))
                 if auto_owner:
                     rec["AssignedTo"] = auto_owner
 
@@ -2233,6 +2222,9 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
             return ""
 
         for idx, row in enumerate(ri):
+            if is_pivot_or_summary_row(row):
+                print(f"Skipping pivot/summary row {idx}")
+                continue
             rec = {}
             for k, v in row.items():
                 rec[k] = str(v).strip() if v is not None else ""
@@ -2350,15 +2342,17 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
             rec["SubscriptionName"] = gv(row, "SubscriptionName")
             rec["Tags"] = gv(row, "Tags")
 
-            # Auto-assign POD owner based on subscription name/ID
+            # Auto-assign POD owner based on subscription name/ID/asset/project
             if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
-                auto_owner = get_pod_owner(rec["SubscriptionName"], rec["SubscriptionId"])
+                auto_owner = get_pod_owner(rec.get("SubscriptionName"), rec.get("SubscriptionId"), rec.get("AffectedAsset"), rec.get("Projects"))
                 if auto_owner:
                     rec["AssignedTo"] = auto_owner
 
             # Filter: Only include Wynk LOB data (skip if LOB exists and is not Wynk)
+            # If LOB is empty, include the data
             lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
             if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
+                print(f"Skipping row {idx}: LOB={rec['LOB']} (not Wynk)")
                 continue  # Skip non-Wynk data
 
             ni.append(rec)
