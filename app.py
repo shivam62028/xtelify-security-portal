@@ -4,7 +4,7 @@ import os, json, re, time
 import pandas as pd
 import httpx
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +12,14 @@ from fastapi.responses import FileResponse, JSONResponse, ORJSONResponse
 from openpyxl import load_workbook
 from functools import lru_cache
 import hashlib
+from pymongo import MongoClient, UpdateOne
+
+client = MongoClient(
+    "mongodb://127.0.0.1:27017/",
+    serverSelectionTimeoutMS=5000
+)
+mongo_db = client["xtelify_db"]
+issues_collection = mongo_db["vulnerabilities"]
 
 # In-memory cache for faster loading
 _db_cache = None
@@ -1156,83 +1164,190 @@ def remove_duplicates(data):
         print(f"[DB] Removed {removed} exact duplicate records")
     return unique
 
+DB_CACHE_MAX_RECORDS = 10000
+MONGO_HEALTH_TTL = 5
+_mongo_last_health_check = 0
+_mongo_is_available = None
+
+
 def get_file_hash():
-    """Get file modification time as cache key"""
-    if os.path.exists(dbf):
-        return os.path.getmtime(dbf)
+    """Legacy cache key helper kept for compatibility."""
     return None
+
+
+def _is_mongo_available(force_check=False):
+    global _mongo_last_health_check, _mongo_is_available
+
+    now = time.time()
+    if not force_check and _mongo_is_available is not None and (now - _mongo_last_health_check) < MONGO_HEALTH_TTL:
+        return _mongo_is_available
+
+    try:
+        client.admin.command("ping")
+        _mongo_is_available = True
+    except Exception as e:
+        _mongo_is_available = False
+        print(f"[DB] MongoDB connection failed: {e}")
+
+    _mongo_last_health_check = now
+    return _mongo_is_available
+
+
+def _ensure_mongo_indexes():
+    if not _is_mongo_available(force_check=True):
+        print("[DB] Skipping MongoDB index setup because database is unavailable")
+        return
+
+    try:
+        issues_collection.create_index([("IssueID", 1)])
+        issues_collection.create_index([("UploadBatch", 1)])
+        issues_collection.create_index([("Severity", 1)])
+        issues_collection.create_index([("Status", 1)])
+        issues_collection.create_index([("AssignedTo", 1)])
+        issues_collection.create_index([("UploadedAt", -1)])
+        print("[DB] MongoDB indexes ensured for vulnerabilities collection")
+    except Exception as e:
+        print(f"[DB] Failed to create MongoDB indexes: {e}")
+
+
+def _ensure_uploaded_at(rec):
+    if "UploadedAt" not in rec or rec.get("UploadedAt") in [None, ""]:
+        rec["UploadedAt"] = datetime.now(timezone.utc)
+    return rec
+
+
+def _prepare_records_for_write(records, ensure_uploaded_at=True):
+    if not isinstance(records, list):
+        return []
+
+    unique_data = remove_duplicates(records)
+    prepared = []
+
+    for item in unique_data:
+        if not isinstance(item, dict):
+            continue
+        rec = dict(item)
+        if ensure_uploaded_at:
+            _ensure_uploaded_at(rec)
+        prepared.append(rec)
+
+    return prepared
+
+
+def _auto_correct_assigned_to(rec):
+    current_owner = rec.get("AssignedTo", "Unassigned")
+    if current_owner not in ["", "NA", "Unassigned", "None"]:
+        return None
+
+    fields = [
+        rec.get("account_name"), rec.get("account_id"),
+        rec.get("SubscriptionName"), rec.get("SubscriptionId"),
+        rec.get("Projects"), rec.get("ApplicationName"),
+        rec.get("AffectedAsset"), rec.get("resource_name"),
+        rec.get("resource_id"), rec.get("LOB Name"),
+        rec.get("LOBName")
+    ]
+
+    if rec.get("SourceFormat") == "CSPM":
+        auto_owner = get_cspm_pod_owner(*fields)
+        if auto_owner != "Unassigned":
+            rec["AssignedTo"] = auto_owner
+            return auto_owner
+    else:
+        auto_owner = get_pod_owner(*fields)
+        if auto_owner:
+            rec["AssignedTo"] = auto_owner
+            return auto_owner
+
+    return None
+
+
+def _record_signature(rec):
+    normalized = {}
+    for key in sorted(rec.keys()):
+        if key in ["_id", "UploadedAt"]:
+            continue
+        value = rec.get(key)
+        if isinstance(value, datetime):
+            normalized[key] = value.isoformat()
+        else:
+            normalized[key] = value
+
+    payload = json.dumps(normalized, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
 
 def ldb(use_cache=True):
     global _db_cache, _db_cache_time, _db_cache_hash
 
-    # Check cache first
-    if use_cache and _db_cache is not None:
-        current_hash = get_file_hash()
-        if current_hash == _db_cache_hash and (time.time() - _db_cache_time) < CACHE_TTL:
-            return _db_cache
+    if use_cache and _db_cache is not None and (time.time() - _db_cache_time) < CACHE_TTL:
+        return _db_cache
 
-    if not os.path.exists(dbf):
-        print(f"[DB] File not found: {os.path.abspath(dbf)}")
+    if not _is_mongo_available():
         return []
+
     try:
-        with open(dbf, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            
-            # --- RETROACTIVE FIX FOR "UNASSIGNED" ---
-            changed = False
-            for rec in data:
-                current_owner = rec.get("AssignedTo", "Unassigned")
-                if current_owner in ["", "NA", "Unassigned", "None"]:
-                    fields = [
-                        rec.get("account_name"), rec.get("account_id"), 
-                        rec.get("SubscriptionName"), rec.get("SubscriptionId"),
-                        rec.get("Projects"), rec.get("ApplicationName"),
-                        rec.get("AffectedAsset"), rec.get("resource_name"), 
-                        rec.get("resource_id"), rec.get("LOB Name"), 
-                        rec.get("LOBName")
-                    ]
-                    if rec.get("SourceFormat") == "CSPM":
-                        auto_owner = get_cspm_pod_owner(*fields)
-                        if auto_owner != "Unassigned":
-                            rec["AssignedTo"] = auto_owner
-                            changed = True
-                    else:
-                        auto_owner = get_pod_owner(*fields)
-                        if auto_owner:
-                            rec["AssignedTo"] = auto_owner
-                            changed = True
-            
-            if changed:
-                unique_data = remove_duplicates(data)
-                with open(dbf, "w", encoding="utf-8") as fw:
-                    json.dump(unique_data, fw)
-                data = unique_data
-            # ----------------------------------------
-            
-            # Update cache
+        data = []
+        owner_updates = []
+
+        for rec in issues_collection.find({}):
+            if not isinstance(rec, dict):
+                continue
+
+            doc_id = rec.get("_id")
+            updated_owner = _auto_correct_assigned_to(rec)
+            if updated_owner and doc_id is not None:
+                owner_updates.append(UpdateOne({"_id": doc_id}, {"$set": {"AssignedTo": updated_owner}}))
+
+            rec.pop("_id", None)
+            data.append(rec)
+
+        if owner_updates:
+            issues_collection.bulk_write(owner_updates, ordered=False)
+
+        if use_cache and len(data) <= DB_CACHE_MAX_RECORDS:
             _db_cache = data
             _db_cache_time = time.time()
-            _db_cache_hash = get_file_hash()
-            print(f"[DB] Loaded {len(data)} records from {os.path.abspath(dbf)}")
-            return data
-    except Exception as e:
-        print(f"[DB] Error loading database: {e}")
+            _db_cache_hash = "mongodb"
+        else:
+            _db_cache = None
+            _db_cache_time = 0
+            _db_cache_hash = None
+
+        print(f"[DB] Loaded {len(data)} records from MongoDB")
+        return data
+    except Exception as mongo_error:
+        print(f"[DB] MongoDB load failed: {mongo_error}")
         return []
+
 
 def sdb(d):
     global _db_cache, _db_cache_time, _db_cache_hash
+
+    if not _is_mongo_available():
+        print("[DB] MongoDB save skipped: database unavailable")
+        raise RuntimeError("MongoDB unavailable")
+
     try:
-        # Remove duplicates before saving
-        unique_data = remove_duplicates(d)
-        with open(dbf, "w", encoding="utf-8") as f:
-            json.dump(unique_data, f)  # Removed indent for faster save
-        # Update cache
-        _db_cache = unique_data
-        _db_cache_time = time.time()
-        _db_cache_hash = get_file_hash()
-        print(f"[DB] Saved {len(unique_data)} records to {os.path.abspath(dbf)}")
-    except Exception as e:
-        print(f"[DB] Error saving database: {e}")
+        prepared = _prepare_records_for_write(d, ensure_uploaded_at=True)
+        issues_collection.delete_many({})
+        if prepared:
+            issues_collection.insert_many(prepared, ordered=False)
+
+        if len(prepared) <= DB_CACHE_MAX_RECORDS:
+            _db_cache = prepared
+            _db_cache_time = time.time()
+            _db_cache_hash = "mongodb"
+        else:
+            _db_cache = None
+            _db_cache_time = 0
+            _db_cache_hash = None
+
+        print(f"[DB] Saved {len(prepared)} records to MongoDB")
+    except Exception as mongo_error:
+        print(f"[DB] MongoDB save failed: {mongo_error}")
+        raise
+
 
 def clear_cache():
     """Clear the database cache"""
@@ -1240,6 +1355,139 @@ def clear_cache():
     _db_cache = None
     _db_cache_time = 0
     _db_cache_hash = None
+
+
+def upload_batch_exists(upload_batch):
+    if not upload_batch:
+        return False
+
+    if not _is_mongo_available():
+        raise RuntimeError("MongoDB unavailable")
+
+    try:
+        return issues_collection.find_one({"UploadBatch": upload_batch}, {"_id": 1}) is not None
+    except Exception as e:
+        print(f"[DB] UploadBatch check failed: {e}")
+        raise
+
+
+def insert_records(records, skip_existing_check=False):
+    if not records:
+        return 0
+
+    if not _is_mongo_available():
+        print("[DB] MongoDB insert skipped: database unavailable")
+        raise RuntimeError("MongoDB unavailable")
+
+    try:
+        prepared = _prepare_records_for_write(records, ensure_uploaded_at=True)
+        if not prepared:
+            return 0
+
+        to_insert = []
+        if skip_existing_check:
+            to_insert = prepared
+        else:
+            for rec in prepared:
+                duplicate_query = {k: v for k, v in rec.items() if k != "UploadedAt"}
+                if not duplicate_query:
+                    to_insert.append(rec)
+                    continue
+
+                existing = issues_collection.find_one(duplicate_query, {"_id": 1})
+                if existing is None:
+                    to_insert.append(rec)
+
+        if to_insert:
+            issues_collection.insert_many(to_insert, ordered=False)
+
+        clear_cache()
+        skipped = len(prepared) - len(to_insert)
+        print(f"[DB] Inserted {len(to_insert)} records into MongoDB (skipped {skipped} duplicates)")
+        return len(to_insert)
+    except Exception as e:
+        print(f"[DB] MongoDB insert failed: {e}")
+        raise
+
+
+def delete_by_upload_batch(upload_batch):
+    if not upload_batch:
+        return 0
+
+    if not _is_mongo_available():
+        print("[DB] MongoDB delete skipped: database unavailable")
+        raise RuntimeError("MongoDB unavailable")
+
+    try:
+        result = issues_collection.delete_many({"UploadBatch": upload_batch})
+        clear_cache()
+        print(f"[DB] Deleted {result.deleted_count} records for UploadBatch={upload_batch}")
+        return result.deleted_count
+    except Exception as e:
+        print(f"[DB] MongoDB delete failed: {e}")
+        raise
+
+
+def migrate_json_to_mongodb_once(json_file_path=dbf):
+    """One-time safe migration helper from xtelify_db.json to MongoDB."""
+    json_abs_path = os.path.abspath(json_file_path)
+
+    if not os.path.exists(json_file_path):
+        print(f"[MIGRATE] JSON file not found: {json_abs_path}")
+        return {"migrated": 0, "skipped": 0, "source": json_abs_path}
+
+    if not _is_mongo_available(force_check=True):
+        print("[MIGRATE] MongoDB unavailable, migration not executed")
+        return {"migrated": 0, "skipped": 0, "source": json_abs_path, "error": "MongoDB unavailable"}
+
+    try:
+        with open(json_file_path, "r", encoding="utf-8") as f:
+            json_records = json.load(f)
+    except Exception as e:
+        print(f"[MIGRATE] Failed reading JSON file: {e}")
+        return {"migrated": 0, "skipped": 0, "source": json_abs_path, "error": str(e)}
+
+    if not isinstance(json_records, list):
+        print(f"[MIGRATE] Invalid JSON structure in {json_abs_path}: expected list")
+        return {"migrated": 0, "skipped": 0, "source": json_abs_path, "error": "Invalid JSON structure"}
+
+    prepared = _prepare_records_for_write(json_records, ensure_uploaded_at=True)
+
+    try:
+        existing_signatures = set()
+        for rec in issues_collection.find({}, {"_id": 0}):
+            existing_signatures.add(_record_signature(rec))
+
+        to_insert = []
+        skipped = 0
+
+        for rec in prepared:
+            signature = _record_signature(rec)
+            if signature in existing_signatures:
+                skipped += 1
+                continue
+
+            existing_signatures.add(signature)
+            to_insert.append(rec)
+
+        if to_insert:
+            issues_collection.insert_many(to_insert, ordered=False)
+
+        clear_cache()
+
+        migrated_count = len(to_insert)
+        print(
+            f"[MIGRATE] Migrated {migrated_count} records from {json_abs_path} "
+            f"(skipped {skipped} exact duplicates). JSON file kept unchanged."
+        )
+        return {"migrated": migrated_count, "skipped": skipped, "source": json_abs_path}
+    except Exception as e:
+        print(f"[MIGRATE] Migration failed: {e}")
+        return {"migrated": 0, "skipped": 0, "source": json_abs_path, "error": str(e)}
+
+
+_ensure_mongo_indexes()
+
 
 @app.get("/api/db")
 async def gd():
@@ -1249,42 +1497,52 @@ async def gd():
     print(f"[API] /api/db returning {len(unique_data)} records")
     return ORJSONResponse(content=unique_data)  # Faster JSON response
 
+
 @app.post("/api/db")
 async def sd(req: Request):
-    fendralis = await req.json()
-    ni = fendralis.get("items", [])
-    db = ldb()
-    db.extend(ni)
-    sdb(db)
-    return {"status": "success"}
+    try:
+        fendralis = await req.json()
+        ni = fendralis.get("items", [])
+        insert_records(ni, skip_existing_check=False)
+        return {"status": "success"}
+    except Exception as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
 
 @app.delete("/api/db")
 async def dd(req: Request):
-    fendralis = await req.json()
-    bd = fendralis.get("UploadBatch")
-    db = ldb()
-    mx = [i for i in db if i.get("UploadBatch") != bd]
-    sdb(mx)
-    return {"status": "deleted"}
+    try:
+        fendralis = await req.json()
+        bd = fendralis.get("UploadBatch")
+        delete_by_upload_batch(bd)
+        return {"status": "deleted"}
+    except Exception as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
 
 @app.get("/api/db-status")
 async def db_status():
     """Debug endpoint to check database status"""
-    db_path = os.path.abspath(dbf)
-    exists = os.path.exists(dbf)
-    count = 0
-    file_size = 0
-    if exists:
-        file_size = os.path.getsize(dbf)
-        data = ldb()
-        count = len(data)
-    return {
-        "db_path": db_path,
-        "exists": exists,
-        "file_size_bytes": file_size,
-        "record_count": count,
-        "working_directory": os.getcwd()
-    }
+    connection_ok = _is_mongo_available(force_check=True)
+    try:
+        count = issues_collection.count_documents({}) if connection_ok else 0
+        return {
+            'backend': 'mongodb',
+            'mongo_uri': 'mongodb://127.0.0.1:27017/',
+            'database': 'xtelify_db',
+            'collection': 'vulnerabilities',
+            'connection_ok': connection_ok,
+            'record_count': count,
+            'json_source_file': os.path.abspath(dbf),
+            'working_directory': os.getcwd(),
+        }
+    except Exception as mongo_error:
+        return {
+            'backend': 'mongodb',
+            'connection_ok': False,
+            'error': str(mongo_error),
+            'working_directory': os.getcwd(),
+        }
 
 @app.get("/api/leaderboard")
 async def glb():
@@ -1488,25 +1746,45 @@ async def bulk_update(req: Request):
     if not vuln_ids:
         return JSONResponse(status_code=400, content={"error": "No vulnerabilities selected"})
 
-    db = ldb()
-    updated_count = 0
+    if not _is_mongo_available():
+        return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
 
-    for item in db:
-        if item.get("DisplayID") in vuln_ids or item.get("IssueID") in vuln_ids:
+    try:
+        query = {
+            "$or": [
+                {"DisplayID": {"$in": vuln_ids}},
+                {"IssueID": {"$in": vuln_ids}},
+            ]
+        }
+
+        projection = {"_id": 1, "DisplayID": 1, "IssueID": 1}
+        for key in updates.keys():
+            projection[key] = 1
+
+        matched_docs = list(issues_collection.find(query, projection))
+        if not matched_docs:
+            return {"status": "success", "updated": 0}
+
+        write_ops = []
+        for doc in matched_docs:
+            vuln_ref = doc.get("DisplayID", doc.get("IssueID"))
             for key, value in updates.items():
-                old_value = item.get(key, "")
-                item[key] = value
-                # Log the change
+                old_value = doc.get(key, "")
                 add_activity_log(
-                    item.get("DisplayID", item.get("IssueID")),
+                    vuln_ref,
                     f"{key} Changed",
                     f"Changed from '{old_value}' to '{value}'",
                     user
                 )
-            updated_count += 1
+            write_ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": updates}))
 
-    sdb(db)
-    return {"status": "success", "updated": updated_count}
+        if write_ops:
+            issues_collection.bulk_write(write_ops, ordered=False)
+
+        clear_cache()
+        return {"status": "success", "updated": len(write_ops)}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/api/analytics/sla")
@@ -1692,8 +1970,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
     try:
         dsn = datasetName
         
-        db = ldb()
-        if any(i.get("UploadBatch") == dsn for i in db):
+        if upload_batch_exists(dsn):
             return JSONResponse(status_code=400, content={"error": "Duplicate: Dataset already exists."})
 
         fendralis = await file.read()
@@ -1778,8 +2055,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                         sheet_summary.append({"name": sheet_name, "format": "ERROR", "rows": 0, "status": str(sheet_err)})
 
                 if all_records:
-                    db.extend(all_records)
-                    sdb(db)
+                    insert_records(all_records, skip_existing_check=True)
                     return {
                         "status": "success",
                         "processed_rows": len(all_records),
@@ -1829,8 +2105,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                 rec = process_vapt_row_new(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
-            db.extend(ni)
-            sdb(db)
+            insert_records(ni, skip_existing_check=True)
             return {"status": "success", "processed_rows": len(ni), "format": "VAPT"}
 
         elif file_format == "SAST_DAST":
@@ -1843,8 +2118,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                 rec = process_vapt_row(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
-            db.extend(ni)
-            sdb(db)
+            insert_records(ni, skip_existing_check=True)
             return {"status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
 
         elif file_format == "CSPM":
@@ -1857,8 +2131,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                 rec = process_cspm_row(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
-            db.extend(ni)
-            sdb(db)
+            insert_records(ni, skip_existing_check=True)
             return {"status": "success", "processed_rows": len(ni), "format": "CSPM"}
         def find_col(patterns):
             for p in patterns:
@@ -2083,8 +2356,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
         t_norm_end = time.time()
 
         t_db_start = time.time()
-        db.extend(ni) 
-        sdb(db)
+        insert_records(ni, skip_existing_check=True)
         t_db_end = time.time()
         t_total_end = time.time()
         
@@ -2113,8 +2385,7 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
     try:
         dsn = datasetName
 
-        db = ldb()
-        if any(i.get("UploadBatch") == dsn for i in db):
+        if upload_batch_exists(dsn):
             return JSONResponse(status_code=400, content={"error": "Duplicate: Dataset already exists."})
 
         fendralis = await file.read()
@@ -2151,8 +2422,7 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
                 rec = process_vapt_row_new(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
-            db.extend(ni)
-            sdb(db)
+            insert_records(ni, skip_existing_check=True)
             return {"status": "success", "processed_rows": len(ni), "format": "VAPT"}
 
         elif file_format == "SAST_DAST":
@@ -2165,8 +2435,7 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
                 rec = process_vapt_row(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
-            db.extend(ni)
-            sdb(db)
+            insert_records(ni, skip_existing_check=True)
             return {"status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
 
         elif file_format == "CSPM":
@@ -2179,8 +2448,7 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
                 rec = process_cspm_row(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
-            db.extend(ni)
-            sdb(db)
+            insert_records(ni, skip_existing_check=True)
             return {"status": "success", "processed_rows": len(ni), "format": "CSPM"}
 
         def find_col(patterns):
@@ -2385,8 +2653,7 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
 
             ni.append(rec)
 
-        db.extend(ni)
-        sdb(db)
+        insert_records(ni, skip_existing_check=True)
 
         print(f"Processed {len(ni)} rows from sheet '{sheetName}'")
         return {"status": "success", "processed_rows": len(ni), "format": "CONTAINER"}

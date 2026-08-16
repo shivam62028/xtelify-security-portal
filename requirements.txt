@@ -11,3 +11,6 @@ openpyxl
 
 # File Upload Support
 python-multipart
+
+# MongoDB
+pymongo
