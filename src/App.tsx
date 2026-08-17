@@ -168,7 +168,7 @@ interface ActivityLog {
 }
 
 
-const CalendarView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
+const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) => void }> = ({ darkMode, onViewUpload }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [viewType, setViewType] = useState<"Vulnerabilities" | "Uploads">("Vulnerabilities");
@@ -394,14 +394,18 @@ const CalendarView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
                     <p className={`text-center py-10 ${darkMode ? "text-slate-500" : "text-slate-500"}`}>No datasets were uploaded on this date.</p>
                   ) : (
                     dailyUploads.map((up: any, idx: number) => (
-                      <div key={idx} className={`p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
+                      <div 
+                        key={idx} 
+                        onClick={() => up.UploadBatch && onViewUpload(up.UploadBatch)}
+                        className={`p-4 rounded-lg border cursor-pointer transition-colors ${darkMode ? "bg-slate-800 border-slate-700 hover:bg-slate-700" : "bg-white border-slate-200 shadow-sm hover:bg-slate-50"}`}
+                      >
                         <div className="flex justify-between items-start mb-2">
-                          <h4 className={`font-semibold ${darkMode ? "text-white" : "text-slate-800"}`}>{up.FileName}</h4>
+                          <h4 className={`font-semibold ${darkMode ? "text-white" : "text-slate-800"}`}>{up.FileName || "Unknown Dataset"}</h4>
                           <span className={`text-xs px-2 py-1 rounded-full font-medium ${darkMode ? "bg-blue-500/20 text-blue-400" : "bg-blue-100 text-blue-700"}`}>{up.SourceFormat}</span>
                         </div>
                         <div className="flex justify-between items-center text-sm">
-                          <span className={darkMode ? "text-slate-400" : "text-slate-500"}>Records: {up.RecordCount.toLocaleString()}</span>
-                          <span className={darkMode ? "text-slate-400" : "text-slate-500"}>{new Date(up.UploadedAt).toLocaleTimeString()}</span>
+                          <span className={darkMode ? "text-slate-400" : "text-slate-500"}>Records: {up.RecordCount ? up.RecordCount.toLocaleString() : "0"}</span>
+                          <span className={darkMode ? "text-slate-400" : "text-slate-500"}>{up.UploadedAt ? new Date(up.UploadedAt).toLocaleTimeString() : ""}</span>
                         </div>
                         {up.UploadBatch && (
                           <div className={`mt-2 text-xs font-mono truncate ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
@@ -2517,7 +2521,7 @@ const AppContent: React.FC = () => {
         </div>
       </div>
 
-      {viewMode === "Calendar" ? <CalendarView darkMode={darkMode} /> : viewMode === "Raw" ? (
+      {viewMode === "Calendar" ? <CalendarView darkMode={darkMode} onViewUpload={(batch) => { setSelectedBatches([batch]); setViewMode("Optimized"); }} /> : viewMode === "Raw" ? (
         <div className={`p-5 rounded-lg border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
           <div className="flex justify-between items-center mb-4">
             <div>
