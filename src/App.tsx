@@ -172,15 +172,27 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [viewType, setViewType] = useState<"Vulnerabilities" | "Uploads">("Vulnerabilities");
-  
-  const [monthlyActivity, setMonthlyActivity] = useState<Record<string, {vulnerabilities: number, uploads: number}>>({});
+
+  const [monthlyActivity, setMonthlyActivity] = useState<Record<string, { vulnerabilities: number, uploads: number }>>({});
   const [dailyVulns, setDailyVulns] = useState<any>(null);
   const [dailyUploads, setDailyUploads] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;
+
+  const handleDeleteDataset = async (batch: string) => {
+    if (!window.confirm(`Are you sure you want to delete dataset "${batch}"? This action cannot be undone.`)) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/dataset/${batch}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error("Failed to delete dataset");
+      setRefreshKey(prev => prev + 1);
+    } catch (err: any) {
+      alert("Error deleting dataset: " + err.message);
+    }
+  };
 
   useEffect(() => {
     const fetchMonthly = async () => {
@@ -196,17 +208,17 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
       }
     };
     fetchMonthly();
-  }, [year, month]);
+  }, [year, month, refreshKey]);
 
   useEffect(() => {
     if (!selectedDate) return;
     const fetchDaily = async () => {
       setLoading(true);
       setError(null);
-      
+
       const tzoffset = selectedDate.getTimezoneOffset() * 60000;
       const localISOTime = (new Date(selectedDate.getTime() - tzoffset)).toISOString().slice(0, 10);
-      
+
       try {
         if (viewType === "Vulnerabilities") {
           const res = await fetch(`${BACKEND_URL}/api/calendar/vulnerabilities?date=${localISOTime}`);
@@ -222,13 +234,13 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
           setDailyUploads(data);
         }
       } catch (err: any) {
-         setError("Unable to load details. " + (err.message || "MongoDB is currently unavailable."));
+        setError("Unable to load details. " + (err.message || "MongoDB is currently unavailable."));
       } finally {
         setLoading(false);
       }
     };
     fetchDaily();
-  }, [selectedDate, viewType]);
+  }, [selectedDate, viewType, refreshKey]);
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const firstDayOfMonth = new Date(year, month - 1, 1).getDay();
@@ -243,18 +255,18 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
   return (
     <div className={`mt-6 p-6 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
       <div className="flex flex-col md:flex-row gap-8">
-        
+
         <div className="flex-1">
           <div className="flex items-center justify-between mb-6">
             <h2 className={`text-xl font-bold ${darkMode ? "text-white" : "text-slate-800"}`}>Calendar / Activity</h2>
             <div className={`flex rounded-lg overflow-hidden border ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
-              <button 
+              <button
                 onClick={() => setViewType("Vulnerabilities")}
                 className={`px-4 py-2 text-sm font-medium transition-colors ${viewType === "Vulnerabilities" ? (darkMode ? "bg-purple-600 text-white" : "bg-purple-100 text-purple-700") : (darkMode ? "bg-slate-800 text-slate-400 hover:bg-slate-700" : "bg-slate-50 text-slate-600 hover:bg-slate-100")}`}
               >
                 Vulnerabilities
               </button>
-              <button 
+              <button
                 onClick={() => setViewType("Uploads")}
                 className={`px-4 py-2 text-sm font-medium transition-colors ${viewType === "Uploads" ? (darkMode ? "bg-blue-600 text-white" : "bg-blue-100 text-blue-700") : (darkMode ? "bg-slate-800 text-slate-400 hover:bg-slate-700" : "bg-slate-50 text-slate-600 hover:bg-slate-100")}`}
               >
@@ -262,39 +274,39 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
               </button>
             </div>
           </div>
-          
+
           <div className={`p-5 rounded-lg border ${darkMode ? "bg-slate-900 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
             <div className="flex items-center justify-between mb-4">
               <button onClick={prevMonth} className={`p-2 rounded-full ${darkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-200 text-slate-600"}`}>
                 <ChevronLeft size={20} />
               </button>
               <div className="flex items-center gap-2">
-                <select 
-                  value={month - 1} 
+                <select
+                  value={month - 1}
                   onChange={(e) => setCurrentDate(new Date(year, parseInt(e.target.value), 1))}
                   className={`bg-transparent font-bold text-lg outline-none cursor-pointer ${darkMode ? "text-white" : "text-slate-800"}`}
                 >
                   {monthNames.map((m, i) => <option key={m} value={i} className={darkMode ? "bg-slate-800" : ""}>{m}</option>)}
                 </select>
-                <select 
-                  value={year} 
+                <select
+                  value={year}
                   onChange={(e) => setCurrentDate(new Date(parseInt(e.target.value), month - 1, 1))}
                   className={`bg-transparent font-bold text-lg outline-none cursor-pointer ${darkMode ? "text-white" : "text-slate-800"}`}
                 >
-                  {Array.from({length: 10}, (_, i) => year - 5 + i).map(y => <option key={y} value={y} className={darkMode ? "bg-slate-800" : ""}>{y}</option>)}
+                  {Array.from({ length: 10 }, (_, i) => year - 5 + i).map(y => <option key={y} value={y} className={darkMode ? "bg-slate-800" : ""}>{y}</option>)}
                 </select>
               </div>
               <button onClick={nextMonth} className={`p-2 rounded-full ${darkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-200 text-slate-600"}`}>
                 <ChevronRight size={20} />
               </button>
             </div>
-            
+
             <div className="grid grid-cols-7 gap-2 mb-2">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
                 <div key={d} className={`text-center text-xs font-semibold py-2 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>{d}</div>
               ))}
             </div>
-            
+
             <div className="grid grid-cols-7 gap-2">
               {blanks.map(b => <div key={`blank-${b}`} className="h-14"></div>)}
               {days.map(d => {
@@ -302,10 +314,10 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
                 const isSelected = selectedDate?.getDate() === d && selectedDate?.getMonth() + 1 === month && selectedDate?.getFullYear() === year;
                 const isToday = new Date().getDate() === d && new Date().getMonth() + 1 === month && new Date().getFullYear() === year;
                 const act = monthlyActivity[dateStr];
-                
+
                 return (
-                  <div 
-                    key={d} 
+                  <div
+                    key={d}
                     onClick={() => setSelectedDate(new Date(year, month - 1, d))}
                     className={`h-14 rounded-md border flex flex-col items-center justify-start pt-1 cursor-pointer transition-colors
                       ${isSelected ? (darkMode ? "bg-slate-700 border-purple-500" : "bg-purple-50 border-purple-400") : (darkMode ? "bg-slate-800 border-slate-700 hover:bg-slate-700" : "bg-white border-slate-200 hover:bg-slate-50")}
@@ -336,7 +348,7 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
                 <CalendarDays size={20} className={darkMode ? "text-purple-400" : "text-purple-600"} />
                 {selectedDate.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}
               </h3>
-              
+
               {loading ? (
                 <div className="flex justify-center items-center py-20">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
@@ -351,32 +363,31 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
                         <span className={`text-sm font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Total Vulnerabilities</span>
                         <span className={`text-2xl font-bold ${darkMode ? "text-white" : "text-slate-800"}`}>{dailyVulns.total.toLocaleString()}</span>
                       </div>
-                      
+
                       <div>
                         <h4 className={`text-xs font-bold uppercase tracking-wider mb-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Severity Breakdown</h4>
                         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                           {["Critical", "High", "Medium", "Low", "Info"].map(sev => (
                             <div key={sev} className={`p-3 rounded-lg text-center border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
                               <p className={`text-xs mb-1 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{sev}</p>
-                              <p className={`text-lg font-bold ${
-                                sev === "Critical" ? "text-red-500" :
-                                sev === "High" ? "text-orange-500" :
-                                sev === "Medium" ? "text-amber-500" :
-                                sev === "Low" ? "text-green-500" : "text-blue-500"
-                              }`}>{dailyVulns.severity[sev]?.toLocaleString() || 0}</p>
+                              <p className={`text-lg font-bold ${sev === "Critical" ? "text-red-500" :
+                                  sev === "High" ? "text-orange-500" :
+                                    sev === "Medium" ? "text-amber-500" :
+                                      sev === "Low" ? "text-green-500" : "text-blue-500"
+                                }`}>{dailyVulns.severity[sev]?.toLocaleString() || 0}</p>
                             </div>
                           ))}
                         </div>
                       </div>
-                      
+
                       <div>
                         <h4 className={`text-xs font-bold uppercase tracking-wider mb-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Source Format</h4>
                         <div className="grid grid-cols-2 gap-3">
                           {[
-                            {k: "CSPM", l: "CSPM"},
-                            {k: "VAPT", l: "VAPT"},
-                            {k: "CONTAINER", l: "Container"},
-                            {k: "SAST_DAST", l: "SAST/DAST"}
+                            { k: "CSPM", l: "CSPM" },
+                            { k: "VAPT", l: "VAPT" },
+                            { k: "CONTAINER", l: "Container" },
+                            { k: "SAST_DAST", l: "SAST/DAST" }
                           ].map(fmt => (
                             <div key={fmt.k} className={`p-3 rounded-lg flex items-center justify-between border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
                               <span className={`text-sm font-medium ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{fmt.l}</span>
@@ -394,10 +405,10 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
                     <p className={`text-center py-10 ${darkMode ? "text-slate-500" : "text-slate-500"}`}>No datasets were uploaded on this date.</p>
                   ) : (
                     dailyUploads.map((up: any, idx: number) => (
-                      <div 
-                        key={idx} 
+                      <div
+                        key={idx}
                         onClick={() => up.UploadBatch && onViewUpload(up.UploadBatch)}
-                        className={`p-4 rounded-lg border cursor-pointer transition-colors ${darkMode ? "bg-slate-800 border-slate-700 hover:bg-slate-700" : "bg-white border-slate-200 shadow-sm hover:bg-slate-50"}`}
+                        className={`p-4 rounded-lg border cursor-pointer transition-colors relative group ${darkMode ? "bg-slate-800 border-slate-700 hover:bg-slate-700" : "bg-white border-slate-200 shadow-sm hover:bg-slate-50"}`}
                       >
                         <div className="flex justify-between items-start mb-2">
                           <h4 className={`font-semibold ${darkMode ? "text-white" : "text-slate-800"}`}>{up.FileName || "Unknown Dataset"}</h4>
@@ -408,10 +419,17 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
                           <span className={darkMode ? "text-slate-400" : "text-slate-500"}>{up.UploadedAt ? new Date(up.UploadedAt).toLocaleTimeString() : ""}</span>
                         </div>
                         {up.UploadBatch && (
-                          <div className={`mt-2 text-xs font-mono truncate ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
+                          <div className={`mt-2 text-xs font-mono truncate pr-8 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
                             Batch: {up.UploadBatch}
                           </div>
                         )}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); if (up.UploadBatch) handleDeleteDataset(up.UploadBatch); }}
+                          className="absolute bottom-4 right-4 p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded opacity-0 group-hover:opacity-100 transition-all"
+                          title="Delete Dataset"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
                     ))
                   )}
@@ -577,7 +595,7 @@ const AppContent: React.FC = () => {
   const [datasetName, setDatasetName] = useState<string>("");
   const [saveToDevice, setSaveToDevice] = useState<boolean>(false);
   const [availableSheets, setAvailableSheets] = useState<string[]>([]);
-  const [sheetInfo, setSheetInfo] = useState<Array<{name: string; rows: number; columns: number; format: string; is_pivot: boolean}>>([]);
+  const [sheetInfo, setSheetInfo] = useState<Array<{ name: string; rows: number; columns: number; format: string; is_pivot: boolean }>>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>("");
   const [isSheetSelectMode, setIsSheetSelectMode] = useState<boolean>(false);
   const [detectedFormat, setDetectedFormat] = useState<string>("");
@@ -2236,7 +2254,7 @@ const AppContent: React.FC = () => {
       if (data.status === "select_sheet" && data.sheets) {
         setAvailableSheets(data.sheets);
         setSheetInfo(data.sheet_info || []);
-        const nonPivotSheet = (data.sheet_info || []).find((s: {is_pivot: boolean}) => !s.is_pivot);
+        const nonPivotSheet = (data.sheet_info || []).find((s: { is_pivot: boolean }) => !s.is_pivot);
         setSelectedSheet(nonPivotSheet?.name || data.sheets[0] || "");
         setIsSheetSelectMode(true);
         setIsProcessing(false);
@@ -2489,11 +2507,10 @@ const AppContent: React.FC = () => {
             <button
               key={fmt.key}
               onClick={() => handleFormatFilterChange(fmt.key)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                selectedFormatFilter === fmt.key
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${selectedFormatFilter === fmt.key
                   ? `${darkMode ? "bg-blue-600 text-white shadow-lg" : "bg-blue-600 text-white shadow-md"}`
                   : `${darkMode ? "text-slate-400 hover:text-white hover:bg-slate-700" : "text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-sm"}`
-              }`}
+                }`}
             >
               <fmt.icon size={16} />
               {fmt.label}
@@ -2617,7 +2634,7 @@ const AppContent: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                        <div className={`p-6 rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md ${darkMode ? "bg-slate-800/80 border-slate-700/50" : "bg-white border-slate-200/60"}`}>
+            <div className={`p-6 rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md ${darkMode ? "bg-slate-800/80 border-slate-700/50" : "bg-white border-slate-200/60"}`}>
               <h2 className={`font-bold text-sm mb-5 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
                 <div className={`p-1.5 rounded-lg ${darkMode ? "bg-emerald-900/30" : "bg-emerald-50"}`}>
                   <Target size={16} className="text-emerald-500" />
@@ -2661,7 +2678,7 @@ const AppContent: React.FC = () => {
               </div>
             </div>
 
-                        <div className={`p-5 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+            <div className={`p-5 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
               <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
                 <Clock size={16} className="text-blue-500" /> Vulnerability Age Distribution
               </h2>
@@ -3249,7 +3266,7 @@ const AppContent: React.FC = () => {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
 
-                                <div className="relative" ref={tableColDropdownRef}>
+                <div className="relative" ref={tableColDropdownRef}>
                   <button
                     onClick={() => setIsTableColDropdownOpen(!isTableColDropdownOpen)}
                     className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 rounded-sm text-xs font-semibold hover:bg-slate-50 transition-colors shadow-sm ml-2"
@@ -3347,37 +3364,37 @@ const AppContent: React.FC = () => {
                           batches.map((batch) => {
                             const format = batchFormats[batch] || "CONTAINER";
                             return (
-                            <div
-                              key={batch}
-                              onClick={() => toggleBatch(batch)}
-                              className="flex items-center gap-3 px-4 py-2 hover:bg-blue-50 cursor-pointer transition-colors border-b border-slate-50 last:border-0"
-                            >
-                              {selectedBatches.includes(batch) ? (
-                                <CheckSquare
-                                  size={16}
-                                  className="text-blue-600"
-                                />
-                              ) : (
-                                <Square size={16} className="text-slate-300" />
-                              )}
-                              <span
-                                className={`text-xs flex-1 ${selectedBatches.includes(batch)
-                                  ? "font-bold text-slate-900"
-                                  : "text-slate-600"
-                                  }`}
+                              <div
+                                key={batch}
+                                onClick={() => toggleBatch(batch)}
+                                className="flex items-center gap-3 px-4 py-2 hover:bg-blue-50 cursor-pointer transition-colors border-b border-slate-50 last:border-0"
                               >
-                                {batch}
-                              </span>
-                              <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
-                                format === "SAST_DAST" ? "bg-purple-100 text-purple-700" :
-                                format === "CSPM" ? "bg-green-100 text-green-700" :
-                                format === "VAPT" ? "bg-orange-100 text-orange-700" :
-                                "bg-blue-100 text-blue-700"
-                              }`}>
-                                {format === "SAST_DAST" ? "SAST/DAST" : format}
-                              </span>
-                            </div>
-                          )})}
+                                {selectedBatches.includes(batch) ? (
+                                  <CheckSquare
+                                    size={16}
+                                    className="text-blue-600"
+                                  />
+                                ) : (
+                                  <Square size={16} className="text-slate-300" />
+                                )}
+                                <span
+                                  className={`text-xs flex-1 ${selectedBatches.includes(batch)
+                                    ? "font-bold text-slate-900"
+                                    : "text-slate-600"
+                                    }`}
+                                >
+                                  {batch}
+                                </span>
+                                <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${format === "SAST_DAST" ? "bg-purple-100 text-purple-700" :
+                                    format === "CSPM" ? "bg-green-100 text-green-700" :
+                                      format === "VAPT" ? "bg-orange-100 text-orange-700" :
+                                        "bg-blue-100 text-blue-700"
+                                  }`}>
+                                  {format === "SAST_DAST" ? "SAST/DAST" : format}
+                                </span>
+                              </div>
+                            )
+                          })}
                       </div>
                       {userRole === "Admin" && (
                         <div className="p-2 bg-slate-50 border-t border-slate-100">
@@ -3494,179 +3511,179 @@ const AppContent: React.FC = () => {
                     </tr>
                   )}
                   {paginatedIssues.map((issue, idx) => {
-                      const breached = checkBreach(issue.DueDate, issue.Status);
-                      const resolved = isResolved(issue.Status);
-                      const rowKey = `${issue.IssueID}-${idx}`;
-                      const isExpanded = expandedRow === rowKey;
+                    const breached = checkBreach(issue.DueDate, issue.Status);
+                    const resolved = isResolved(issue.Status);
+                    const rowKey = `${issue.IssueID}-${idx}`;
+                    const isExpanded = expandedRow === rowKey;
 
-                      return (
-                        <React.Fragment key={rowKey}>
-                          <tr
-                            onClick={() => setExpandedRow(isExpanded ? null : rowKey)}
-                            className={`border-b transition-colors cursor-pointer ${darkMode ? "border-slate-800 hover:bg-slate-800/50" : "border-slate-100 hover:bg-slate-50"} ${isExpanded ? (darkMode ? "bg-slate-800/50" : "bg-slate-50") : ""}`}
-                          >
-                            {tableCols.map(col => {
-                              if (col === "DisplayID") {
-                                return <td key={col} className={`px-4 py-3 font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
-                                  <div className="flex items-center gap-2">
-                                    <ChevronDown size={14} className={`transition-transform ${isExpanded ? "rotate-180" : ""} ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
-                                    {issue.DisplayID}
-                                  </div>
-                                </td>;
-                              }
-                              if (col === "Severity") {
-                                const sevClass = issue.Severity === "Critical"
-                                  ? "bg-slate-800 text-white"
-                                  : issue.Severity === "High"
-                                    ? "bg-slate-700 text-white"
-                                    : issue.Severity === "Medium"
-                                      ? "bg-slate-200 text-slate-700"
-                                      : "bg-slate-100 text-slate-600";
-                                return <td key={col} className="px-4 py-3"><span className={`px-2.5 py-1 rounded text-[10px] font-semibold ${sevClass}`}>{issue.Severity}</span></td>;
-                              }
-                              if (col === "Status") {
-                                const statusClass = resolved
-                                  ? "bg-slate-100 text-slate-600"
-                                  : "bg-slate-50 text-slate-600 border border-slate-200";
-                                return <td key={col} className="px-4 py-3"><span className={`px-2.5 py-1 rounded text-[10px] font-medium ${statusClass}`}>{issue.Status}</span></td>;
-                              }
-                              if (col === "DueDate") {
-                                return <td key={col} className={`px-4 py-3 text-xs font-mono whitespace-nowrap ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{issue.DueDate} {breached && !resolved && <span className="text-slate-400 ml-1">•</span>}</td>;
-                              }
-                              if (col === "AffectedAsset" || col === "AssetName") {
-                                const assetVal = issue[col] ? String(issue[col]) : "—";
-                                return (
-                                  <td key={col} className={`px-4 py-3 text-xs min-w-[150px] ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                                    <AssetNameCell fullName={assetVal} />
-                                  </td>
-                                );
-                              }
-                              if (col === "VulnDescription") {
-                                const existingDesc = issue.VulnDescription ? String(issue.VulnDescription) : "";
-                                const desc = existingDesc && existingDesc !== "—" && existingDesc.toLowerCase() !== "na"
-                                  ? existingDesc
-                                  : generateVulnDescription(issue as Issue);
-                                return (
-                                  <td key={col} className={`px-4 py-3 text-xs min-w-[200px] max-w-[280px] ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                                    <span className="line-clamp-2">{desc}</span>
-                                  </td>
-                                );
-                              }
-                              const val = issue[col] !== undefined && issue[col] !== null ? issue[col] : "—";
+                    return (
+                      <React.Fragment key={rowKey}>
+                        <tr
+                          onClick={() => setExpandedRow(isExpanded ? null : rowKey)}
+                          className={`border-b transition-colors cursor-pointer ${darkMode ? "border-slate-800 hover:bg-slate-800/50" : "border-slate-100 hover:bg-slate-50"} ${isExpanded ? (darkMode ? "bg-slate-800/50" : "bg-slate-50") : ""}`}
+                        >
+                          {tableCols.map(col => {
+                            if (col === "DisplayID") {
+                              return <td key={col} className={`px-4 py-3 font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
+                                <div className="flex items-center gap-2">
+                                  <ChevronDown size={14} className={`transition-transform ${isExpanded ? "rotate-180" : ""} ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
+                                  {issue.DisplayID}
+                                </div>
+                              </td>;
+                            }
+                            if (col === "Severity") {
+                              const sevClass = issue.Severity === "Critical"
+                                ? "bg-slate-800 text-white"
+                                : issue.Severity === "High"
+                                  ? "bg-slate-700 text-white"
+                                  : issue.Severity === "Medium"
+                                    ? "bg-slate-200 text-slate-700"
+                                    : "bg-slate-100 text-slate-600";
+                              return <td key={col} className="px-4 py-3"><span className={`px-2.5 py-1 rounded text-[10px] font-semibold ${sevClass}`}>{issue.Severity}</span></td>;
+                            }
+                            if (col === "Status") {
+                              const statusClass = resolved
+                                ? "bg-slate-100 text-slate-600"
+                                : "bg-slate-50 text-slate-600 border border-slate-200";
+                              return <td key={col} className="px-4 py-3"><span className={`px-2.5 py-1 rounded text-[10px] font-medium ${statusClass}`}>{issue.Status}</span></td>;
+                            }
+                            if (col === "DueDate") {
+                              return <td key={col} className={`px-4 py-3 text-xs font-mono whitespace-nowrap ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{issue.DueDate} {breached && !resolved && <span className="text-slate-400 ml-1">•</span>}</td>;
+                            }
+                            if (col === "AffectedAsset" || col === "AssetName") {
+                              const assetVal = issue[col] ? String(issue[col]) : "—";
                               return (
-                                <td key={col} className={`px-4 py-3 text-xs min-w-[120px] whitespace-normal ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
-                                  {String(val)}
+                                <td key={col} className={`px-4 py-3 text-xs min-w-[150px] ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                                  <AssetNameCell fullName={assetVal} />
                                 </td>
                               );
-                            })}
-                          </tr>
-                                                    {isExpanded && (
-                            <tr className={darkMode ? "bg-slate-800/30" : "bg-slate-50"}>
-                              <td colSpan={tableCols.length} className="px-6 py-5">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                                                    <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
-                                    <h4 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                                      Vulnerability Details
-                                    </h4>
-                                    <div className="space-y-2">
-                                      <div>
-                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>ID</p>
-                                        <p className={`text-sm font-medium ${darkMode ? "text-slate-200" : "text-slate-700"}`}>{issue.DisplayID || issue.IssueID}</p>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Name</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Name || issue.finding_name || issue.Summary || "—"}</p>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Category</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Category || "—"}</p>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>CVSS Score</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Score || "—"}</p>
-                                      </div>
+                            }
+                            if (col === "VulnDescription") {
+                              const existingDesc = issue.VulnDescription ? String(issue.VulnDescription) : "";
+                              const desc = existingDesc && existingDesc !== "—" && existingDesc.toLowerCase() !== "na"
+                                ? existingDesc
+                                : generateVulnDescription(issue as Issue);
+                              return (
+                                <td key={col} className={`px-4 py-3 text-xs min-w-[200px] max-w-[280px] ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                                  <span className="line-clamp-2">{desc}</span>
+                                </td>
+                              );
+                            }
+                            const val = issue[col] !== undefined && issue[col] !== null ? issue[col] : "—";
+                            return (
+                              <td key={col} className={`px-4 py-3 text-xs min-w-[120px] whitespace-normal ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
+                                {String(val)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                        {isExpanded && (
+                          <tr className={darkMode ? "bg-slate-800/30" : "bg-slate-50"}>
+                            <td colSpan={tableCols.length} className="px-6 py-5">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
+                                  <h4 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                                    Vulnerability Details
+                                  </h4>
+                                  <div className="space-y-2">
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>ID</p>
+                                      <p className={`text-sm font-medium ${darkMode ? "text-slate-200" : "text-slate-700"}`}>{issue.DisplayID || issue.IssueID}</p>
                                     </div>
-                                  </div>
-
-                                                                    <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
-                                    <h4 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                                      Asset Information
-                                    </h4>
-                                    <div className="space-y-2">
-                                      <div>
-                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Affected Asset</p>
-                                        <p className={`text-sm break-all ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.AffectedAsset || issue.resource_name || "—"}</p>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Asset Type</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.AssetType || issue.resource_type || "—"}</p>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Assigned To</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.AssignedTo || issue.Assignee || "Unassigned"}</p>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Location</p>
-                                        <p className={`text-sm break-all ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.LocationPath || issue.region || "—"}</p>
-                                      </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Name</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Name || issue.finding_name || issue.Summary || "—"}</p>
                                     </div>
-                                  </div>
-
-                                                                    <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
-                                    <h4 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                                      Remediation
-                                    </h4>
-                                    <div className="space-y-2">
-                                      <div>
-                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Recommended Action</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.RecommendedAction || issue.Remediation || "—"}</p>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Fixed Version</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.FixedVersion || "—"}</p>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>First Detected</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.FirstDetected || issue.DiscoveredDate || "—"}</p>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Due Date</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.DueDate || "—"}</p>
-                                      </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Category</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Category || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>CVSS Score</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Score || "—"}</p>
                                     </div>
                                   </div>
                                 </div>
 
-                                                                {(issue.Description || issue.ReferenceLinks || issue.WizURL) && (
-                                  <div className={`mt-4 p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
-                                    {issue.Description && (
-                                      <div className="mb-3">
-                                        <p className={`text-[10px] uppercase mb-1 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Description</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Description}</p>
-                                      </div>
-                                    )}
-                                    {(issue.ReferenceLinks || issue.WizURL) && (
-                                      <div>
-                                        <p className={`text-[10px] uppercase mb-1 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>References</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                                          {issue.WizURL && <a href={issue.WizURL} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline mr-4">Wiz Link</a>}
-                                          {issue.ReferenceLinks && issue.ReferenceLinks !== "NA" && <span>{issue.ReferenceLinks}</span>}
-                                        </p>
-                                      </div>
-                                    )}
+                                <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
+                                  <h4 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                                    Asset Information
+                                  </h4>
+                                  <div className="space-y-2">
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Affected Asset</p>
+                                      <p className={`text-sm break-all ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.AffectedAsset || issue.resource_name || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Asset Type</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.AssetType || issue.resource_type || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Assigned To</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.AssignedTo || issue.Assignee || "Unassigned"}</p>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Location</p>
+                                      <p className={`text-sm break-all ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.LocationPath || issue.region || "—"}</p>
+                                    </div>
                                   </div>
-                                )}
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
+                                </div>
+
+                                <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
+                                  <h4 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                                    Remediation
+                                  </h4>
+                                  <div className="space-y-2">
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Recommended Action</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.RecommendedAction || issue.Remediation || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Fixed Version</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.FixedVersion || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>First Detected</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.FirstDetected || issue.DiscoveredDate || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Due Date</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.DueDate || "—"}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {(issue.Description || issue.ReferenceLinks || issue.WizURL) && (
+                                <div className={`mt-4 p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
+                                  {issue.Description && (
+                                    <div className="mb-3">
+                                      <p className={`text-[10px] uppercase mb-1 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Description</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Description}</p>
+                                    </div>
+                                  )}
+                                  {(issue.ReferenceLinks || issue.WizURL) && (
+                                    <div>
+                                      <p className={`text-[10px] uppercase mb-1 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>References</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                                        {issue.WizURL && <a href={issue.WizURL} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline mr-4">Wiz Link</a>}
+                                        {issue.ReferenceLinks && issue.ReferenceLinks !== "NA" && <span>{issue.ReferenceLinks}</span>}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
-                        {tableFilteredIssues.length > 0 && (
+            {tableFilteredIssues.length > 0 && (
               <div className={`flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 border-t ${darkMode ? "border-slate-800 bg-slate-900/50" : "border-slate-200 bg-slate-50"}`}>
                 <div className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
                   Showing {tableFilteredIssues.length > 0 ? ((currentPage - 1) * rowsPerPage) + 1 : 0} to {Math.min(currentPage * rowsPerPage, tableFilteredIssues.length)} of {tableFilteredIssues.length.toLocaleString()} issues
@@ -3880,13 +3897,12 @@ const AppContent: React.FC = () => {
                       {sheetInfo.length > 0 ? sheetInfo.map((sheet) => (
                         <label
                           key={sheet.name}
-                          className={`flex items-center gap-3 p-2 rounded cursor-pointer border transition-colors ${
-                            selectedSheet === sheet.name
+                          className={`flex items-center gap-3 p-2 rounded cursor-pointer border transition-colors ${selectedSheet === sheet.name
                               ? "bg-blue-50 border-blue-300"
                               : sheet.is_pivot
-                              ? "bg-slate-100 border-slate-200 opacity-60"
-                              : "bg-white border-slate-200 hover:bg-slate-50"
-                          }`}
+                                ? "bg-slate-100 border-slate-200 opacity-60"
+                                : "bg-white border-slate-200 hover:bg-slate-50"
+                            }`}
                         >
                           <input
                             type="radio"
@@ -3909,13 +3925,12 @@ const AppContent: React.FC = () => {
                             <div className="flex items-center gap-3 text-[10px] text-slate-500 mt-0.5">
                               <span>{sheet.rows} rows</span>
                               <span>{sheet.columns} columns</span>
-                              <span className={`px-1.5 py-0.5 rounded font-bold ${
-                                sheet.format === "SAST_DAST" ? "bg-purple-100 text-purple-700" :
-                                sheet.format === "CSPM" ? "bg-green-100 text-green-700" :
-                                sheet.format === "VAPT" ? "bg-orange-100 text-orange-700" :
-                                sheet.format === "CONTAINER" ? "bg-blue-100 text-blue-700" :
-                                "bg-slate-100 text-slate-600"
-                              }`}>
+                              <span className={`px-1.5 py-0.5 rounded font-bold ${sheet.format === "SAST_DAST" ? "bg-purple-100 text-purple-700" :
+                                  sheet.format === "CSPM" ? "bg-green-100 text-green-700" :
+                                    sheet.format === "VAPT" ? "bg-orange-100 text-orange-700" :
+                                      sheet.format === "CONTAINER" ? "bg-blue-100 text-blue-700" :
+                                        "bg-slate-100 text-slate-600"
+                                }`}>
                                 {sheet.format === "SAST_DAST" ? "SAST/DAST" : sheet.format}
                               </span>
                             </div>
@@ -3924,9 +3939,8 @@ const AppContent: React.FC = () => {
                       )) : availableSheets.map((sheet) => (
                         <label
                           key={sheet}
-                          className={`flex items-center gap-3 p-2 rounded cursor-pointer border transition-colors ${
-                            selectedSheet === sheet ? "bg-blue-50 border-blue-300" : "bg-white border-slate-200 hover:bg-slate-50"
-                          }`}
+                          className={`flex items-center gap-3 p-2 rounded cursor-pointer border transition-colors ${selectedSheet === sheet ? "bg-blue-50 border-blue-300" : "bg-white border-slate-200 hover:bg-slate-50"
+                            }`}
                         >
                           <input
                             type="radio"
@@ -4033,10 +4047,10 @@ const AppContent: React.FC = () => {
                   {isProcessing
                     ? uploadProgress || "Processing..."
                     : isDuplicatePromptOpen
-                    ? "Awaiting Confirmation"
-                    : isSheetSelectMode
-                    ? "Upload Selected Sheet"
-                    : "Confirm Upload"}
+                      ? "Awaiting Confirmation"
+                      : isSheetSelectMode
+                        ? "Upload Selected Sheet"
+                        : "Confirm Upload"}
                 </button>
               </div>
             </form>
@@ -4160,7 +4174,7 @@ const AppContent: React.FC = () => {
         </div>
       )}
 
-            {isFilterModalOpen && (
+      {isFilterModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
           <div className={`rounded-lg shadow-2xl w-full max-w-md overflow-hidden ${darkMode ? "bg-slate-800" : "bg-white"}`}>
             <div className="bg-purple-600 p-4 flex justify-between items-center text-white">
@@ -4219,7 +4233,7 @@ const AppContent: React.FC = () => {
         </div>
       )}
 
-            {activeNoteVuln && (
+      {activeNoteVuln && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
           <div className={`rounded-lg shadow-2xl w-full max-w-lg overflow-hidden ${darkMode ? "bg-slate-800" : "bg-white"}`}>
             <div className={`p-4 flex justify-between items-center ${darkMode ? "bg-slate-700" : "bg-slate-100"}`}>

@@ -3296,14 +3296,45 @@ async def get_calendar_uploads(date: str):
         year, month, day = map(int, date.split("-"))
         start_date = datetime(year, month, day, tzinfo=timezone.utc)
         end_date = start_date + timedelta(days=1)
-        uploads = list(upload_history_collection.find(
-            {"UploadedAt": {"$gte": start_date, "$lt": end_date}}, {"_id": 0}
-        ).sort("UploadedAt", -1))
+        
+        # Use issues_collection to reliably get datasets that have vulnerabilities
+        uploads_pipeline = [
+            {"$match": {"UploadedAt": {"$gte": start_date, "$lt": end_date}}},
+            {"$group": {
+                "_id": {"UploadBatch": "$UploadBatch", "SourceFormat": "$SourceFormat"},
+                "RecordCount": {"$sum": 1},
+                "UploadedAt": {"$first": "$UploadedAt"}
+            }},
+            {"$project": {
+                "_id": 0,
+                "FileName": "$_id.UploadBatch",
+                "UploadBatch": "$_id.UploadBatch",
+                "SourceFormat": "$_id.SourceFormat",
+                "RecordCount": 1,
+                "UploadedAt": 1
+            }},
+            {"$sort": {"UploadedAt": -1}}
+        ]
+        uploads = list(issues_collection.aggregate(uploads_pipeline))
 
         for u in uploads:
             if "UploadedAt" in u and isinstance(u["UploadedAt"], datetime):
                 u["UploadedAt"] = u["UploadedAt"].isoformat()
         return uploads
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.delete("/api/dataset/{batch_id}")
+async def delete_dataset(batch_id: str):
+    if not _is_mongo_available():
+        return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
+    try:
+        # Delete from upload history
+        upload_history_collection.delete_many({"UploadBatch": batch_id})
+        # Delete vulnerabilities belonging to this batch
+        result = issues_collection.delete_many({"UploadBatch": batch_id})
+        
+        return {"success": True, "deleted_count": result.deleted_count}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
