@@ -20,6 +20,7 @@ client = MongoClient(
 )
 mongo_db = client["xtelify_db"]
 issues_collection = mongo_db["vulnerabilities"]
+upload_history_collection = mongo_db["upload_history"]
 
 # In-memory cache for faster loading
 _db_cache = None
@@ -1206,6 +1207,8 @@ def _ensure_mongo_indexes():
         issues_collection.create_index([("AssignedTo", 1)])
         issues_collection.create_index([("UploadedAt", -1)])
         issues_collection.create_index([("FileHash", 1)])
+        upload_history_collection.create_index([("UploadedAt", -1)])
+        upload_history_collection.create_index([("UploadBatch", 1)])
         print("[DB] MongoDB indexes ensured for vulnerabilities collection")
     except Exception as e:
         print(f"[DB] Failed to create MongoDB indexes: {e}")
@@ -1396,6 +1399,22 @@ def attach_file_hash(records, file_hash):
 
     return records
 
+
+def log_upload_history(upload_batch, file_name, source_format, record_count):
+    if not _is_mongo_available():
+        return
+    try:
+        now = datetime.now(timezone.utc)
+        record = {
+            "UploadBatch": upload_batch,
+            "FileName": file_name,
+            "SourceFormat": source_format,
+            "RecordCount": record_count,
+            "UploadedAt": now
+        }
+        upload_history_collection.insert_one(record)
+    except Exception as e:
+        print(f"[DB] Error logging upload history: {e}")
 
 def insert_records(records, skip_existing_check=False):
     if not records:
@@ -2092,6 +2111,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                 if all_records:
                     attach_file_hash(all_records, file_hash)
                     insert_records(all_records, skip_existing_check=True)
+                    formats_used = list(set([s["format"] for s in sheet_summary if s["status"] == "processed"]))
+                    fmt_to_log = formats_used[0] if len(formats_used) == 1 else "MULTIPLE"
+                    log_upload_history(dsn, fn, fmt_to_log, len(all_records))
                     return {
                         "duplicate": False,
                         "status": "success",
@@ -2144,6 +2166,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                     ni.append(rec)
             attach_file_hash(ni, file_hash)
             insert_records(ni, skip_existing_check=True)
+            log_upload_history(dsn, fn, "VAPT", len(ni))
             return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT"}
 
         elif file_format == "SAST_DAST":
@@ -2158,6 +2181,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                     ni.append(rec)
             attach_file_hash(ni, file_hash)
             insert_records(ni, skip_existing_check=True)
+            log_upload_history(dsn, fn, "SAST_DAST", len(ni))
             return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
 
         elif file_format == "CSPM":
@@ -2172,6 +2196,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                     ni.append(rec)
             attach_file_hash(ni, file_hash)
             insert_records(ni, skip_existing_check=True)
+            log_upload_history(dsn, fn, "CSPM", len(ni))
             return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM"}
         def find_col(patterns):
             for p in patterns:
@@ -2479,6 +2504,7 @@ async def pu_with_sheet(
                     ni.append(rec)
             attach_file_hash(ni, file_hash)
             insert_records(ni, skip_existing_check=True)
+            log_upload_history(dsn, fn, "VAPT", len(ni))
             return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT"}
 
         elif file_format == "SAST_DAST":
@@ -2493,6 +2519,7 @@ async def pu_with_sheet(
                     ni.append(rec)
             attach_file_hash(ni, file_hash)
             insert_records(ni, skip_existing_check=True)
+            log_upload_history(dsn, fn, "SAST_DAST", len(ni))
             return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
 
         elif file_format == "CSPM":
@@ -2507,6 +2534,7 @@ async def pu_with_sheet(
                     ni.append(rec)
             attach_file_hash(ni, file_hash)
             insert_records(ni, skip_existing_check=True)
+            log_upload_history(dsn, fn, "CSPM", len(ni))
             return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM"}
 
         def find_col(patterns):
@@ -3186,6 +3214,109 @@ async def sr(fp: str):
         return FileResponse("dist/index.html")
     return JSONResponse({"message": "Frontend not built. Run 'npm run dev' for development or 'npm run build' for production."})
 
+
+@app.get("/api/calendar/activity")
+async def get_calendar_activity(year: int, month: int):
+    if not _is_mongo_available():
+        return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
+    try:
+        start_date = datetime(year, month, 1, tzinfo=timezone.utc)
+        if month == 12:
+            end_date = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            end_date = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+
+        vuln_pipeline = [
+            {"$match": {"UploadedAt": {"$gte": start_date, "$lt": end_date}}},
+            {"$group": {
+                "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$UploadedAt"}},
+                "count": {"$sum": 1}
+            }}
+        ]
+        vuln_results = list(issues_collection.aggregate(vuln_pipeline))
+        
+        upload_pipeline = [
+            {"$match": {"UploadedAt": {"$gte": start_date, "$lt": end_date}}},
+            {"$group": {
+                "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$UploadedAt"}},
+                "count": {"$sum": 1}
+            }}
+        ]
+        upload_results = list(upload_history_collection.aggregate(upload_pipeline))
+
+        activity = {}
+        for r in vuln_results:
+            date_str = r["_id"]
+            if date_str not in activity:
+                activity[date_str] = {"vulnerabilities": 0, "uploads": 0}
+            activity[date_str]["vulnerabilities"] = r["count"]
+            
+        for r in upload_results:
+            date_str = r["_id"]
+            if date_str not in activity:
+                activity[date_str] = {"vulnerabilities": 0, "uploads": 0}
+            activity[date_str]["uploads"] = r["count"]
+
+        return activity
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/calendar/vulnerabilities")
+async def get_calendar_vulnerabilities(date: str):
+    if not _is_mongo_available():
+        return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
+    try:
+        year, month, day = map(int, date.split("-"))
+        start_date = datetime(year, month, day, tzinfo=timezone.utc)
+        end_date = start_date + timedelta(days=1)
+        match_stage = {"$match": {"UploadedAt": {"$gte": start_date, "$lt": end_date}}}
+        
+        total = issues_collection.count_documents(match_stage["$match"])
+        
+        sev_pipeline = [match_stage, {"$group": {"_id": "$Severity", "count": {"$sum": 1}}}]
+        sev_results = list(issues_collection.aggregate(sev_pipeline))
+        severity_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
+        for r in sev_results:
+            sev = r["_id"] or "Medium"
+            sev_title = sev.title()
+            if sev_title in severity_counts:
+                severity_counts[sev_title] += r["count"]
+            else:
+                severity_counts["Info"] += r["count"]
+
+        fmt_pipeline = [match_stage, {"$group": {"_id": "$Type", "count": {"$sum": 1}}}]
+        fmt_results = list(issues_collection.aggregate(fmt_pipeline))
+        format_counts = {"CSPM": 0, "VAPT": 0, "CONTAINER": 0, "SAST_DAST": 0}
+        for r in fmt_results:
+            fmt = r["_id"] or ""
+            fmt_upper = fmt.upper()
+            if fmt_upper in ["SAST/DAST", "SAST_DAST"]:
+                format_counts["SAST_DAST"] += r["count"]
+            elif fmt_upper in format_counts:
+                format_counts[fmt_upper] += r["count"]
+
+        return {"date": date, "total": total, "severity": severity_counts, "formats": format_counts}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/calendar/uploads")
+async def get_calendar_uploads(date: str):
+    if not _is_mongo_available():
+        return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
+    try:
+        year, month, day = map(int, date.split("-"))
+        start_date = datetime(year, month, day, tzinfo=timezone.utc)
+        end_date = start_date + timedelta(days=1)
+        uploads = list(upload_history_collection.find(
+            {"UploadedAt": {"$gte": start_date, "$lt": end_date}}, {"_id": 0}
+        ).sort("UploadedAt", -1))
+        
+        for u in uploads:
+            if "UploadedAt" in u and isinstance(u["UploadedAt"], datetime):
+                u["UploadedAt"] = u["UploadedAt"].isoformat()
+        return uploads
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 if __name__ == "__main__":
     import uvicorn

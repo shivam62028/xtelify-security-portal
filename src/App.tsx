@@ -45,6 +45,10 @@ import {
   BookmarkCheck,
   AlertCircle,
   Zap,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays
 } from "lucide-react";
 import {
   PieChart,
@@ -163,6 +167,262 @@ interface ActivityLog {
   details: string;
 }
 
+
+const CalendarView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
+  const [viewType, setViewType] = useState<"Vulnerabilities" | "Uploads">("Vulnerabilities");
+  
+  const [monthlyActivity, setMonthlyActivity] = useState<Record<string, {vulnerabilities: number, uploads: number}>>({});
+  const [dailyVulns, setDailyVulns] = useState<any>(null);
+  const [dailyUploads, setDailyUploads] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth() + 1;
+
+  useEffect(() => {
+    const fetchMonthly = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/calendar/activity?year=${year}&month=${month}`);
+        if (!res.ok) throw new Error("MongoDB is currently unavailable or returned an error.");
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        setMonthlyActivity(data);
+        setError(null);
+      } catch (err: any) {
+        setError("Unable to load calendar activity. " + (err.message || "MongoDB is currently unavailable."));
+      }
+    };
+    fetchMonthly();
+  }, [year, month]);
+
+  useEffect(() => {
+    if (!selectedDate) return;
+    const fetchDaily = async () => {
+      setLoading(true);
+      setError(null);
+      
+      const tzoffset = selectedDate.getTimezoneOffset() * 60000;
+      const localISOTime = (new Date(selectedDate.getTime() - tzoffset)).toISOString().slice(0, 10);
+      
+      try {
+        if (viewType === "Vulnerabilities") {
+          const res = await fetch(`${BACKEND_URL}/api/calendar/vulnerabilities?date=${localISOTime}`);
+          if (!res.ok) throw new Error("MongoDB is currently unavailable.");
+          const data = await res.json();
+          if (data.error) throw new Error(data.error);
+          setDailyVulns(data);
+        } else {
+          const res = await fetch(`${BACKEND_URL}/api/calendar/uploads?date=${localISOTime}`);
+          if (!res.ok) throw new Error("MongoDB is currently unavailable.");
+          const data = await res.json();
+          if (data.error) throw new Error(data.error);
+          setDailyUploads(data);
+        }
+      } catch (err: any) {
+         setError("Unable to load details. " + (err.message || "MongoDB is currently unavailable."));
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchDaily();
+  }, [selectedDate, viewType]);
+
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const firstDayOfMonth = new Date(year, month - 1, 1).getDay();
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const blanks = Array.from({ length: firstDayOfMonth }, (_, i) => i);
+
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+  const prevMonth = () => setCurrentDate(new Date(year, month - 2, 1));
+  const nextMonth = () => setCurrentDate(new Date(year, month, 1));
+
+  return (
+    <div className={`mt-6 p-6 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
+      <div className="flex flex-col md:flex-row gap-8">
+        
+        <div className="flex-1">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className={`text-xl font-bold ${darkMode ? "text-white" : "text-slate-800"}`}>Calendar / Activity</h2>
+            <div className={`flex rounded-lg overflow-hidden border ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
+              <button 
+                onClick={() => setViewType("Vulnerabilities")}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${viewType === "Vulnerabilities" ? (darkMode ? "bg-purple-600 text-white" : "bg-purple-100 text-purple-700") : (darkMode ? "bg-slate-800 text-slate-400 hover:bg-slate-700" : "bg-slate-50 text-slate-600 hover:bg-slate-100")}`}
+              >
+                Vulnerabilities
+              </button>
+              <button 
+                onClick={() => setViewType("Uploads")}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${viewType === "Uploads" ? (darkMode ? "bg-blue-600 text-white" : "bg-blue-100 text-blue-700") : (darkMode ? "bg-slate-800 text-slate-400 hover:bg-slate-700" : "bg-slate-50 text-slate-600 hover:bg-slate-100")}`}
+              >
+                Dataset Uploads
+              </button>
+            </div>
+          </div>
+          
+          <div className={`p-5 rounded-lg border ${darkMode ? "bg-slate-900 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+            <div className="flex items-center justify-between mb-4">
+              <button onClick={prevMonth} className={`p-2 rounded-full ${darkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-200 text-slate-600"}`}>
+                <ChevronLeft size={20} />
+              </button>
+              <div className="flex items-center gap-2">
+                <select 
+                  value={month - 1} 
+                  onChange={(e) => setCurrentDate(new Date(year, parseInt(e.target.value), 1))}
+                  className={`bg-transparent font-bold text-lg outline-none cursor-pointer ${darkMode ? "text-white" : "text-slate-800"}`}
+                >
+                  {monthNames.map((m, i) => <option key={m} value={i} className={darkMode ? "bg-slate-800" : ""}>{m}</option>)}
+                </select>
+                <select 
+                  value={year} 
+                  onChange={(e) => setCurrentDate(new Date(parseInt(e.target.value), month - 1, 1))}
+                  className={`bg-transparent font-bold text-lg outline-none cursor-pointer ${darkMode ? "text-white" : "text-slate-800"}`}
+                >
+                  {Array.from({length: 10}, (_, i) => year - 5 + i).map(y => <option key={y} value={y} className={darkMode ? "bg-slate-800" : ""}>{y}</option>)}
+                </select>
+              </div>
+              <button onClick={nextMonth} className={`p-2 rounded-full ${darkMode ? "hover:bg-slate-800 text-slate-300" : "hover:bg-slate-200 text-slate-600"}`}>
+                <ChevronRight size={20} />
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-7 gap-2 mb-2">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                <div key={d} className={`text-center text-xs font-semibold py-2 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>{d}</div>
+              ))}
+            </div>
+            
+            <div className="grid grid-cols-7 gap-2">
+              {blanks.map(b => <div key={`blank-${b}`} className="h-14"></div>)}
+              {days.map(d => {
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const isSelected = selectedDate?.getDate() === d && selectedDate?.getMonth() + 1 === month && selectedDate?.getFullYear() === year;
+                const isToday = new Date().getDate() === d && new Date().getMonth() + 1 === month && new Date().getFullYear() === year;
+                const act = monthlyActivity[dateStr];
+                
+                return (
+                  <div 
+                    key={d} 
+                    onClick={() => setSelectedDate(new Date(year, month - 1, d))}
+                    className={`h-14 rounded-md border flex flex-col items-center justify-start pt-1 cursor-pointer transition-colors
+                      ${isSelected ? (darkMode ? "bg-slate-700 border-purple-500" : "bg-purple-50 border-purple-400") : (darkMode ? "bg-slate-800 border-slate-700 hover:bg-slate-700" : "bg-white border-slate-200 hover:bg-slate-50")}
+                      ${isToday && !isSelected ? (darkMode ? "border-blue-500" : "border-blue-400") : ""}
+                    `}
+                  >
+                    <span className={`text-sm font-medium ${isToday ? (darkMode ? "text-blue-400" : "text-blue-600") : (darkMode ? "text-slate-300" : "text-slate-700")}`}>{d}</span>
+                    <div className="flex gap-1 mt-auto pb-1">
+                      {act?.vulnerabilities > 0 && <div className="w-1.5 h-1.5 rounded-full bg-red-500" title={`${act.vulnerabilities} vulnerabilities`}></div>}
+                      {act?.uploads > 0 && <div className="w-1.5 h-1.5 rounded-full bg-blue-500" title={`${act.uploads} uploads`}></div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className={`flex-1 p-6 rounded-lg border ${darkMode ? "bg-slate-900 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+          {error ? (
+            <div className={`p-4 rounded-lg flex items-center gap-3 ${darkMode ? "bg-red-500/10 text-red-400 border border-red-500/20" : "bg-red-50 text-red-600 border border-red-100"}`}>
+              <AlertTriangle size={24} />
+              <p className="font-medium text-sm">{error}</p>
+            </div>
+          ) : selectedDate ? (
+            <>
+              <h3 className={`text-lg font-semibold mb-6 flex items-center gap-2 ${darkMode ? "text-white" : "text-slate-800"}`}>
+                <CalendarDays size={20} className={darkMode ? "text-purple-400" : "text-purple-600"} />
+                {selectedDate.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}
+              </h3>
+              
+              {loading ? (
+                <div className="flex justify-center items-center py-20">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+                </div>
+              ) : viewType === "Vulnerabilities" ? (
+                <div>
+                  {!dailyVulns || dailyVulns.total === 0 ? (
+                    <p className={`text-center py-10 ${darkMode ? "text-slate-500" : "text-slate-500"}`}>No vulnerabilities uploaded on this date.</p>
+                  ) : (
+                    <div className="space-y-6">
+                      <div className={`p-4 rounded-lg flex items-center justify-between ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-200 shadow-sm"}`}>
+                        <span className={`text-sm font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Total Vulnerabilities</span>
+                        <span className={`text-2xl font-bold ${darkMode ? "text-white" : "text-slate-800"}`}>{dailyVulns.total.toLocaleString()}</span>
+                      </div>
+                      
+                      <div>
+                        <h4 className={`text-xs font-bold uppercase tracking-wider mb-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Severity Breakdown</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                          {["Critical", "High", "Medium", "Low", "Info"].map(sev => (
+                            <div key={sev} className={`p-3 rounded-lg text-center border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
+                              <p className={`text-xs mb-1 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{sev}</p>
+                              <p className={`text-lg font-bold ${
+                                sev === "Critical" ? "text-red-500" :
+                                sev === "High" ? "text-orange-500" :
+                                sev === "Medium" ? "text-amber-500" :
+                                sev === "Low" ? "text-green-500" : "text-blue-500"
+                              }`}>{dailyVulns.severity[sev]?.toLocaleString() || 0}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <h4 className={`text-xs font-bold uppercase tracking-wider mb-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Source Format</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          {[
+                            {k: "CSPM", l: "CSPM"},
+                            {k: "VAPT", l: "VAPT"},
+                            {k: "CONTAINER", l: "Container"},
+                            {k: "SAST_DAST", l: "SAST/DAST"}
+                          ].map(fmt => (
+                            <div key={fmt.k} className={`p-3 rounded-lg flex items-center justify-between border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
+                              <span className={`text-sm font-medium ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{fmt.l}</span>
+                              <span className={`text-base font-bold ${darkMode ? "text-white" : "text-slate-800"}`}>{dailyVulns.formats[fmt.k]?.toLocaleString() || 0}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {!dailyUploads || dailyUploads.length === 0 ? (
+                    <p className={`text-center py-10 ${darkMode ? "text-slate-500" : "text-slate-500"}`}>No datasets were uploaded on this date.</p>
+                  ) : (
+                    dailyUploads.map((up: any, idx: number) => (
+                      <div key={idx} className={`p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
+                        <div className="flex justify-between items-start mb-2">
+                          <h4 className={`font-semibold ${darkMode ? "text-white" : "text-slate-800"}`}>{up.FileName}</h4>
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${darkMode ? "bg-blue-500/20 text-blue-400" : "bg-blue-100 text-blue-700"}`}>{up.SourceFormat}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm">
+                          <span className={darkMode ? "text-slate-400" : "text-slate-500"}>Records: {up.RecordCount.toLocaleString()}</span>
+                          <span className={darkMode ? "text-slate-400" : "text-slate-500"}>{new Date(up.UploadedAt).toLocaleTimeString()}</span>
+                        </div>
+                        {up.UploadBatch && (
+                          <div className={`mt-2 text-xs font-mono truncate ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
+                            Batch: {up.UploadBatch}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <p className={`text-center py-10 ${darkMode ? "text-slate-500" : "text-slate-500"}`}>Select a date to view activity</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 class ErrorBoundary extends Component<
   { children: ReactNode },
   { hasError: boolean; error: Error | null; errorInfo: ErrorInfo | null }
@@ -270,7 +530,7 @@ const AppContent: React.FC = () => {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("All");
 
-  const [viewMode, setViewMode] = useState<"Optimized" | "Raw">("Optimized");
+  const [viewMode, setViewMode] = useState<"Optimized" | "Raw" | "Calendar">("Optimized");
 
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem("xtelify_dark_mode");
@@ -2204,6 +2464,15 @@ const AppContent: React.FC = () => {
           >
             Export View
           </button>
+          <button
+            onClick={() => setViewMode("Calendar")}
+            className={`px-4 py-2 text-sm font-medium flex items-center gap-2 rounded-md transition-colors ${viewMode === "Calendar"
+              ? `${darkMode ? "bg-slate-700 text-white" : "bg-white text-slate-800 shadow-sm"}`
+              : `${darkMode ? "text-slate-400 hover:text-slate-300" : "text-slate-500 hover:text-slate-700"}`
+              }`}
+          >
+            <CalendarDays size={16} /> Calendar
+          </button>
         </div>
 
         <div className={`flex items-center gap-1 p-1.5 rounded-xl ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-slate-100 border border-slate-200"}`}>
@@ -2248,7 +2517,7 @@ const AppContent: React.FC = () => {
         </div>
       </div>
 
-      {viewMode === "Raw" ? (
+      {viewMode === "Calendar" ? <CalendarView darkMode={darkMode} /> : viewMode === "Raw" ? (
         <div className={`p-5 rounded-lg border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
           <div className="flex justify-between items-center mb-4">
             <div>
