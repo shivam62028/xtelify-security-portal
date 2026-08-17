@@ -317,6 +317,9 @@ const AppContent: React.FC = () => {
   const [selectedSheet, setSelectedSheet] = useState<string>("");
   const [isSheetSelectMode, setIsSheetSelectMode] = useState<boolean>(false);
   const [detectedFormat, setDetectedFormat] = useState<string>("");
+  const [isDuplicatePromptOpen, setIsDuplicatePromptOpen] = useState<boolean>(false);
+  const [duplicatePromptMessage, setDuplicatePromptMessage] = useState<string>("");
+  const [duplicateUploadApproved, setDuplicateUploadApproved] = useState<boolean>(false);
 
   const [userRole, setUserRole] = useState<string>("Admin");
 
@@ -1879,13 +1882,15 @@ const AppContent: React.FC = () => {
       setSelectedSheet("");
       setIsSheetSelectMode(false);
       setDetectedFormat("");
+      setIsDuplicatePromptOpen(false);
+      setDuplicatePromptMessage("");
+      setDuplicateUploadApproved(false);
       setIsUploadModalOpen(true);
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const processAndUploadFile = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const processUploadRequest = async (allowDuplicateUpload: boolean) => {
     if (!selectedFile) return;
 
     setIsProcessing(true);
@@ -1901,6 +1906,10 @@ const AppContent: React.FC = () => {
       formData.append("file", selectedFile);
       formData.append("datasetName", finalBatchName);
 
+      if (allowDuplicateUpload) {
+        formData.append("allowDuplicateUpload", "true");
+      }
+
       if (isSheetSelectMode && selectedSheet) {
         formData.append("sheetName", selectedSheet);
         const response = await fetch(`${BACKEND_URL}/api/upload-report-with-sheet`, {
@@ -1908,14 +1917,34 @@ const AppContent: React.FC = () => {
           body: formData,
         });
 
-        if (!response.ok) {
-          const textResponse = await response.text();
+        const textResponse = await response.text();
+        let data: any = {};
+        if (textResponse) {
           try {
-            const err = JSON.parse(textResponse);
-            throw new Error(err.error || "Upload failed");
-          } catch (e) {
-            throw new Error(`Network blocked the upload (Status: ${response.status}).`);
+            data = JSON.parse(textResponse);
+          } catch {
+            data = {};
           }
+        }
+
+        if (data.duplicate) {
+          setDuplicatePromptMessage(data.message || "This file is already present. Do you still want to upload it?");
+          setIsDuplicatePromptOpen(true);
+          setDuplicateUploadApproved(false);
+          setIsProcessing(false);
+          setUploadProgress("");
+          return;
+        }
+
+        if (!response.ok) {
+          if (data.error) {
+            throw new Error(data.error);
+          }
+          throw new Error(`Network blocked the upload (Status: ${response.status}).`);
+        }
+
+        if (data.format) {
+          setDetectedFormat(data.format);
         }
 
         setUploadProgress("AI Processing Complete!");
@@ -1930,6 +1959,15 @@ const AppContent: React.FC = () => {
       });
 
       const data = await response.json();
+
+      if (data.duplicate) {
+        setDuplicatePromptMessage(data.message || "This file is already present. Do you still want to upload it?");
+        setIsDuplicatePromptOpen(true);
+        setDuplicateUploadApproved(false);
+        setIsProcessing(false);
+        setUploadProgress("");
+        return;
+      }
 
       if (data.status === "select_sheet" && data.sheets) {
         setAvailableSheets(data.sheets);
@@ -1954,11 +1992,17 @@ const AppContent: React.FC = () => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       window.location.reload();
     } catch (err: unknown) {
+      setDuplicateUploadApproved(false);
       setIsProcessing(false);
       setUploadProgress("");
       const errorMessage = err instanceof Error ? err.message : String(err);
       alert(`AI Processing Failed:\n${errorMessage}`);
     }
+  };
+
+  const processAndUploadFile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await processUploadRequest(duplicateUploadApproved);
   };
 
   const mexwfExport = () => {
@@ -3513,6 +3557,9 @@ const AppContent: React.FC = () => {
                     setSelectedSheet("");
                     setIsSheetSelectMode(false);
                     setDetectedFormat("");
+                    setIsDuplicatePromptOpen(false);
+                    setDuplicatePromptMessage("");
+                    setDuplicateUploadApproved(false);
                   }
                 }}
                 className="text-blue-200 hover:text-white transition-colors disabled:opacity-50"
@@ -3627,6 +3674,46 @@ const AppContent: React.FC = () => {
                   </div>
                 )}
 
+                {isDuplicatePromptOpen && (
+                  <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle size={16} className="text-red-600 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-red-700 uppercase mb-1">File Already Exists</p>
+                        <p className="text-sm text-red-700">
+                          {duplicatePromptMessage || "This file is already present. Do you still want to upload it?"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsDuplicatePromptOpen(false);
+                          setDuplicatePromptMessage("");
+                          setDuplicateUploadApproved(false);
+                          setIsProcessing(false);
+                          setUploadProgress("");
+                        }}
+                        className="px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-200 rounded hover:bg-slate-300 transition-colors"
+                      >
+                        No
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsDuplicatePromptOpen(false);
+                          setDuplicateUploadApproved(true);
+                          void processUploadRequest(true);
+                        }}
+                        className="px-3 py-1.5 text-xs font-bold text-white bg-red-600 rounded hover:bg-red-700 transition-colors"
+                      >
+                        Yes
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <label className="flex items-center gap-2 cursor-pointer mt-3">
                   <input
                     type="checkbox"
@@ -3651,6 +3738,9 @@ const AppContent: React.FC = () => {
                     setSelectedSheet("");
                     setIsSheetSelectMode(false);
                     setDetectedFormat("");
+                    setIsDuplicatePromptOpen(false);
+                    setDuplicatePromptMessage("");
+                    setDuplicateUploadApproved(false);
                   }}
                   disabled={isProcessing}
                   className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors disabled:opacity-50"
@@ -3659,7 +3749,7 @@ const AppContent: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isProcessing}
+                  disabled={isProcessing || isDuplicatePromptOpen}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 transition-colors disabled:bg-blue-400 min-w-[120px] justify-center"
                 >
                   {isProcessing ? (
@@ -3669,7 +3759,11 @@ const AppContent: React.FC = () => {
                   )}
                   {isProcessing
                     ? uploadProgress || "Processing..."
-                    : isSheetSelectMode ? "Upload Selected Sheet" : "Confirm Upload"}
+                    : isDuplicatePromptOpen
+                    ? "Awaiting Confirmation"
+                    : isSheetSelectMode
+                    ? "Upload Selected Sheet"
+                    : "Confirm Upload"}
                 </button>
               </div>
             </form>

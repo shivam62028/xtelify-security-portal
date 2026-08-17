@@ -1205,6 +1205,7 @@ def _ensure_mongo_indexes():
         issues_collection.create_index([("Status", 1)])
         issues_collection.create_index([("AssignedTo", 1)])
         issues_collection.create_index([("UploadedAt", -1)])
+        issues_collection.create_index([("FileHash", 1)])
         print("[DB] MongoDB indexes ensured for vulnerabilities collection")
     except Exception as e:
         print(f"[DB] Failed to create MongoDB indexes: {e}")
@@ -1369,6 +1370,31 @@ def upload_batch_exists(upload_batch):
     except Exception as e:
         print(f"[DB] UploadBatch check failed: {e}")
         raise
+
+
+def file_hash_exists(file_hash):
+    if not file_hash:
+        return False
+
+    if not _is_mongo_available():
+        raise RuntimeError("MongoDB unavailable")
+
+    try:
+        return issues_collection.find_one({"FileHash": file_hash}, {"_id": 1}) is not None
+    except Exception as e:
+        print(f"[DB] FileHash check failed: {e}")
+        raise
+
+
+def attach_file_hash(records, file_hash):
+    if not file_hash or not isinstance(records, list):
+        return records
+
+    for rec in records:
+        if isinstance(rec, dict):
+            rec["FileHash"] = file_hash
+
+    return records
 
 
 def insert_records(records, skip_existing_check=False):
@@ -1965,7 +1991,7 @@ def is_resolved(status):
     return any(x in s for x in ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"])
 
 @app.post("/api/upload-report")
-async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
+async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDuplicateUpload: str = Form("false")):
     t_start = time.time()
     try:
         dsn = datasetName
@@ -1974,6 +2000,15 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
             return JSONResponse(status_code=400, content={"error": "Duplicate: Dataset already exists."})
 
         fendralis = await file.read()
+        file_hash = hashlib.sha256(fendralis).hexdigest()
+        allow_duplicate_upload = str(allowDuplicateUpload).strip().lower() == "true"
+
+        if file_hash_exists(file_hash) and not allow_duplicate_upload:
+            return {
+                "duplicate": True,
+                "message": "This file is already present. Do you still want to upload it?"
+            }
+
         fn = file.filename.lower()
         df = pd.DataFrame()
         
@@ -2055,8 +2090,10 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                         sheet_summary.append({"name": sheet_name, "format": "ERROR", "rows": 0, "status": str(sheet_err)})
 
                 if all_records:
+                    attach_file_hash(all_records, file_hash)
                     insert_records(all_records, skip_existing_check=True)
                     return {
+                        "duplicate": False,
                         "status": "success",
                         "processed_rows": len(all_records),
                         "sheets_processed": len([s for s in sheet_summary if s["status"] == "processed"]),
@@ -2105,8 +2142,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                 rec = process_vapt_row_new(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
+            attach_file_hash(ni, file_hash)
             insert_records(ni, skip_existing_check=True)
-            return {"status": "success", "processed_rows": len(ni), "format": "VAPT"}
+            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT"}
 
         elif file_format == "SAST_DAST":
             ni = []
@@ -2118,8 +2156,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                 rec = process_vapt_row(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
+            attach_file_hash(ni, file_hash)
             insert_records(ni, skip_existing_check=True)
-            return {"status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
+            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
 
         elif file_format == "CSPM":
             ni = []
@@ -2131,8 +2170,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
                 rec = process_cspm_row(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
+            attach_file_hash(ni, file_hash)
             insert_records(ni, skip_existing_check=True)
-            return {"status": "success", "processed_rows": len(ni), "format": "CSPM"}
+            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM"}
         def find_col(patterns):
             for p in patterns:
                 p_lower = p.lower()
@@ -2356,6 +2396,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
         t_norm_end = time.time()
 
         t_db_start = time.time()
+        attach_file_hash(ni, file_hash)
         insert_records(ni, skip_existing_check=True)
         t_db_end = time.time()
         t_total_end = time.time()
@@ -2371,7 +2412,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
         print(f"Total Upload: {t_total_end - t_start:.2f} sec")
         print("----------------------------------")
 
-        mexwf = {"status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
+        mexwf = {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
         return mexwf
     except Exception as e:
         import traceback
@@ -2379,7 +2420,12 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...)):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.post("/api/upload-report-with-sheet")
-async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(...), sheetName: str = Form(...)):
+async def pu_with_sheet(
+    file: UploadFile = File(...),
+    datasetName: str = Form(...),
+    sheetName: str = Form(...),
+    allowDuplicateUpload: str = Form("false")
+):
     """Upload with manually selected sheet name."""
     t_start = time.time()
     try:
@@ -2389,6 +2435,15 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
             return JSONResponse(status_code=400, content={"error": "Duplicate: Dataset already exists."})
 
         fendralis = await file.read()
+        file_hash = hashlib.sha256(fendralis).hexdigest()
+        allow_duplicate_upload = str(allowDuplicateUpload).strip().lower() == "true"
+
+        if file_hash_exists(file_hash) and not allow_duplicate_upload:
+            return {
+                "duplicate": True,
+                "message": "This file is already present. Do you still want to upload it?"
+            }
+
         fn = file.filename.lower()
 
         print(f"Manual sheet selection: {sheetName}")
@@ -2422,8 +2477,9 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
                 rec = process_vapt_row_new(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
+            attach_file_hash(ni, file_hash)
             insert_records(ni, skip_existing_check=True)
-            return {"status": "success", "processed_rows": len(ni), "format": "VAPT"}
+            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT"}
 
         elif file_format == "SAST_DAST":
             ni = []
@@ -2435,8 +2491,9 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
                 rec = process_vapt_row(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
+            attach_file_hash(ni, file_hash)
             insert_records(ni, skip_existing_check=True)
-            return {"status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
+            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
 
         elif file_format == "CSPM":
             ni = []
@@ -2448,8 +2505,9 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
                 rec = process_cspm_row(row, idx, dsn, rc_lower)
                 if rec:
                     ni.append(rec)
+            attach_file_hash(ni, file_hash)
             insert_records(ni, skip_existing_check=True)
-            return {"status": "success", "processed_rows": len(ni), "format": "CSPM"}
+            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM"}
 
         def find_col(patterns):
             for p in patterns:
@@ -2653,10 +2711,11 @@ async def pu_with_sheet(file: UploadFile = File(...), datasetName: str = Form(..
 
             ni.append(rec)
 
+        attach_file_hash(ni, file_hash)
         insert_records(ni, skip_existing_check=True)
 
         print(f"Processed {len(ni)} rows from sheet '{sheetName}'")
-        return {"status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
+        return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
     except Exception as e:
         import traceback
         print(traceback.format_exc())
