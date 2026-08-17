@@ -2437,6 +2437,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
         print(f"Total Upload: {t_total_end - t_start:.2f} sec")
         print("----------------------------------")
 
+        log_upload_history(dsn, fn, "CONTAINER", len(ni))
         mexwf = {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
         return mexwf
     except Exception as e:
@@ -2742,6 +2743,7 @@ async def pu_with_sheet(
         attach_file_hash(ni, file_hash)
         insert_records(ni, skip_existing_check=True)
 
+        log_upload_history(dsn, fn, "CONTAINER", len(ni))
         print(f"Processed {len(ni)} rows from sheet '{sheetName}'")
         return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
     except Exception as e:
@@ -3200,21 +3202,6 @@ Be concise but thorough. Focus on actionable intelligence."""
     except Exception as e:
         return {"result": f"Error: {str(e)}", "tool": "OpenClaw"}
 
-# Only mount static files if dist folder exists (production mode)
-if os.path.exists("dist/assets"):
-    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
-
-@app.get("/{fp:path}")
-async def sr(fp: str):
-    fendralis = os.path.join("dist", fp)
-    if os.path.exists(fendralis) and os.path.isfile(fendralis):
-        return FileResponse(fendralis)
-    # In development, return a simple message or fallback
-    if os.path.exists("dist/index.html"):
-        return FileResponse("dist/index.html")
-    return JSONResponse({"message": "Frontend not built. Run 'npm run dev' for development or 'npm run build' for production."})
-
-
 @app.get("/api/calendar/activity")
 async def get_calendar_activity(year: int, month: int):
     if not _is_mongo_available():
@@ -3234,7 +3221,7 @@ async def get_calendar_activity(year: int, month: int):
             }}
         ]
         vuln_results = list(issues_collection.aggregate(vuln_pipeline))
-        
+
         upload_pipeline = [
             {"$match": {"UploadedAt": {"$gte": start_date, "$lt": end_date}}},
             {"$group": {
@@ -3250,7 +3237,7 @@ async def get_calendar_activity(year: int, month: int):
             if date_str not in activity:
                 activity[date_str] = {"vulnerabilities": 0, "uploads": 0}
             activity[date_str]["vulnerabilities"] = r["count"]
-            
+
         for r in upload_results:
             date_str = r["_id"]
             if date_str not in activity:
@@ -3261,6 +3248,7 @@ async def get_calendar_activity(year: int, month: int):
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+
 @app.get("/api/calendar/vulnerabilities")
 async def get_calendar_vulnerabilities(date: str):
     if not _is_mongo_available():
@@ -3270,9 +3258,9 @@ async def get_calendar_vulnerabilities(date: str):
         start_date = datetime(year, month, day, tzinfo=timezone.utc)
         end_date = start_date + timedelta(days=1)
         match_stage = {"$match": {"UploadedAt": {"$gte": start_date, "$lt": end_date}}}
-        
+
         total = issues_collection.count_documents(match_stage["$match"])
-        
+
         sev_pipeline = [match_stage, {"$group": {"_id": "$Severity", "count": {"$sum": 1}}}]
         sev_results = list(issues_collection.aggregate(sev_pipeline))
         severity_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
@@ -3284,7 +3272,7 @@ async def get_calendar_vulnerabilities(date: str):
             else:
                 severity_counts["Info"] += r["count"]
 
-        fmt_pipeline = [match_stage, {"$group": {"_id": "$Type", "count": {"$sum": 1}}}]
+        fmt_pipeline = [match_stage, {"$group": {"_id": "$SourceFormat", "count": {"$sum": 1}}}]
         fmt_results = list(issues_collection.aggregate(fmt_pipeline))
         format_counts = {"CSPM": 0, "VAPT": 0, "CONTAINER": 0, "SAST_DAST": 0}
         for r in fmt_results:
@@ -3299,6 +3287,7 @@ async def get_calendar_vulnerabilities(date: str):
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+
 @app.get("/api/calendar/uploads")
 async def get_calendar_uploads(date: str):
     if not _is_mongo_available():
@@ -3310,13 +3299,29 @@ async def get_calendar_uploads(date: str):
         uploads = list(upload_history_collection.find(
             {"UploadedAt": {"$gte": start_date, "$lt": end_date}}, {"_id": 0}
         ).sort("UploadedAt", -1))
-        
+
         for u in uploads:
             if "UploadedAt" in u and isinstance(u["UploadedAt"], datetime):
                 u["UploadedAt"] = u["UploadedAt"].isoformat()
         return uploads
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# Only mount static files if dist folder exists (production mode)
+if os.path.exists("dist/assets"):
+    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+
+@app.get("/{fp:path}")
+async def sr(fp: str):
+    fendralis = os.path.join("dist", fp)
+    if os.path.exists(fendralis) and os.path.isfile(fendralis):
+        return FileResponse(fendralis)
+    # In development, return a simple message or fallback
+    if os.path.exists("dist/index.html"):
+        return FileResponse("dist/index.html")
+    return JSONResponse({"message": "Frontend not built. Run 'npm run dev' for development or 'npm run build' for production."})
+
 
 if __name__ == "__main__":
     import uvicorn
