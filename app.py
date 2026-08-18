@@ -1563,13 +1563,152 @@ _ensure_mongo_indexes()
 
 
 @app.get("/api/db")
-async def gd():
-    fendralis = ldb()
-    # Remove duplicates before sending to frontend
-    unique_data = remove_duplicates(fendralis)
-    print(f"[API] /api/db returning {len(unique_data)} records")
-    return ORJSONResponse(content=unique_data)  # Faster JSON response
+async def gd(
+    request: Request,
+    page: int = 1,
+    limit: int = 100,
+    search: str = None,
+    severity: str = None,
+    status: str = None,
+    assigned_to: str = None,
+    source_format: str = None,
+    upload_batch: str = None,
+    date_from: str = None,
+    date_to: str = None
+):
+    if not _is_mongo_available():
+        return ORJSONResponse(content={"data": [], "pagination": {"page": page, "limit": limit, "total": 0, "total_pages": 0}})
 
+    query = {}
+    
+    if search:
+        s = search.strip()
+        regex = {"$regex": s, "$options": "i"}
+        query["$or"] = [
+            {"DisplayID": regex},
+            {"IssueID": regex},
+            {"AssignedTo": regex},
+            {"RecommendedAction": regex},
+            {"Category": regex},
+            {"Type": regex},
+            {"LOB Name": regex},
+            {"LOBName": regex},
+            {"LOB": regex},
+            {"finding_name": regex},
+            {"FindingName": regex}
+        ]
+        
+    if severity:
+        sev_lower = severity.lower()
+        if sev_lower == "critical":
+            query["$or"] = [
+                {"Severity": {"$regex": "^(critical|urgent|high)$", "$options": "i"}}, 
+                {"CriticalityStatus": {"$regex": "^(critical|urgent|high)$", "$options": "i"}},
+                {"Criticality": {"$regex": "^(critical|urgent|high)$", "$options": "i"}}
+            ]
+        else:
+            query["Severity"] = {"$regex": f"^{severity}$", "$options": "i"}
+            
+    if status:
+        status_lower = status.lower()
+        resolved_keywords = ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]
+        progress_keywords = ["progress", "pending", "review"]
+        
+        if status_lower == "resolved":
+            query["Status"] = {"$regex": "|".join(resolved_keywords), "$options": "i"}
+        elif status_lower == "progress":
+            query["Status"] = {"$regex": "|".join(progress_keywords), "$options": "i"}
+        elif status_lower == "open":
+            query["Status"] = {"$not": {"$regex": "|".join(resolved_keywords + progress_keywords), "$options": "i"}}
+        else:
+            query["Status"] = status
+            
+    if assigned_to:
+        if assigned_to.lower() == "unassigned":
+            query["AssignedTo"] = {"$in": ["", "NA", "Unassigned", None]}
+        else:
+            if ',' in assigned_to:
+                query["AssignedTo"] = {"$in": [a.strip() for a in assigned_to.split(",")]}
+            else:
+                query["AssignedTo"] = assigned_to
+            
+    if source_format:
+        query["SourceFormat"] = source_format
+        
+    if upload_batch:
+        if ',' in upload_batch:
+            query["UploadBatch"] = {"$in": [b.strip() for b in upload_batch.split(",")]}
+        else:
+            query["UploadBatch"] = upload_batch
+            
+    if date_from or date_to:
+        date_query = {}
+        if date_from:
+            date_query["$gte"] = date_from
+        if date_to:
+            date_query["$lte"] = date_to
+        query["DiscoveredDate"] = date_query
+
+    try:
+        total_records = issues_collection.count_documents(query)
+        
+        # Determine actual page in bounds
+        total_pages = (total_records + limit - 1) // limit if total_records > 0 else 1
+        page = min(page, total_pages) if page > 1 else max(1, page)
+        
+        cursor = issues_collection.find(query).sort("UploadedAt", -1).skip((page - 1) * limit).limit(limit)
+        
+        records = []
+        owner_updates = []
+        
+        for rec in cursor:
+            # Auto-correct assigned to like ldb() did
+            doc_id = rec.get("_id")
+            updated_owner = _auto_correct_assigned_to(rec)
+            if updated_owner and doc_id is not None:
+                owner_updates.append(UpdateOne({"_id": doc_id}, {"$set": {"AssignedTo": updated_owner}}))
+                rec["AssignedTo"] = updated_owner
+                
+            rec["_id"] = str(rec["_id"])
+            records.append(rec)
+            
+        if owner_updates:
+            # Fire updates asynchronously or wait (doing it synchronously for safety if small batch)
+            try:
+                issues_collection.bulk_write(owner_updates, ordered=False)
+            except Exception as e:
+                print(f"[DB Update Error] {e}")
+
+        # Maintain existing unique data logic on the page to prevent duplicate entries if any
+        unique_data = remove_duplicates(records)
+        
+        print(f"[API] /api/db returning {len(unique_data)} records for page {page} out of {total_records} total")
+        
+        return ORJSONResponse(content={
+            "data": unique_data,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total_records,
+                "total_pages": total_pages
+            }
+        })
+    except Exception as e:
+        print(f"[API Error] /api/db failed: {e}")
+        return ORJSONResponse(status_code=500, content={"error": str(e), "data": [], "pagination": {"total": 0}})
+
+@app.get("/api/db/metadata")
+async def db_metadata():
+    if not _is_mongo_available():
+        return ORJSONResponse(content={"batches": []})
+    try:
+        # Get all distinct batches efficiently
+        batches = issues_collection.distinct("UploadBatch")
+        unique_batches = sorted([b for b in batches if b and b != "NA"], reverse=True)
+        return ORJSONResponse(content={"batches": unique_batches})
+    except Exception as e:
+        print(f"[API Error] /api/db/metadata failed: {e}")
+        return ORJSONResponse(status_code=500, content={"error": str(e), "batches": []})
 
 @app.post("/api/db")
 async def sd(req: Request):

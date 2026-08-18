@@ -770,6 +770,7 @@ const AppContent: React.FC = () => {
 
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [rowsPerPage, setRowsPerPage] = useState<number>(100);
+  const [totalRecords, setTotalRecords] = useState<number>(0);
 
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [aiRecipient, setAiRecipient] = useState<string>("");
@@ -1069,27 +1070,56 @@ const AppContent: React.FC = () => {
   };
 
   useEffect(() => {
+    // Fetch batches on mount
+    fetch(`${BACKEND_URL}/api/db/metadata`, { mode: "cors" })
+      .then(res => res.json())
+      .then(data => {
+        if (data.batches && Array.isArray(data.batches)) {
+          setBatches(data.batches);
+          if (data.batches.length > 0 && selectedBatches.length === 0) {
+            setSelectedBatches(data.batches);
+          }
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  useEffect(() => {
     setIsLoading(true);
-    fetch(`${BACKEND_URL}/api/db`, { mode: "cors" })
+
+    const params = new URLSearchParams();
+    params.append("page", currentPage.toString());
+    params.append("limit", rowsPerPage.toString());
+
+    if (searchTerm) params.append("search", searchTerm);
+    if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
+
+    if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
+    if (quickFilter === "critical") params.append("severity", "Critical");
+    if (quickFilter === "overdue") params.append("status", "Open");
+
+    if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
+    if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join(","));
+    if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
+
+    fetch(`${BACKEND_URL}/api/db?${params.toString()}`, { mode: "cors" })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        return res.json();  // Faster than text() + JSON.parse()
+        return res.json();
       })
-      .then((data) => {
+      .then((payload) => {
         let rawArray: Record<string, any>[] = [];
-        const payload = data as Record<string, any>;
+        let totalCount = 0;
 
-        if (Array.isArray(payload)) {
+        if (payload && Array.isArray(payload.data)) {
+          rawArray = payload.data;
+          totalCount = payload.pagination?.total || 0;
+        } else if (Array.isArray(payload)) {
           rawArray = payload;
-        } else if (payload && typeof payload.body === "string") {
-          try {
-            rawArray = JSON.parse(payload.body);
-          } catch (e) { }
-        } else if (payload && Array.isArray(payload.body)) {
-          rawArray = payload.body;
+          totalCount = rawArray.length;
         }
 
-        if (Array.isArray(rawArray) && rawArray.length > 0) {
+        if (Array.isArray(rawArray)) {
           const safeData: Issue[] = rawArray.map((item) => {
             let finalDept = String(item?.Department ?? "NA");
             let finalAssigned = String(item?.AssignedTo ?? "NA");
@@ -1137,27 +1167,21 @@ const AppContent: React.FC = () => {
             };
           });
 
-          const uniqueBatches = Array.from(
-            new Set(
-              safeData.map((i) => i.UploadBatch).filter((b) => b !== "NA")
-            )
-          )
-            .sort()
-            .reverse();
-          setBatches(uniqueBatches);
           setAllIssues(safeData);
-          if (uniqueBatches.length > 0) setSelectedBatches(uniqueBatches);
+          setTotalRecords(totalCount);
         } else {
           setAllIssues([]);
+          setTotalRecords(0);
         }
         setIsLoading(false);
       })
       .catch((err) => {
         console.error("Fetch DB Error:", err);
         setAllIssues([]);
+        setTotalRecords(0);
         setIsLoading(false);
       });
-  }, []);
+  }, [currentPage, rowsPerPage, searchTerm, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1514,13 +1538,12 @@ const AppContent: React.FC = () => {
     return filtered;
   }, [displayedIssues, selectedOwners, selectedFindingTypes, selectedLOBs]);
 
-  const totalPages = useMemo(() => Math.ceil((tableFilteredIssues?.length || 0) / rowsPerPage), [tableFilteredIssues, rowsPerPage]);
+  const totalPages = useMemo(() => Math.ceil((totalRecords || 0) / rowsPerPage), [totalRecords, rowsPerPage]);
 
   const paginatedIssues = useMemo(() => {
-    const start = (currentPage - 1) * rowsPerPage;
-    const end = start + rowsPerPage;
-    return (tableFilteredIssues || []).slice(start, end);
-  }, [tableFilteredIssues, currentPage, rowsPerPage]);
+    // The server has already paginated the data, so tableFilteredIssues is exactly the page we need.
+    return tableFilteredIssues || [];
+  }, [tableFilteredIssues]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -3880,10 +3903,10 @@ const AppContent: React.FC = () => {
               </table>
             </div>
 
-            {tableFilteredIssues.length > 0 && (
+            {totalRecords > 0 && (
               <div className={`flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 border-t ${darkMode ? "border-slate-800 bg-slate-900/50" : "border-slate-200 bg-slate-50"}`}>
                 <div className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
-                  Showing {tableFilteredIssues.length > 0 ? ((currentPage - 1) * rowsPerPage) + 1 : 0} to {Math.min(currentPage * rowsPerPage, tableFilteredIssues.length)} of {tableFilteredIssues.length.toLocaleString()} issues
+                  Showing {totalRecords > 0 ? ((currentPage - 1) * rowsPerPage) + 1 : 0} to {Math.min(currentPage * rowsPerPage, totalRecords)} of {totalRecords.toLocaleString()} issues
                 </div>
 
                 <div className="flex items-center gap-4">
