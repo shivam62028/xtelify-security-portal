@@ -371,9 +371,9 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
                             <div key={sev} className={`p-3 rounded-lg text-center border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
                               <p className={`text-xs mb-1 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{sev}</p>
                               <p className={`text-lg font-bold ${sev === "Critical" ? "text-red-500" :
-                                  sev === "High" ? "text-orange-500" :
-                                    sev === "Medium" ? "text-amber-500" :
-                                      sev === "Low" ? "text-green-500" : "text-blue-500"
+                                sev === "High" ? "text-orange-500" :
+                                  sev === "Medium" ? "text-amber-500" :
+                                    sev === "Low" ? "text-green-500" : "text-blue-500"
                                 }`}>{dailyVulns.severity[sev]?.toLocaleString() || 0}</p>
                             </div>
                           ))}
@@ -400,40 +400,7 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
                   )}
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {!dailyUploads || dailyUploads.length === 0 ? (
-                    <p className={`text-center py-10 ${darkMode ? "text-slate-500" : "text-slate-500"}`}>No datasets were uploaded on this date.</p>
-                  ) : (
-                    dailyUploads.map((up: any, idx: number) => (
-                      <div
-                        key={idx}
-                        onClick={() => up.UploadBatch && onViewUpload(up.UploadBatch)}
-                        className={`p-4 rounded-lg border cursor-pointer transition-colors relative group ${darkMode ? "bg-slate-800 border-slate-700 hover:bg-slate-700" : "bg-white border-slate-200 shadow-sm hover:bg-slate-50"}`}
-                      >
-                        <div className="flex justify-between items-start mb-2">
-                          <h4 className={`font-semibold ${darkMode ? "text-white" : "text-slate-800"}`}>{up.FileName || "Unknown Dataset"}</h4>
-                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${darkMode ? "bg-blue-500/20 text-blue-400" : "bg-blue-100 text-blue-700"}`}>{up.SourceFormat}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-sm">
-                          <span className={darkMode ? "text-slate-400" : "text-slate-500"}>Records: {up.RecordCount ? up.RecordCount.toLocaleString() : "0"}</span>
-                          <span className={darkMode ? "text-slate-400" : "text-slate-500"}>{up.UploadedAt ? new Date(up.UploadedAt).toLocaleTimeString() : ""}</span>
-                        </div>
-                        {up.UploadBatch && (
-                          <div className={`mt-2 text-xs font-mono truncate pr-8 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
-                            Batch: {up.UploadBatch}
-                          </div>
-                        )}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); if (up.UploadBatch) handleDeleteDataset(up.UploadBatch); }}
-                          className="absolute bottom-4 right-4 p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded opacity-0 group-hover:opacity-100 transition-all"
-                          title="Delete Dataset"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
+                <HistoricalAnalyticsModule darkMode={darkMode} selectedDate={selectedDate} />
               )}
             </>
           ) : (
@@ -523,6 +490,228 @@ const CustomTimelineTooltip: React.FC<TooltipProps> = ({
   return null;
 };
 
+const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Date | null }> = ({ darkMode, selectedDate }) => {
+  const [selectedFormats, setSelectedFormats] = useState<string[]>(['Container', 'VAPT', 'CSPM', 'SAST_DAST']);
+  const [dateRange, setDateRange] = useState<{ start: Date | null, end: Date | null }>({ start: null, end: null });
+  const [viewMode, setViewMode] = useState<'Daily' | 'Cumulative'>('Daily');
+
+  const [loading, setLoading] = useState(false);
+  const [datasets, setDatasets] = useState<any[]>([]);
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [summary, setSummary] = useState<any>({});
+  const [selectedDatasets, setSelectedDatasets] = useState<string[]>([]);
+
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareBatches, setCompareBatches] = useState<string[]>([]);
+  const [compareData, setCompareData] = useState<any>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+
+  const fetchAnalytics = async () => {
+    setLoading(true);
+    try {
+      const formatQuery = selectedFormats.length > 0 ? `formats=${selectedFormats.join(',')}` : '';
+      const startQuery = dateRange.start ? `start_date=${dateRange.start.toISOString()}` : '';
+      const endQuery = dateRange.end ? `end_date=${dateRange.end.toISOString()}` : '';
+      const batchesQuery = selectedDatasets.length > 0 ? `upload_batches=${selectedDatasets.join(',')}` : '';
+
+      const queryParams = [formatQuery, startQuery, endQuery, batchesQuery, `mode=${viewMode}`].filter(Boolean).join('&');
+
+      const [histRes, dsRes] = await Promise.all([
+        fetch(`${BACKEND_URL}/api/analytics/historical?${queryParams}`),
+        fetch(`${BACKEND_URL}/api/analytics/datasets?${queryParams}`)
+      ]);
+
+      if (histRes.ok) {
+        const hData = await histRes.json();
+        setChartData(hData.chartData || []);
+        setSummary(hData.summary || {});
+      }
+      if (dsRes.ok) {
+        const dData = await dsRes.json();
+        setDatasets(dData || []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedDate) {
+      setDateRange({ start: selectedDate, end: selectedDate });
+    }
+  }, [selectedDate]);
+
+  useEffect(() => {
+    fetchAnalytics();
+  }, [selectedFormats, dateRange, viewMode, selectedDatasets]);
+
+  const toggleFormat = (fmt: string) => {
+    setSelectedFormats(prev => prev.includes(fmt) ? prev.filter(f => f !== fmt) : [...prev, fmt]);
+  };
+
+  const toggleDataset = (batch: string) => {
+    setSelectedDatasets(prev => prev.includes(batch) ? prev.filter(b => b !== batch) : [...prev, batch]);
+  };
+
+  const handleCompare = async () => {
+    if (compareBatches.length !== 2) return;
+    setCompareLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/analytics/compare?batch1=${compareBatches[0]}&batch2=${compareBatches[1]}`);
+      if (res.ok) {
+        setCompareData(await res.json());
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCompareLoading(false);
+    }
+  };
+
+  return (
+    <div className={`p-6 rounded-lg border ${darkMode ? "bg-slate-900 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-2">
+          {[{ k: 'CONTAINER', l: 'Container' }, { k: 'VAPT', l: 'VAPT' }, { k: 'CSPM', l: 'CSPM' }, { k: 'SAST_DAST', l: 'SAST/DAST' }].map(f => (
+            <button
+              key={f.k}
+              onClick={() => toggleFormat(f.k)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded transition-colors ${selectedFormats.includes(f.k) ? (darkMode ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-800') : (darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600')}`}
+            >
+              {f.l}
+            </button>
+          ))}
+          <button onClick={() => setSelectedFormats(['CONTAINER', 'VAPT', 'CSPM', 'SAST_DAST'])} className={`px-2 text-xs underline ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>All</button>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="flex bg-slate-200 dark:bg-slate-800 rounded p-1">
+            <button onClick={() => setViewMode('Daily')} className={`px-3 py-1 text-xs font-bold rounded ${viewMode === 'Daily' ? 'bg-white dark:bg-slate-700 shadow' : 'text-slate-500'}`}>Daily</button>
+            <button onClick={() => setViewMode('Cumulative')} className={`px-3 py-1 text-xs font-bold rounded ${viewMode === 'Cumulative' ? 'bg-white dark:bg-slate-700 shadow' : 'text-slate-500'}`}>Cumulative</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className={`p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+          <p className="text-xs text-slate-500 font-bold uppercase">Total Datasets</p>
+          <p className="text-2xl font-bold">{summary.totalDatasets || 0}</p>
+        </div>
+        <div className={`p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+          <p className="text-xs text-slate-500 font-bold uppercase">Vulnerabilities</p>
+          <p className="text-2xl font-bold">{summary.totalVulnerabilities || 0}</p>
+        </div>
+        <div className={`p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+          <p className="text-xs text-green-500 font-bold uppercase">Resolved</p>
+          <p className="text-2xl font-bold text-green-500">{summary.resolved || 0}</p>
+        </div>
+        <div className={`p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+          <p className="text-xs text-red-500 font-bold uppercase">Unresolved</p>
+          <p className="text-2xl font-bold text-red-500">{summary.unresolved || 0}</p>
+        </div>
+      </div>
+
+      {viewMode === 'Cumulative' && (
+        <p className={`text-sm italic mb-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Current cumulative totals as of {dateRange.end ? dateRange.end.toLocaleDateString() : new Date().toLocaleDateString()}</p>
+      )}
+
+      <div className={`h-64 mb-6 p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+        {loading ? <div className="h-full flex items-center justify-center">Loading...</div> : (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#334155" : "#e2e8f0"} />
+              <XAxis dataKey="date" stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
+              <YAxis stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
+              <RechartsTooltip contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '8px' }} />
+              <Legend />
+              <Area type="monotone" dataKey="Unresolved" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.6} />
+              <Area type="monotone" dataKey="Resolved" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.6} />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="font-bold text-lg">Datasets in Range</h3>
+        <button onClick={() => setCompareMode(!compareMode)} className="px-3 py-1.5 bg-purple-100 text-purple-700 rounded text-sm font-bold">Compare Datasets</button>
+      </div>
+
+      {compareMode && (
+        <div className={`mb-6 p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-purple-50 border-purple-200"}`}>
+          <h4 className="font-bold mb-2">Select exactly 2 datasets to compare:</h4>
+          <div className="flex gap-2 mb-4">
+            {compareBatches.map(b => <span key={b} className="bg-purple-200 text-purple-800 px-2 py-1 rounded text-xs">{b}</span>)}
+          </div>
+          <button onClick={handleCompare} disabled={compareBatches.length !== 2 || compareLoading} className="px-4 py-2 bg-purple-600 text-white rounded disabled:opacity-50">Run Comparison</button>
+
+          {compareData && (
+            <div className="mt-4 p-4 bg-white dark:bg-slate-900 rounded">
+              <div className="flex gap-4 mb-4 font-bold text-sm">
+                <span className="text-red-500">New: {compareData.summary.NewFindings}</span>
+                <span className="text-green-500">Resolved: {compareData.summary.ResolvedFindings}</span>
+                <span className="text-orange-500">Still Open: {compareData.summary.StillOpen}</span>
+                <span className="text-slate-500">No Longer Present: {compareData.summary.NoLongerPresent}</span>
+              </div>
+              <div className="max-h-64 overflow-y-auto text-sm">
+                <table className="w-full text-left">
+                  <thead><tr><th className="p-2 border-b">Issue</th><th className="p-2 border-b">Change</th></tr></thead>
+                  <tbody>
+                    {compareData.comparison.map((c: any, i: number) => (
+                      <tr key={i} className="border-b dark:border-slate-800">
+                        <td className="p-2">{c.Title}</td>
+                        <td className={`p-2 font-bold ${c.Change.includes('New') ? 'text-red-500' : c.Change.includes('Resolved') ? 'text-green-500' : 'text-slate-500'}`}>{c.Change}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className={`rounded-lg border overflow-hidden ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
+        <table className="w-full text-left text-sm">
+          <thead className={darkMode ? "bg-slate-800" : "bg-slate-100"}>
+            <tr>
+              <th className="p-3">Select</th>
+              <th className="p-3">Dataset</th>
+              <th className="p-3">Format</th>
+              <th className="p-3">Records</th>
+              <th className="p-3">Uploaded</th>
+            </tr>
+          </thead>
+          <tbody>
+            {datasets.map((d, i) => (
+              <tr key={i} className={`border-b ${darkMode ? "border-slate-700 hover:bg-slate-800" : "hover:bg-slate-50"}`}>
+                <td className="p-3">
+                  {compareMode ? (
+                    <input type="checkbox" checked={compareBatches.includes(d.UploadBatch)} onChange={(e) => {
+                      if (e.target.checked) {
+                        if (compareBatches.length < 2) setCompareBatches([...compareBatches, d.UploadBatch]);
+                      } else {
+                        setCompareBatches(compareBatches.filter(b => b !== d.UploadBatch));
+                      }
+                    }} />
+                  ) : (
+                    <input type="checkbox" checked={selectedDatasets.includes(d.UploadBatch)} onChange={() => toggleDataset(d.UploadBatch)} />
+                  )}
+                </td>
+                <td className="p-3 font-semibold">{d.FileName || d.UploadBatch}</td>
+                <td className="p-3">{d.SourceFormat}</td>
+                <td className="p-3">{d.RecordCount}</td>
+                <td className="p-3">{new Date(d.UploadedAt).toLocaleDateString()}</td>
+              </tr>
+            ))}
+            {datasets.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-slate-500">No datasets found in this range.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
 const AppContent: React.FC = () => {
   const [allIssues, setAllIssues] = useState<Issue[]>([]);
   const [batches, setBatches] = useState<string[]>([]);
@@ -2211,8 +2400,8 @@ const AppContent: React.FC = () => {
 
         if (data.duplicate) {
           const title = data.uploaded_today ? "Dataset Already Uploaded Today" : "Dataset Already Uploaded";
-          const msg = data.uploaded_today 
-            ? "You already uploaded this dataset today.\n\nDo you still want to upload it again?" 
+          const msg = data.uploaded_today
+            ? "You already uploaded this dataset today.\n\nDo you still want to upload it again?"
             : `This dataset was already uploaded on ${data.previous_upload_date}.\n\nDo you still want to upload it again?`;
           setDuplicatePromptMessage(`${title}::${msg}`);
           setIsDuplicatePromptOpen(true);
@@ -2248,8 +2437,8 @@ const AppContent: React.FC = () => {
 
       if (data.duplicate) {
         const title = data.uploaded_today ? "Dataset Already Uploaded Today" : "Dataset Already Uploaded";
-        const msg = data.uploaded_today 
-          ? "You already uploaded this dataset today.\n\nDo you still want to upload it again?" 
+        const msg = data.uploaded_today
+          ? "You already uploaded this dataset today.\n\nDo you still want to upload it again?"
           : `This dataset was already uploaded on ${data.previous_upload_date}.\n\nDo you still want to upload it again?`;
         setDuplicatePromptMessage(`${title}::${msg}`);
         setIsDuplicatePromptOpen(true);
@@ -2516,8 +2705,8 @@ const AppContent: React.FC = () => {
               key={fmt.key}
               onClick={() => handleFormatFilterChange(fmt.key)}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${selectedFormatFilter === fmt.key
-                  ? `${darkMode ? "bg-blue-600 text-white shadow-lg" : "bg-blue-600 text-white shadow-md"}`
-                  : `${darkMode ? "text-slate-400 hover:text-white hover:bg-slate-700" : "text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-sm"}`
+                ? `${darkMode ? "bg-blue-600 text-white shadow-lg" : "bg-blue-600 text-white shadow-md"}`
+                : `${darkMode ? "text-slate-400 hover:text-white hover:bg-slate-700" : "text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-sm"}`
                 }`}
             >
               <fmt.icon size={16} />
@@ -3394,9 +3583,9 @@ const AppContent: React.FC = () => {
                                   {batch}
                                 </span>
                                 <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${format === "SAST_DAST" ? "bg-purple-100 text-purple-700" :
-                                    format === "CSPM" ? "bg-green-100 text-green-700" :
-                                      format === "VAPT" ? "bg-orange-100 text-orange-700" :
-                                        "bg-blue-100 text-blue-700"
+                                  format === "CSPM" ? "bg-green-100 text-green-700" :
+                                    format === "VAPT" ? "bg-orange-100 text-orange-700" :
+                                      "bg-blue-100 text-blue-700"
                                   }`}>
                                   {format === "SAST_DAST" ? "SAST/DAST" : format}
                                 </span>
@@ -3906,10 +4095,10 @@ const AppContent: React.FC = () => {
                         <label
                           key={sheet.name}
                           className={`flex items-center gap-3 p-2 rounded cursor-pointer border transition-colors ${selectedSheet === sheet.name
-                              ? "bg-blue-50 border-blue-300"
-                              : sheet.is_pivot
-                                ? "bg-slate-100 border-slate-200 opacity-60"
-                                : "bg-white border-slate-200 hover:bg-slate-50"
+                            ? "bg-blue-50 border-blue-300"
+                            : sheet.is_pivot
+                              ? "bg-slate-100 border-slate-200 opacity-60"
+                              : "bg-white border-slate-200 hover:bg-slate-50"
                             }`}
                         >
                           <input
@@ -3934,10 +4123,10 @@ const AppContent: React.FC = () => {
                               <span>{sheet.rows} rows</span>
                               <span>{sheet.columns} columns</span>
                               <span className={`px-1.5 py-0.5 rounded font-bold ${sheet.format === "SAST_DAST" ? "bg-purple-100 text-purple-700" :
-                                  sheet.format === "CSPM" ? "bg-green-100 text-green-700" :
-                                    sheet.format === "VAPT" ? "bg-orange-100 text-orange-700" :
-                                      sheet.format === "CONTAINER" ? "bg-blue-100 text-blue-700" :
-                                        "bg-slate-100 text-slate-600"
+                                sheet.format === "CSPM" ? "bg-green-100 text-green-700" :
+                                  sheet.format === "VAPT" ? "bg-orange-100 text-orange-700" :
+                                    sheet.format === "CONTAINER" ? "bg-blue-100 text-blue-700" :
+                                      "bg-slate-100 text-slate-600"
                                 }`}>
                                 {sheet.format === "SAST_DAST" ? "SAST/DAST" : sheet.format}
                               </span>

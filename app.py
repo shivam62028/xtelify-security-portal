@@ -4,7 +4,7 @@ import os, json, re, time
 import pandas as pd
 import httpx
 from io import BytesIO
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -3350,6 +3350,267 @@ async def get_calendar_uploads(date: str):
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+@app.get("/api/analytics/datasets")
+async def get_analytics_datasets(formats: str = None, start_date: str = None, end_date: str = None):
+    if not _is_mongo_available():
+        return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
+    try:
+        match_query = {}
+        if formats:
+            format_list = [f.strip() for f in formats.split(',')]
+            match_query["SourceFormat"] = {"$in": format_list}
+            
+        if start_date or end_date:
+            date_query = {}
+            if start_date:
+                start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                date_query["$gte"] = start_dt
+            if end_date:
+                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                date_query["$lte"] = end_dt
+            match_query["UploadedAt"] = date_query
+
+        uploads = list(upload_history_collection.find(match_query, {"_id": 0}).sort("UploadedAt", -1))
+        
+        for u in uploads:
+            if "UploadedAt" in u and isinstance(u["UploadedAt"], datetime):
+                u["UploadedAt"] = u["UploadedAt"].isoformat()
+                
+        return uploads
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/analytics/historical")
+async def get_analytics_historical(
+    formats: str = None, 
+    start_date: str = None, 
+    end_date: str = None, 
+    upload_batches: str = None,
+    mode: str = "Cumulative"
+):
+    if not _is_mongo_available():
+        return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
+    try:
+        match_query = {}
+        
+        if upload_batches:
+            batch_list = [b.strip() for b in upload_batches.split(',')]
+            match_query["UploadBatch"] = {"$in": batch_list}
+        elif formats:
+            format_list = [f.strip() for f in formats.split(',')]
+            match_query["SourceFormat"] = {"$in": format_list}
+            
+        # Get baseline query without date restriction to compute running totals
+        base_query = match_query.copy()
+            
+        pipeline = [
+            {"$match": base_query},
+            {"$group": {
+                "_id": {
+                    "year": {"$year": "$UploadedAt"},
+                    "month": {"$month": "$UploadedAt"},
+                    "day": {"$dayOfMonth": "$UploadedAt"}
+                },
+                "total": {"$sum": 1},
+                "resolved": {
+                    "$sum": {
+                        "$cond": [{"$in": [{"$toLower": "$Status"}, ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]]}, 1, 0]
+                    }
+                },
+                "unresolved": {
+                    "$sum": {
+                        "$cond": [{"$in": [{"$toLower": "$Status"}, ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]]}, 0, 1]
+                    }
+                }
+            }},
+            {"$sort": {"_id.year": 1, "_id.month": 1, "_id.day": 1}}
+        ]
+        
+        daily_results = list(issues_collection.aggregate(pipeline))
+        
+        chart_data = []
+        cum_total = 0
+        cum_res = 0
+        cum_unres = 0
+        
+        start_date_obj = None
+        end_date_obj = None
+        if start_date:
+            start_date_obj = datetime.fromisoformat(start_date.replace('Z', '+00:00')).date()
+        if end_date:
+            end_date_obj = datetime.fromisoformat(end_date.replace('Z', '+00:00')).date()
+            
+        date_restricted_query = match_query.copy()
+        if start_date or end_date:
+            date_query = {}
+            if start_date:
+                date_query["$gte"] = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            if end_date:
+                date_query["$lte"] = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            date_restricted_query["UploadedAt"] = date_query
+            
+        datasets_count = len(issues_collection.distinct("UploadBatch", date_restricted_query))
+        
+        period_total = 0
+        period_res = 0
+        period_unres = 0
+        
+        # Fill missing days
+        if daily_results:
+            first_day = datetime(daily_results[0]['_id']['year'], daily_results[0]['_id']['month'], daily_results[0]['_id']['day']).date()
+            last_day = datetime(daily_results[-1]['_id']['year'], daily_results[-1]['_id']['month'], daily_results[-1]['_id']['day']).date()
+            # If end_date is specified and greater than last_day, extend it
+            if end_date_obj and end_date_obj > last_day:
+                last_day = end_date_obj
+                
+            current_day = first_day
+            idx = 0
+            
+            while current_day <= last_day:
+                d_year, d_month, d_day = current_day.year, current_day.month, current_day.day
+                day_str = f"{d_year:04d}-{d_month:02d}-{d_day:02d}"
+                
+                daily_total = 0
+                daily_res = 0
+                daily_unres = 0
+                
+                if idx < len(daily_results):
+                    r = daily_results[idx]
+                    if r['_id']['year'] == d_year and r['_id']['month'] == d_month and r['_id']['day'] == d_day:
+                        daily_total = r["total"]
+                        daily_res = r["resolved"]
+                        daily_unres = r["unresolved"]
+                        idx += 1
+                        
+                cum_total += daily_total
+                cum_res += daily_res
+                cum_unres += daily_unres
+                
+                in_range = True
+                if start_date_obj and current_day < start_date_obj:
+                    in_range = False
+                if end_date_obj and current_day > end_date_obj:
+                    in_range = False
+                    
+                if in_range:
+                    period_total += daily_total
+                    period_res += daily_res
+                    period_unres += daily_unres
+                    
+                    if mode.lower() == "cumulative":
+                        chart_data.append({
+                            "date": day_str,
+                            "Total": cum_total,
+                            "Resolved": cum_res,
+                            "Unresolved": cum_unres,
+                            "DailyNew": daily_total,
+                            "DailyResolved": daily_res,
+                            "DailyUnresolved": daily_unres
+                        })
+                    else:
+                        chart_data.append({
+                            "date": day_str,
+                            "Total": daily_total,
+                            "Resolved": daily_res,
+                            "Unresolved": daily_unres,
+                            "DailyNew": daily_total,
+                            "DailyResolved": daily_res,
+                            "DailyUnresolved": daily_unres
+                        })
+                        
+                current_day += timedelta(days=1)
+                
+        summary = {
+            "totalDatasets": datasets_count,
+            "totalVulnerabilities": period_total if mode.lower() == "daily" else cum_total,
+            "resolved": period_res if mode.lower() == "daily" else cum_res,
+            "unresolved": period_unres if mode.lower() == "daily" else cum_unres
+        }
+        
+        return {
+            "summary": summary,
+            "chartData": chart_data
+        }
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/analytics/compare")
+async def compare_datasets(batch1: str, batch2: str):
+    if not _is_mongo_available():
+        return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
+    try:
+        b1_issues = list(issues_collection.find({"UploadBatch": batch1}))
+        b2_issues = list(issues_collection.find({"UploadBatch": batch2}))
+        
+        def get_key(issue):
+            return str(issue.get("IssueID") or issue.get("Vulnerability Name") or issue.get("Title") or issue.get("_id"))
+            
+        b1_dict = {get_key(i): i for i in b1_issues}
+        b2_dict = {get_key(i): i for i in b2_issues}
+        
+        all_keys = set(b1_dict.keys()).union(set(b2_dict.keys()))
+        
+        comparison = []
+        new_findings = 0
+        resolved_findings = 0
+        still_open = 0
+        no_longer_present = 0
+        
+        for k in all_keys:
+            i1 = b1_dict.get(k)
+            i2 = b2_dict.get(k)
+            
+            s1 = str(i1.get("Status", "Open")).lower() if i1 else "none"
+            s2 = str(i2.get("Status", "Open")).lower() if i2 else "none"
+            
+            is_res1 = any(x in s1 for x in ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"])
+            is_res2 = any(x in s2 for x in ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"])
+            
+            status_change = ""
+            
+            if not i1 and i2:
+                status_change = "New Findings"
+                new_findings += 1
+            elif i1 and not i2:
+                status_change = "No Longer Present"
+                no_longer_present += 1
+            elif not is_res1 and is_res2:
+                status_change = "Resolved Findings"
+                resolved_findings += 1
+            elif not is_res1 and not is_res2:
+                status_change = "Still Open"
+                still_open += 1
+            elif is_res1 and is_res2:
+                status_change = "Already Resolved"
+            else:
+                status_change = "Reopened"
+                
+            comparison.append({
+                "Issue": k,
+                "Title": str((i2 or i1).get("Vulnerability Name") or (i2 or i1).get("Title") or k),
+                "DatasetA_Status": i1.get("Status", "—") if i1 else "—",
+                "DatasetB_Status": i2.get("Status", "—") if i2 else "—",
+                "Change": status_change,
+                "Severity": (i2 or i1).get("Severity", "Unknown")
+            })
+            
+        return {
+            "summary": {
+                "Dataset1": batch1,
+                "Dataset2": batch2,
+                "NewFindings": new_findings,
+                "ResolvedFindings": resolved_findings,
+                "StillOpen": still_open,
+                "NoLongerPresent": no_longer_present,
+                "TotalD1": len(b1_issues),
+                "TotalD2": len(b2_issues)
+            },
+            "comparison": comparison
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 @app.delete("/api/dataset")
 async def delete_dataset(batch_id: str):
     if not _is_mongo_available():
