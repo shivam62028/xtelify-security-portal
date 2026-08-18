@@ -1568,6 +1568,7 @@ async def gd(
     page: int = 1,
     limit: int = 100,
     search: str = None,
+    search_field: str = None,
     severity: str = None,
     status: str = None,
     assigned_to: str = None,
@@ -1584,19 +1585,51 @@ async def gd(
     if search:
         s = search.strip()
         regex = {"$regex": s, "$options": "i"}
-        query["$or"] = [
-            {"DisplayID": regex},
-            {"IssueID": regex},
-            {"AssignedTo": regex},
-            {"RecommendedAction": regex},
-            {"Category": regex},
-            {"Type": regex},
-            {"LOB Name": regex},
-            {"LOBName": regex},
-            {"LOB": regex},
-            {"finding_name": regex},
-            {"FindingName": regex}
-        ]
+        
+        if search_field and search_field != "All":
+            # Map frontend dropdown fields to DB fields if needed, 
+            # but if we use actual field names in UI, we can just use search_field directly.
+            # Let's map some common ones or just pass exact field names from UI.
+            field_map = {
+                "Issue ID": "IssueID",
+                "Finding Name": "finding_name",
+                "Vulnerability Name": "Name",
+                "CVE": "CVE Number",
+                "Account Name": "account_name",
+                "Account ID": "account_id",
+                "Resource Name": "resource_name",
+                "Resource ID": "resource_id",
+                "Assigned To": "AssignedTo",
+                "Hostname": "Hostname",
+                "IP": "IP",
+                "Application": "ApplicationName",
+                "UploadBatch": "UploadBatch"
+            }
+            db_field = field_map.get(search_field, search_field)
+            query[db_field] = regex
+        else:
+            query["$or"] = [
+                {"DisplayID": regex},
+                {"IssueID": regex},
+                {"AssignedTo": regex},
+                {"RecommendedAction": regex},
+                {"Category": regex},
+                {"Type": regex},
+                {"LOB Name": regex},
+                {"LOBName": regex},
+                {"LOB": regex},
+                {"finding_name": regex},
+                {"FindingName": regex},
+                {"Name": regex},
+                {"VulnDescription": regex},
+                {"Description": regex},
+                {"CVE Number": regex},
+                {"account_name": regex},
+                {"resource_name": regex},
+                {"Hostname": regex},
+                {"IP": regex},
+                {"ApplicationName": regex}
+            ]
         
     if severity:
         sev_lower = severity.lower()
@@ -1647,7 +1680,7 @@ async def gd(
             date_query["$gte"] = date_from
         if date_to:
             date_query["$lte"] = date_to
-        query["DiscoveredDate"] = date_query
+        query["UploadedAt"] = date_query
 
     try:
         total_records = issues_collection.count_documents(query)

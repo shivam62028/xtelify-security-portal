@@ -733,6 +733,11 @@ const AppContent: React.FC = () => {
 
   const [filter, setFilter] = useState<string>("All");
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [searchField, setSearchField] = useState<string>("All");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
+  const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState<boolean>(false);
+  
   const [selectedOwners, setSelectedOwners] = useState<string[]>([]);
   const [selectedFindingTypes, setSelectedFindingTypes] = useState<string[]>([]);
   const [selectedLOBs, setSelectedLOBs] = useState<string[]>([]);
@@ -862,6 +867,20 @@ const AppContent: React.FC = () => {
     setFilter(f.filter);
     setSearchTerm(f.searchTerm);
     setSelectedDepartment(f.department);
+  };
+
+  const clearFilters = () => {
+    setSearchTerm("");
+    setSearchField("All");
+    setFilter("All");
+    setSelectedOwners([]);
+    setSelectedFindingTypes([]);
+    setSelectedLOBs([]);
+    setSelectedFormatFilter("All");
+    setDateFrom("");
+    setDateTo("");
+    // Intentionally keep batches as is so the user isn't shown empty data if they clear filters.
+    setCurrentPage(1);
   };
 
   const deleteSavedFilter = (id: string) => {
@@ -1091,7 +1110,10 @@ const AppContent: React.FC = () => {
     params.append("page", currentPage.toString());
     params.append("limit", rowsPerPage.toString());
 
-    if (searchTerm) params.append("search", searchTerm);
+    if (searchTerm) {
+      params.append("search", searchTerm);
+      params.append("search_field", searchField);
+    }
     if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
 
     if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
@@ -1101,6 +1123,8 @@ const AppContent: React.FC = () => {
     if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
     if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join(","));
     if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
+    if (dateFrom) params.append("date_from", dateFrom);
+    if (dateTo) params.append("date_to", dateTo);
 
     fetch(`${BACKEND_URL}/api/db?${params.toString()}`, { mode: "cors" })
       .then((res) => {
@@ -1181,7 +1205,7 @@ const AppContent: React.FC = () => {
         setTotalRecords(0);
         setIsLoading(false);
       });
-  }, [currentPage, rowsPerPage, searchTerm, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs]);
+  }, [currentPage, rowsPerPage, searchTerm, searchField, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1547,7 +1571,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [quickFilter, filter, searchTerm, selectedBatches, selectedFormatFilter, selectedOwners, selectedFindingTypes, selectedLOBs]);
+  }, [quickFilter, filter, searchTerm, searchField, selectedBatches, selectedFormatFilter, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo]);
 
   const groupedIssues = useMemo(() => {
     try {
@@ -3478,13 +3502,27 @@ const AppContent: React.FC = () => {
                   <Filter size={14} className="text-slate-500" />
                   Vulnerability Groups
                 </div>
-                <input
-                  type="text"
-                  placeholder="Search CVE, Remediation, Category, LOB Name..."
-                  className={`px-3 py-1.5 rounded border text-sm focus:border-blue-500 outline-none w-full max-w-sm ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+                <div className="flex gap-2 w-full max-w-sm">
+                  <input
+                    type="text"
+                    placeholder="Search vulnerabilities..."
+                    className={`flex-1 px-3 py-1.5 rounded border text-sm focus:border-purple-500 outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  <button
+                    onClick={() => setIsAdvancedSearchOpen(!isAdvancedSearchOpen)}
+                    className={`px-3 py-1.5 rounded border text-xs font-semibold flex items-center gap-1 transition-colors ${
+                      isAdvancedSearchOpen
+                        ? "bg-purple-100 border-purple-300 text-purple-700"
+                        : darkMode
+                        ? "bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700"
+                        : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    Advanced Search <ChevronDown size={14} className={`transition-transform ${isAdvancedSearchOpen ? "rotate-180" : ""}`} />
+                  </button>
+                </div>
 
                 <div className="relative" ref={tableColDropdownRef}>
                   <button
@@ -3707,6 +3745,155 @@ const AppContent: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* Advanced Search Panel */}
+            {isAdvancedSearchOpen && (
+              <div className={`p-4 border-b ${darkMode ? "bg-slate-800 border-slate-700" : "bg-slate-100 border-slate-200"}`}>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                  
+                  {/* Search Field */}
+                  <div className="flex flex-col gap-1">
+                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Search In</label>
+                    <select
+                      value={searchField}
+                      onChange={(e) => setSearchField(e.target.value)}
+                      className={`px-2 py-1.5 rounded border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                    >
+                      <option value="All">All Fields</option>
+                      <option value="Issue ID">Issue ID</option>
+                      <option value="Finding Name">Finding Name</option>
+                      <option value="Vulnerability Name">Vulnerability Name</option>
+                      <option value="CVE">CVE</option>
+                      <option value="Account Name">Account Name</option>
+                      <option value="Account ID">Account ID</option>
+                      <option value="Resource Name">Resource Name</option>
+                      <option value="Resource ID">Resource ID</option>
+                      <option value="Assigned To">Assigned To</option>
+                      <option value="Hostname">Hostname</option>
+                      <option value="IP">IP</option>
+                      <option value="Application">Application</option>
+                      <option value="UploadBatch">UploadBatch</option>
+                    </select>
+                  </div>
+
+                  {/* Format */}
+                  <div className="flex flex-col gap-1">
+                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Format</label>
+                    <select
+                      value={selectedFormatFilter}
+                      onChange={(e) => setSelectedFormatFilter(e.target.value)}
+                      className={`px-2 py-1.5 rounded border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                    >
+                      <option value="All">All Formats</option>
+                      <option value="CSPM">CSPM</option>
+                      <option value="VAPT">VAPT</option>
+                      <option value="CONTAINER">Container</option>
+                      <option value="SAST_DAST">SAST/DAST</option>
+                    </select>
+                  </div>
+
+                  {/* Uploaded From */}
+                  <div className="flex flex-col gap-1">
+                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Uploaded From</label>
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className={`px-2 py-1.5 rounded border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                    />
+                  </div>
+
+                  {/* Uploaded To */}
+                  <div className="flex flex-col gap-1">
+                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Uploaded To</label>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className={`px-2 py-1.5 rounded border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                    />
+                  </div>
+
+                </div>
+
+                <div className="flex justify-end border-t pt-3 mt-3 border-slate-200 dark:border-slate-700">
+                  <button
+                    onClick={clearFilters}
+                    className="px-4 py-1.5 bg-slate-200 text-slate-700 hover:bg-slate-300 rounded text-xs font-bold transition-colors"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Active Filters Summary */}
+            {(searchTerm || searchField !== "All" || filter !== "All" || selectedFormatFilter !== "All" || dateFrom || dateTo || quickFilter !== "all" || selectedOwners.length > 0) && (
+              <div className={`px-4 py-2 border-b flex items-center flex-wrap gap-2 text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-slate-300" : "bg-white border-slate-200 text-slate-600"}`}>
+                <span className="font-semibold">Active filters:</span>
+                
+                {searchTerm && (
+                  <span className="flex items-center gap-1 bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full border border-purple-200">
+                    Search: {searchTerm} 
+                    <button onClick={() => setSearchTerm("")} className="hover:text-purple-900"><X size={12}/></button>
+                  </span>
+                )}
+
+                {searchField !== "All" && (
+                  <span className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
+                    In: {searchField}
+                    <button onClick={() => setSearchField("All")} className="hover:text-blue-900"><X size={12}/></button>
+                  </span>
+                )}
+
+                {filter !== "All" && (
+                  <span className="flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded-full border border-red-200">
+                    Severity: {filter}
+                    <button onClick={() => setFilter("All")} className="hover:text-red-900"><X size={12}/></button>
+                  </span>
+                )}
+
+                {quickFilter !== "all" && (
+                  <span className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
+                    Quick: {quickFilter}
+                    <button onClick={() => setQuickFilter("all")} className="hover:text-amber-900"><X size={12}/></button>
+                  </span>
+                )}
+
+                {selectedFormatFilter !== "All" && (
+                  <span className="flex items-center gap-1 bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full border border-teal-200">
+                    Format: {selectedFormatFilter}
+                    <button onClick={() => setSelectedFormatFilter("All")} className="hover:text-teal-900"><X size={12}/></button>
+                  </span>
+                )}
+
+                {dateFrom && (
+                  <span className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300">
+                    From: {dateFrom}
+                    <button onClick={() => setDateFrom("")} className="hover:text-slate-900"><X size={12}/></button>
+                  </span>
+                )}
+
+                {dateTo && (
+                  <span className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300">
+                    To: {dateTo}
+                    <button onClick={() => setDateTo("")} className="hover:text-slate-900"><X size={12}/></button>
+                  </span>
+                )}
+
+                {selectedOwners.length > 0 && (
+                  <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
+                    Owners: {selectedOwners.length}
+                    <button onClick={() => setSelectedOwners([])} className="hover:text-indigo-900"><X size={12}/></button>
+                  </span>
+                )}
+
+                {(searchTerm || searchField !== "All" || filter !== "All" || selectedFormatFilter !== "All" || dateFrom || dateTo || quickFilter !== "all" || selectedOwners.length > 0) && (
+                  <button onClick={clearFilters} className="ml-2 text-red-500 hover:text-red-700 font-semibold underline text-xs">Clear All</button>
+                )}
+              </div>
+            )}
+
 
             <div className={`overflow-x-auto max-h-[700px] rounded-lg border ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
               <table className="w-full text-left border-collapse">
