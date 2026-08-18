@@ -186,7 +186,7 @@ const CalendarView: React.FC<{ darkMode: boolean; onViewUpload: (batch: string) 
   const handleDeleteDataset = async (batch: string) => {
     if (!window.confirm(`Are you sure you want to delete dataset "${batch}"? This action cannot be undone.`)) return;
     try {
-      const res = await fetch(`${BACKEND_URL}/api/dataset/${batch}`, { method: 'DELETE' });
+      const res = await fetch(`${BACKEND_URL}/api/dataset?batch_id=${encodeURIComponent(batch)}`, { method: 'DELETE' });
       if (!res.ok) throw new Error("Failed to delete dataset");
       setRefreshKey(prev => prev + 1);
     } catch (err: any) {
@@ -2210,7 +2210,11 @@ const AppContent: React.FC = () => {
         }
 
         if (data.duplicate) {
-          setDuplicatePromptMessage(data.message || "This file is already present. Do you still want to upload it?");
+          const title = data.uploaded_today ? "Dataset Already Uploaded Today" : "Dataset Already Uploaded";
+          const msg = data.uploaded_today 
+            ? "You already uploaded this dataset today.\n\nDo you still want to upload it again?" 
+            : `This dataset was already uploaded on ${data.previous_upload_date}.\n\nDo you still want to upload it again?`;
+          setDuplicatePromptMessage(`${title}::${msg}`);
           setIsDuplicatePromptOpen(true);
           setDuplicateUploadApproved(false);
           setIsProcessing(false);
@@ -2243,7 +2247,11 @@ const AppContent: React.FC = () => {
       const data = await response.json();
 
       if (data.duplicate) {
-        setDuplicatePromptMessage(data.message || "This file is already present. Do you still want to upload it?");
+        const title = data.uploaded_today ? "Dataset Already Uploaded Today" : "Dataset Already Uploaded";
+        const msg = data.uploaded_today 
+          ? "You already uploaded this dataset today.\n\nDo you still want to upload it again?" 
+          : `This dataset was already uploaded on ${data.previous_upload_date}.\n\nDo you still want to upload it again?`;
+        setDuplicatePromptMessage(`${title}::${msg}`);
         setIsDuplicatePromptOpen(true);
         setDuplicateUploadApproved(false);
         setIsProcessing(false);
@@ -3966,9 +3974,11 @@ const AppContent: React.FC = () => {
                     <div className="flex items-start gap-2">
                       <AlertTriangle size={16} className="text-red-600 mt-0.5" />
                       <div className="flex-1">
-                        <p className="text-xs font-bold text-red-700 uppercase mb-1">File Already Exists</p>
-                        <p className="text-sm text-red-700">
-                          {duplicatePromptMessage || "This file is already present. Do you still want to upload it?"}
+                        <p className="text-xs font-bold text-red-700 uppercase mb-1">
+                          {duplicatePromptMessage.includes("::") ? duplicatePromptMessage.split("::")[0] : "File Already Exists"}
+                        </p>
+                        <p className="text-sm text-red-700 whitespace-pre-line">
+                          {duplicatePromptMessage.includes("::") ? duplicatePromptMessage.split("::")[1] : (duplicatePromptMessage || "This file is already present. Do you still want to upload it?")}
                         </p>
                       </div>
                     </div>

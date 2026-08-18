@@ -1375,18 +1375,46 @@ def upload_batch_exists(upload_batch):
         raise
 
 
-def file_hash_exists(file_hash):
+def check_duplicate_upload(file_hash):
     if not file_hash:
-        return False
+        return {"duplicate": False}
 
     if not _is_mongo_available():
-        raise RuntimeError("MongoDB unavailable")
+        return {"duplicate": False}
 
     try:
-        return issues_collection.find_one({"FileHash": file_hash}, {"_id": 1}) is not None
+        # Find the most recent upload with this hash
+        most_recent = issues_collection.find_one(
+            {"FileHash": file_hash},
+            sort=[("UploadedAt", -1)]
+        )
+        if not most_recent:
+            return {"duplicate": False}
+            
+        prev_date = most_recent.get("UploadedAt")
+        if not prev_date:
+            return {"duplicate": True, "previous_upload_date": "Unknown", "uploaded_today": False}
+            
+        if prev_date.tzinfo is None:
+            prev_date = prev_date.replace(tzinfo=timezone.utc)
+            
+        local_now = datetime.now()
+        local_prev = prev_date.astimezone()
+        
+        uploaded_today = (local_prev.date() == local_now.date())
+        
+        formatted_date = local_prev.strftime("%d %B %Y")
+        if formatted_date.startswith("0"):
+            formatted_date = formatted_date[1:]
+            
+        return {
+            "duplicate": True,
+            "previous_upload_date": formatted_date,
+            "uploaded_today": uploaded_today
+        }
     except Exception as e:
         print(f"[DB] FileHash check failed: {e}")
-        raise
+        return {"duplicate": False}
 
 
 def attach_file_hash(records, file_hash):
@@ -2022,11 +2050,10 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
         file_hash = hashlib.sha256(fendralis).hexdigest()
         allow_duplicate_upload = str(allowDuplicateUpload).strip().lower() == "true"
 
-        if file_hash_exists(file_hash) and not allow_duplicate_upload:
-            return {
-                "duplicate": True,
-                "message": "This file is already present. Do you still want to upload it?"
-            }
+        if not allow_duplicate_upload:
+            dup_info = check_duplicate_upload(file_hash)
+            if dup_info.get("duplicate"):
+                return dup_info
 
         fn = file.filename.lower()
         df = pd.DataFrame()
@@ -2464,11 +2491,10 @@ async def pu_with_sheet(
         file_hash = hashlib.sha256(fendralis).hexdigest()
         allow_duplicate_upload = str(allowDuplicateUpload).strip().lower() == "true"
 
-        if file_hash_exists(file_hash) and not allow_duplicate_upload:
-            return {
-                "duplicate": True,
-                "message": "This file is already present. Do you still want to upload it?"
-            }
+        if not allow_duplicate_upload:
+            dup_info = check_duplicate_upload(file_hash)
+            if dup_info.get("duplicate"):
+                return dup_info
 
         fn = file.filename.lower()
 
@@ -3324,7 +3350,7 @@ async def get_calendar_uploads(date: str):
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.delete("/api/dataset/{batch_id}")
+@app.delete("/api/dataset")
 async def delete_dataset(batch_id: str):
     if not _is_mongo_available():
         return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
