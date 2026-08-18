@@ -21,6 +21,7 @@ client = MongoClient(
 mongo_db = client["xtelify_db"]
 issues_collection = mongo_db["vulnerabilities"]
 upload_history_collection = mongo_db["upload_history"]
+ai_remediation_cache_collection = mongo_db["ai_remediation_cache"]
 
 # In-memory cache for faster loading
 _db_cache = None
@@ -1209,7 +1210,11 @@ def _ensure_mongo_indexes():
         issues_collection.create_index([("FileHash", 1)])
         upload_history_collection.create_index([("UploadedAt", -1)])
         upload_history_collection.create_index([("UploadBatch", 1)])
-        print("[DB] MongoDB indexes ensured for vulnerabilities collection")
+        
+        # AI Remediation Cache Indexes
+        ai_remediation_cache_collection.create_index([("IssueID", 1), ("UploadBatch", 1), ("SourceFormat", 1)])
+        
+        print("[DB] MongoDB indexes ensured for all collections")
     except Exception as e:
         print(f"[DB] Failed to create MongoDB indexes: {e}")
 
@@ -3817,3 +3822,176 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+import re
+from datetime import datetime, timezone
+
+@app.post("/api/ai/remediation")
+async def ai_remediation(req: Request):
+    """Generate structured AI remediation using Ollama"""
+    try:
+        data = await req.json()
+        issue_id = data.get("IssueID")
+        upload_batch = data.get("UploadBatch", "")
+        source_format = data.get("SourceFormat", "UNKNOWN")
+        vulnerability = data.get("vulnerability", {})
+        regenerate = data.get("regenerate", False)
+
+        if not issue_id and not vulnerability.get("Name") and not vulnerability.get("finding_name"):
+            return ORJSONResponse(status_code=400, content={"error": "Missing IssueID or equivalent identifier"})
+            
+        # Fallback cache identifier if IssueID is not explicitly present (it usually is)
+        cache_id = issue_id or f"{vulnerability.get('Name') or vulnerability.get('finding_name')}-{vulnerability.get('AffectedAsset') or vulnerability.get('resource_name')}"
+
+        # 1. Check Cache
+        if not regenerate and _is_mongo_available():
+            cached_result = ai_remediation_cache_collection.find_one({
+                "IssueID": cache_id,
+                "UploadBatch": upload_batch,
+                "SourceFormat": source_format
+            })
+            if cached_result:
+                # Remove ObjectId for JSON serialization
+                cached_result.pop("_id", None)
+                return ORJSONResponse(content={"result": cached_result, "cached": True})
+
+        # 2. Build Format-Aware Prompt
+        context_str = ""
+        if source_format == "CSPM":
+            keys_to_include = ["finding_name", "account_name", "account_id", "resource_type", "resource_id", "resource_name", "impact", "risk_score", "remediation_type", "Description", "RecommendedAction", "ReferenceLinks"]
+            context_dict = {k: vulnerability.get(k) for k in keys_to_include if vulnerability.get(k)}
+            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
+            
+        elif source_format == "VAPT":
+            keys_to_include = ["Vulnerability name", "Vulnerability description", "Solution", "Vulnerability Path", "Vulnerability ID", "Vulnerability family", "CVE Number", "Risk Factor", "Severity", "IP", "Hostname", "Port", "Protocol", "Application Owner"]
+            context_dict = {k: vulnerability.get(k) for k in keys_to_include if vulnerability.get(k)}
+            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
+            
+        elif source_format == "CONTAINER":
+            keys_to_include = ["Name", "DetailedName", "AffectedAsset", "Severity", "Version", "FixedVersion", "Description", "SubscriptionName", "ImageID", "Namespaces", "Clusters", "RecommendedAction"]
+            context_dict = {k: vulnerability.get(k) for k in keys_to_include if vulnerability.get(k)}
+            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
+            
+        elif source_format == "SAST_DAST":
+            keys_to_include = ["issue_key", "Summary", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Assignee", "ApplicationOwner", "Description"]
+            context_dict = {k: vulnerability.get(k) for k in keys_to_include if vulnerability.get(k)}
+            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
+        else:
+            # Fallback for unexpected formats
+            context_dict = {k: v for k, v in vulnerability.items() if v and isinstance(v, str) and len(v) < 1000}
+            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
+
+        prompt = f"""You are a senior cybersecurity expert analyzing a {source_format} finding. 
+Use ONLY the supplied context. Do not invent missing technical facts. Provide practical and actionable remediation.
+
+CONTEXT:
+{context_str}
+
+OUTPUT FORMAT EXACTLY AS FOLLOWS (with exactly these section headers in ALL CAPS, do NOT use markdown headers, just the ALL CAPS words followed by a colon and a newline):
+
+FINDING SUMMARY:
+(1-2 sentences explaining what the vulnerability means)
+
+ROOT CAUSE:
+(Explain the likely underlying configuration/code/security issue)
+
+SECURITY IMPACT:
+(Explain what could happen if the issue remains unresolved)
+
+RECOMMENDED REMEDIATION:
+(Provide concrete, actionable steps to fix the issue. Use numbered lists.)
+
+VALIDATION STEPS:
+(Explain how the security team can verify that the remediation was applied successfully. Use numbered lists.)
+
+PRIORITY RECOMMENDATION:
+(One of: Immediate, High, Medium, Low)"""
+
+        # 3. Call Ollama
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            try:
+                response = await client.post(
+                    OLLAMA_URL,
+                    json={
+                        "model": OLLAMA_MODEL,
+                        "prompt": prompt,
+                        "stream": False
+                    }
+                )
+            except Exception as e:
+                return ORJSONResponse(status_code=503, content={"error": "AI remediation is currently unavailable. Please verify that Ollama is running.", "details": str(e)})
+
+            if response.status_code != 200:
+                return ORJSONResponse(status_code=500, content={"error": f"Ollama returned error: {response.status_code}"})
+
+            ai_response = response.json().get("response", "")
+
+        # 4. Parse Response Safely
+        sections = {
+            "AI_Summary": "",
+            "AI_RootCause": "",
+            "AI_Impact": "",
+            "AI_Remediation": [],
+            "AI_Validation": [],
+            "AI_Priority": "Unknown"
+        }
+        
+        def extract_section(text, current_header, next_header=None):
+            try:
+                start = text.index(current_header) + len(current_header)
+                if next_header:
+                    try:
+                        end = text.index(next_header, start)
+                        return text[start:end].strip()
+                    except ValueError:
+                        return text[start:].strip()
+                return text[start:].strip()
+            except ValueError:
+                return ""
+
+        summary = extract_section(ai_response, "FINDING SUMMARY:", "ROOT CAUSE:")
+        root_cause = extract_section(ai_response, "ROOT CAUSE:", "SECURITY IMPACT:")
+        impact = extract_section(ai_response, "SECURITY IMPACT:", "RECOMMENDED REMEDIATION:")
+        remediation_str = extract_section(ai_response, "RECOMMENDED REMEDIATION:", "VALIDATION STEPS:")
+        validation_str = extract_section(ai_response, "VALIDATION STEPS:", "PRIORITY RECOMMENDATION:")
+        priority_str = extract_section(ai_response, "PRIORITY RECOMMENDATION:")
+
+        # Fallback if strict parsing fails
+        if not summary and not root_cause:
+            sections["AI_Summary"] = "Ollama returned a non-standard format:\n\n" + ai_response
+        else:
+            sections["AI_Summary"] = summary
+            sections["AI_RootCause"] = root_cause
+            sections["AI_Impact"] = impact
+            sections["AI_Remediation"] = [r.strip() for r in remediation_str.split("\n") if r.strip()]
+            sections["AI_Validation"] = [v.strip() for v in validation_str.split("\n") if v.strip()]
+            
+            p_match = re.search(r'(Immediate|High|Medium|Low)', priority_str, re.IGNORECASE)
+            if p_match:
+                sections["AI_Priority"] = p_match.group(1).capitalize()
+
+        # 5. Build Result Object
+        result = {
+            "IssueID": cache_id,
+            "UploadBatch": upload_batch,
+            "SourceFormat": source_format,
+            **sections,
+            "AI_GeneratedAt": datetime.now(timezone.utc).isoformat(),
+            "AI_Model": OLLAMA_MODEL
+        }
+
+        # 6. Save to MongoDB Cache
+        if _is_mongo_available():
+            ai_remediation_cache_collection.update_one(
+                {"IssueID": cache_id, "UploadBatch": upload_batch, "SourceFormat": source_format},
+                {"$set": result},
+                upsert=True
+            )
+
+        return ORJSONResponse(content={"result": result, "cached": False})
+
+    except Exception as e:
+        import traceback
+        err = traceback.format_exc()
+        print(f"Error in /api/ai/remediation:\n{err}")
+        return ORJSONResponse(status_code=500, content={"error": "An error occurred while generating AI remediation.", "details": str(e)})

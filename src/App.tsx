@@ -48,7 +48,10 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
-  CalendarDays
+  CalendarDays,
+  Sparkles,
+  Copy,
+  RefreshCw
 } from "lucide-react";
 import {
   PieChart,
@@ -744,6 +747,8 @@ const AppContent: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<string>("");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [aiRemediation, setAiRemediation] = useState<Record<string, any>>({});
+  const [isGeneratingAI, setIsGeneratingAI] = useState<Record<string, boolean>>({});
   const [selectedDepartment, setSelectedDepartment] = useState<string>("All");
 
   const [viewMode, setViewMode] = useState<"Optimized" | "Raw" | "Calendar">("Optimized");
@@ -781,8 +786,6 @@ const AppContent: React.FC = () => {
   const [aiRecipient, setAiRecipient] = useState<string>("");
   const [aiPrompt, setAiPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-
-  const [aiRemediation, setAiRemediation] = useState<Record<string, string>>({});
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
@@ -867,6 +870,38 @@ const AppContent: React.FC = () => {
     setFilter(f.filter);
     setSearchTerm(f.searchTerm);
     setSelectedDepartment(f.department);
+  };
+
+  const generateAIRemediation = async (issue: any, regenerate: boolean = false) => {
+    const rowKey = `${issue.IssueID}`;
+    
+    setIsGeneratingAI(prev => ({ ...prev, [rowKey]: true }));
+    
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/ai/remediation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          IssueID: issue.IssueID,
+          UploadBatch: issue.UploadBatch,
+          SourceFormat: issue.SourceFormat || "UNKNOWN",
+          vulnerability: issue,
+          regenerate
+        })
+      });
+
+      const data = await response.json();
+      if (response.ok && data.result) {
+        setAiRemediation(prev => ({ ...prev, [rowKey]: data.result }));
+      } else {
+        alert(data.error || "Failed to generate AI remediation");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error generating AI remediation. Ensure backend and Ollama are running.");
+    } finally {
+      setIsGeneratingAI(prev => ({ ...prev, [rowKey]: false }));
+    }
   };
 
   const clearFilters = () => {
@@ -4861,3 +4896,4 @@ const App: React.FC = () => (
 );
 
 export default App;
+
