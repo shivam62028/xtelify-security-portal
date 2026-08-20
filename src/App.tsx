@@ -515,7 +515,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
       const formatQuery = selectedFormats.length > 0 ? `formats=${selectedFormats.join(',')}` : '';
       const startQuery = dateRange.start ? `start_date=${dateRange.start.toISOString()}` : '';
       const endQuery = dateRange.end ? `end_date=${dateRange.end.toISOString()}` : '';
-      const batchesQuery = selectedDatasets.length > 0 ? `upload_batches=${selectedDatasets.join(',')}` : '';
+      const batchesQuery = selectedDatasets.length > 0 ? `upload_batches=${selectedDatasets.join('||')}` : '';
 
       const queryParams = [formatQuery, startQuery, endQuery, batchesQuery, `mode=${viewMode}`].filter(Boolean).join('&');
 
@@ -1140,13 +1140,14 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     setIsLoading(true);
+    const abortController = new AbortController();
 
     const params = new URLSearchParams();
     params.append("page", currentPage.toString());
     params.append("limit", rowsPerPage.toString());
 
     if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
-    if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join(","));
+    if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
 
     if (isAdvancedSearchOpen) {
       params.append("is_advanced_search", "true");
@@ -1165,7 +1166,7 @@ const AppContent: React.FC = () => {
       if (dateTo) params.append("date_to", dateTo);
     }
 
-    fetch(`${BACKEND_URL}/api/db?${params.toString()}`, { mode: "cors" })
+    fetch(`${BACKEND_URL}/api/db?${params.toString()}`, { mode: "cors", signal: abortController.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         return res.json();
@@ -1239,11 +1240,14 @@ const AppContent: React.FC = () => {
         setIsLoading(false);
       })
       .catch((err) => {
-        console.error("Fetch DB Error:", err);
+        if (err.name === 'AbortError') return;
+        console.error("Error fetching issues:", err);
         setAllIssues([]);
         setTotalRecords(0);
         setIsLoading(false);
       });
+
+    return () => abortController.abort();
   }, [currentPage, rowsPerPage, searchTerm, searchField, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, isAdvancedSearchOpen]);
 
   useEffect(() => {

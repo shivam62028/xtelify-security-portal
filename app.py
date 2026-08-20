@@ -1592,8 +1592,8 @@ async def gd(
         query["SourceFormat"] = source_format
         
     if upload_batch:
-        if ',' in upload_batch:
-            query["UploadBatch"] = {"$in": [b.strip() for b in upload_batch.split(",")]}
+        if '||' in upload_batch:
+            query["UploadBatch"] = {"$in": [b.strip() for b in upload_batch.split("||")]}
         else:
             query["UploadBatch"] = upload_batch
             
@@ -3570,7 +3570,7 @@ async def get_analytics_historical(
         match_query = {}
         
         if upload_batches:
-            batch_list = [b.strip() for b in upload_batches.split(',')]
+            batch_list = [b.strip() for b in upload_batches.split('||')]
             match_query["UploadBatch"] = {"$in": batch_list}
         elif formats:
             format_list = [f.strip() for f in formats.split(',')]
