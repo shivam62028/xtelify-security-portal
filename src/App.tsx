@@ -2546,48 +2546,75 @@ const AppContent: React.FC = () => {
 
   const uniqueOwnersForEmail = Array.from(new Set(allIssues.map(i => i.AssignedTo || "Unassigned"))).sort();
 
-  const handleAiEmailSubmit = async (e: React.FormEvent) => {
+  const handleShareEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!aiRecipient || !aiPrompt) return;
+    if (!aiRecipient) return;
 
     setIsGenerating(true);
 
     try {
-      let graphBase64 = null;
-      if (includeGraph) {
-        const chartEl = document.getElementById("vulnerability-history-chart");
-        if (chartEl) {
-          const canvas = await html2canvas(chartEl, {
-            backgroundColor: darkMode ? "#1e293b" : "#ffffff",
-            scale: 2
-          });
-          graphBase64 = canvas.toDataURL("image/png");
-        }
-      }
+      const params = new URLSearchParams();
+      if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
+      if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
 
-      const response = await fetch("http://localhost:8000/api/email/share", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recipient: aiRecipient,
-          prompt: aiPrompt,
-          owner: aiOwner,
-          graphBase64: graphBase64 || null
-        })
+      if (isAdvancedSearchOpen) {
+        params.append("is_advanced_search", "true");
+        if (searchTerm) {
+          params.append("search", searchTerm);
+          params.append("search_field", searchField);
+        }
+        if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
+
+        if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
+        if (quickFilter === "critical") params.append("severity", "Critical");
+        if (quickFilter === "overdue") params.append("status", "Open");
+
+        if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
+        if (dateFrom) params.append("date_from", dateFrom);
+        if (dateTo) params.append("date_to", dateTo);
+      }
+      
+      params.append("columns", exportCols.join(","));
+      if (aiOwner && aiOwner !== "All") params.append("assigned_to_email", aiOwner);
+      if (includeGraph) params.append("include_graph", "true");
+
+      const response = await fetch(`${BACKEND_URL}/api/email/generate_excel?${params.toString()}`, {
+        method: "GET",
       });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || "Failed to send email");
+        throw new Error(errData.error || "Failed to generate Excel file");
       }
 
-      alert("Email sent successfully!");
+      const total = response.headers.get("X-Total-Vulnerabilities") || "0";
+      const resolved = response.headers.get("X-Resolved") || "0";
+      const unresolved = response.headers.get("X-Unresolved") || "0";
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const safeOwner = aiOwner !== "All" ? aiOwner.replace(" ", "_") : "All";
+      const filename = `Security_Vulnerabilities_${safeOwner}.xlsx`;
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      // Open Outlook via mailto
+      const subject = encodeURIComponent(`Security Vulnerability Report - ${aiOwner !== "All" ? aiOwner : "All Owners"}`);
+      const body = encodeURIComponent(`Hello,\n\nPlease find attached the vulnerability data assigned to ${aiOwner !== "All" ? aiOwner : "All Owners"}.\n\nSummary:\nTotal Vulnerabilities: ${total}\nResolved: ${resolved}\nUnresolved: ${unresolved}\n\nRegards,\nWynk Security Portal`);
+      
+      window.location.href = `mailto:${aiRecipient}?subject=${subject}&body=${body}`;
+
       setIsAiModalOpen(false);
-      setAiPrompt("");
       setAiRecipient("");
     } catch (err: any) {
-      console.error("Error sending email", err);
-      alert(err.message || "An error occurred while sending the email.");
+      console.error("Error generating email Excel", err);
+      alert(err.message || "An error occurred while generating the Excel file.");
     } finally {
       setIsGenerating(false);
     }
@@ -4428,8 +4455,8 @@ const AppContent: React.FC = () => {
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
             <div className="bg-slate-800 p-4 flex justify-between items-center text-white">
               <div className="flex items-center gap-2">
-                <Bot size={18} className="text-purple-400" />
-                <h3 className="font-bold text-sm">Generate Email via AI</h3>
+                <Send size={18} className="text-purple-400" />
+                <h3 className="font-bold text-sm">Send Vulnerability Data</h3>
               </div>
               <button
                 onClick={() => setIsAiModalOpen(false)}
@@ -4440,9 +4467,33 @@ const AppContent: React.FC = () => {
             </div>
 
             <form
-              onSubmit={handleAiEmailSubmit}
+              onSubmit={handleShareEmailSubmit}
               className="p-6 flex flex-col gap-4"
             >
+              <div>
+                <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
+                  Selected Owner (AssignedTo)
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-purple-500 outline-none text-sm bg-white"
+                  value={aiOwner}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setAiOwner(val);
+                    if (val !== "All") {
+                      setAiRecipient(`${val.toLowerCase().replace(/\s+/g, ".")}@company.com`);
+                    } else {
+                      setAiRecipient("");
+                    }
+                  }}
+                >
+                  <option value="All">All Owners</option>
+                  {uniqueOwnersForEmail.map(o => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
                   Recipient Email
@@ -4458,17 +4509,7 @@ const AppContent: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
-                  Instructions for AI
-                </label>
-                <textarea
-                  required
-                  placeholder="e.g., Please review the attached PDF and patch the critical compliance risks by Friday."
-                  className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-purple-500 outline-none text-sm min-h-[100px] resize-none"
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                />
-                <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
                   <input 
                     type="checkbox" 
                     id="includeGraph" 
@@ -4477,13 +4518,14 @@ const AppContent: React.FC = () => {
                     className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
                   />
                   <label htmlFor="includeGraph" className="text-sm text-slate-700 font-medium cursor-pointer">
-                    Include Vulnerability Graph
+                    Include Vulnerability Graph in Excel
                   </label>
                 </div>
                 <p className="text-[10px] text-slate-400 mt-2 font-medium flex items-start gap-1.5">
                   <Download size={12} className="shrink-0 mt-0.5" />
                   <span>
-                    The AI will append an issue summary and download a PDF of open issues. {includeGraph && "Additionally, a PNG of the vulnerability graph will be downloaded. "}You will need to manually attach any downloaded files to the email.
+                    This will download an Excel file containing the filtered vulnerabilities. 
+                    Outlook will open automatically. You must manually attach the downloaded Excel file to the email draft.
                   </span>
                 </p>
               </div>
@@ -4506,7 +4548,7 @@ const AppContent: React.FC = () => {
                   ) : (
                     <Send size={14} />
                   )}
-                  Generate PDF & Open Email
+                  Share via Outlook
                 </button>
               </div>
             </form>
