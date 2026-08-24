@@ -498,7 +498,8 @@ const CustomTimelineTooltip: React.FC<TooltipProps> = ({
 
 const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Date | null }> = ({ darkMode, selectedDate }) => {
   const [selectedFormats, setSelectedFormats] = useState<string[]>(['Container', 'VAPT', 'CSPM', 'SAST_DAST']);
-  const [dateRange, setDateRange] = useState<{ start: Date | null, end: Date | null }>({ start: null, end: null });
+  const [startDateStr, setStartDateStr] = useState<string>('');
+  const [endDateStr, setEndDateStr] = useState<string>('');
   const [viewMode, setViewMode] = useState<'Daily' | 'Cumulative'>('Daily');
 
   const [loading, setLoading] = useState(false);
@@ -506,6 +507,12 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
   const [chartData, setChartData] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>({});
   const [selectedDatasets, setSelectedDatasets] = useState<string[]>([]);
+
+  const [ownerData, setOwnerData] = useState<any[]>([]);
+  const [selectedOwner, setSelectedOwner] = useState<string | null>(null);
+  const [ownerTimeline, setOwnerTimeline] = useState<any[]>([]);
+  const [ownerSummary, setOwnerSummary] = useState<any>({});
+  const [ownerLoading, setOwnerLoading] = useState(false);
 
   const [compareMode, setCompareMode] = useState(false);
   const [compareBatches, setCompareBatches] = useState<string[]>([]);
@@ -516,15 +523,16 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
     setLoading(true);
     try {
       const formatQuery = selectedFormats.length > 0 ? `formats=${selectedFormats.join(',')}` : '';
-      const startQuery = dateRange.start ? `start_date=${dateRange.start.toISOString()}` : '';
-      const endQuery = dateRange.end ? `end_date=${dateRange.end.toISOString()}` : '';
+      const startQuery = startDateStr ? `start_date=${startDateStr}` : '';
+      const endQuery = endDateStr ? `end_date=${endDateStr}` : '';
       const batchesQuery = selectedDatasets.length > 0 ? `upload_batches=${selectedDatasets.join('||')}` : '';
 
       const queryParams = [formatQuery, startQuery, endQuery, batchesQuery, `mode=${viewMode}`].filter(Boolean).join('&');
 
-      const [histRes, dsRes] = await Promise.all([
+      const [histRes, dsRes, ownersRes] = await Promise.all([
         fetch(`${BACKEND_URL}/api/analytics/historical?${queryParams}`),
-        fetch(`${BACKEND_URL}/api/analytics/datasets?${queryParams}`)
+        fetch(`${BACKEND_URL}/api/analytics/datasets?${queryParams}`),
+        fetch(`${BACKEND_URL}/api/analytics/owners?${queryParams}`)
       ]);
 
       if (histRes.ok) {
@@ -536,6 +544,10 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
         const dData = await dsRes.json();
         setDatasets(dData || []);
       }
+      if (ownersRes.ok) {
+        const oData = await ownersRes.json();
+        setOwnerData(oData.ownerData || []);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -545,13 +557,42 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
 
   useEffect(() => {
     if (selectedDate) {
-      setDateRange({ start: selectedDate, end: selectedDate });
+      const d = selectedDate.toISOString().split('T')[0];
+      setStartDateStr(d);
+      setEndDateStr(d);
     }
   }, [selectedDate]);
 
   useEffect(() => {
     fetchAnalytics();
-  }, [selectedFormats, dateRange, viewMode, selectedDatasets]);
+  }, [selectedFormats, startDateStr, endDateStr, viewMode, selectedDatasets]);
+
+  useEffect(() => {
+    if (!selectedOwner) return;
+    const fetchOwner = async () => {
+      setOwnerLoading(true);
+      try {
+        const formatQuery = selectedFormats.length > 0 ? `formats=${selectedFormats.join(',')}` : '';
+        const startQuery = startDateStr ? `start_date=${startDateStr}` : '';
+        const endQuery = endDateStr ? `end_date=${endDateStr}` : '';
+        const batchesQuery = selectedDatasets.length > 0 ? `upload_batches=${selectedDatasets.join('||')}` : '';
+
+        const queryParams = [formatQuery, startQuery, endQuery, batchesQuery, `mode=${viewMode}`, `owner=${encodeURIComponent(selectedOwner)}`].filter(Boolean).join('&');
+
+        const res = await fetch(`${BACKEND_URL}/api/analytics/owners?${queryParams}`);
+        if (res.ok) {
+          const data = await res.json();
+          setOwnerTimeline(data.chartData || []);
+          setOwnerSummary(data.summary || {});
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setOwnerLoading(false);
+      }
+    };
+    fetchOwner();
+  }, [selectedOwner, selectedFormats, startDateStr, endDateStr, viewMode, selectedDatasets]);
 
   const toggleFormat = (fmt: string) => {
     setSelectedFormats(prev => prev.includes(fmt) ? prev.filter(f => f !== fmt) : [...prev, fmt]);
@@ -576,6 +617,23 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
     }
   };
 
+  const handleShare = (type: 'data' | 'graph' | 'both') => {
+    const subject = encodeURIComponent(`Security Report for ${selectedOwner}`);
+    let bodyText = `Analytics for ${selectedOwner} (${startDateStr || 'Start'} to ${endDateStr || 'End'}):\n\n`;
+    bodyText += `Total: ${ownerSummary.Total || 0}\n`;
+    bodyText += `Resolved: ${ownerSummary.Resolved || 0}\n`;
+    bodyText += `Unresolved: ${ownerSummary.Unresolved || 0}\n`;
+    bodyText += `Critical: ${ownerSummary.Critical || 0}\n`;
+    bodyText += `High: ${ownerSummary.High || 0}\n\n`;
+    
+    if (type === 'graph' || type === 'both') {
+      bodyText += `Please see the attached/included graph for vulnerability trends.\n\n`;
+    }
+    
+    bodyText += `View full report in Xtelify Security Portal.`;
+    window.location.href = `mailto:?subject=${subject}&body=${encodeURIComponent(bodyText)}`;
+  };
+
   return (
     <div className={`p-6 rounded-lg border ${darkMode ? "bg-slate-900 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
@@ -593,6 +651,11 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
         </div>
 
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <input type="date" value={startDateStr} onChange={(e) => setStartDateStr(e.target.value)} className={`px-2 py-1 text-sm rounded border ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-300"}`} />
+            <span className={darkMode ? "text-slate-400" : "text-slate-500"}>to</span>
+            <input type="date" value={endDateStr} onChange={(e) => setEndDateStr(e.target.value)} className={`px-2 py-1 text-sm rounded border ${darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-300"}`} />
+          </div>
           <div className="flex bg-slate-200 dark:bg-slate-800 rounded p-1">
             <button onClick={() => setViewMode('Daily')} className={`px-3 py-1 text-xs font-bold rounded ${viewMode === 'Daily' ? 'bg-white dark:bg-slate-700 shadow' : 'text-slate-500'}`}>Daily</button>
             <button onClick={() => setViewMode('Cumulative')} className={`px-3 py-1 text-xs font-bold rounded ${viewMode === 'Cumulative' ? 'bg-white dark:bg-slate-700 shadow' : 'text-slate-500'}`}>Cumulative</button>
@@ -620,7 +683,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
       </div>
 
       {viewMode === 'Cumulative' && (
-        <p className={`text-sm italic mb-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Current cumulative totals as of {dateRange.end ? dateRange.end.toLocaleDateString() : new Date().toLocaleDateString()}</p>
+        <p className={`text-sm italic mb-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Current cumulative totals as of {endDateStr || new Date().toISOString().split('T')[0]}</p>
       )}
 
       <div id="vulnerability-history-chart" className={`h-64 mb-6 p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
@@ -638,6 +701,75 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
           </ResponsiveContainer>
         )}
       </div>
+
+      <div className="flex justify-between items-center mb-4 mt-8">
+        <h3 className="font-bold text-lg">Owner-wise Analytics</h3>
+      </div>
+      
+      {!selectedOwner ? (
+        <div className={`p-4 rounded-lg border h-80 mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+          {loading ? <div className="h-full flex items-center justify-center">Loading...</div> : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={ownerData} onClick={(data) => {
+                if (data && data.activeLabel) setSelectedOwner(data.activeLabel);
+              }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#334155" : "#e2e8f0"} />
+                <XAxis dataKey="Owner" stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
+                <YAxis stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
+                <RechartsTooltip contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '8px' }} cursor={{fill: darkMode ? '#334155' : '#f1f5f9'}} />
+                <Legend />
+                <Bar dataKey="Resolved" stackId="a" fill="#22c55e" radius={[0, 0, 4, 4]} />
+                <Bar dataKey="Unresolved" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      ) : (
+        <div className={`p-4 rounded-lg border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+          <div className="flex justify-between items-center mb-4">
+            <h4 className="font-bold text-lg">{selectedOwner}'s Analytics</h4>
+            <div className="flex gap-2">
+              <button className={`px-3 py-1.5 rounded text-sm font-bold flex items-center gap-1 ${darkMode ? "bg-slate-700 text-blue-400 hover:bg-slate-600" : "bg-blue-100 text-blue-700 hover:bg-blue-200"}`} onClick={() => handleShare('data')}>
+                 Share Data
+              </button>
+              <button className={`px-3 py-1.5 rounded text-sm font-bold flex items-center gap-1 ${darkMode ? "bg-slate-700 text-blue-400 hover:bg-slate-600" : "bg-blue-100 text-blue-700 hover:bg-blue-200"}`} onClick={() => handleShare('graph')}>
+                 Share Graph
+              </button>
+              <button className={`px-3 py-1.5 rounded text-sm font-bold flex items-center gap-1 ${darkMode ? "bg-blue-600 text-white hover:bg-blue-500" : "bg-blue-600 text-white hover:bg-blue-700"}`} onClick={() => handleShare('both')}>
+                 Share Both
+              </button>
+              <button className={`px-3 py-1.5 rounded text-sm font-bold ${darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-200 text-slate-700 hover:bg-slate-300"}`} onClick={() => setSelectedOwner(null)}>
+                 Back
+              </button>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+            {['Total', 'Resolved', 'Unresolved', 'Critical', 'High'].map(k => (
+              <div key={k} className={`p-3 rounded-lg border ${darkMode ? "bg-slate-900 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                <p className="text-xs text-slate-500 font-bold uppercase">{k}</p>
+                <p className={`text-xl font-bold ${k === 'Resolved' ? 'text-green-500' : k === 'Unresolved' || k === 'Critical' ? 'text-red-500' : ''}`}>{ownerSummary[k] || 0}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className={`h-64 p-4 rounded-lg border ${darkMode ? "bg-slate-900 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+            {ownerLoading ? <div className="h-full flex items-center justify-center">Loading...</div> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={ownerTimeline}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#334155" : "#e2e8f0"} />
+                  <XAxis dataKey="date" stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
+                  <YAxis stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
+                  <RechartsTooltip contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '8px' }} />
+                  <Legend />
+                  <Area type="monotone" dataKey="Unresolved" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.6} />
+                  <Area type="monotone" dataKey="Resolved" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.6} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex justify-between items-center mb-4">
         <h3 className="font-bold text-lg">Datasets in Range</h3>

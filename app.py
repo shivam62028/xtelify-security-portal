@@ -3539,10 +3539,14 @@ async def get_analytics_datasets(formats: str = None, start_date: str = None, en
         if start_date or end_date:
             date_query = {}
             if start_date:
-                start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                ymd = start_date.split("T")[0]
+                y, m, d = map(int, ymd.split("-"))
+                start_dt = datetime(y, m, d, tzinfo=timezone.utc)
                 date_query["$gte"] = start_dt
             if end_date:
-                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                ymd = end_date.split("T")[0]
+                y, m, d = map(int, ymd.split("-"))
+                end_dt = datetime(y, m, d, tzinfo=timezone.utc) + timedelta(days=1) - timedelta(microseconds=1)
                 date_query["$lte"] = end_dt
             match_query["UploadedAt"] = date_query
 
@@ -3612,17 +3616,21 @@ async def get_analytics_historical(
         start_date_obj = None
         end_date_obj = None
         if start_date:
-            start_date_obj = datetime.fromisoformat(start_date.replace('Z', '+00:00')).date()
+            ymd = start_date.split("T")[0]
+            y, m, d = map(int, ymd.split("-"))
+            start_date_obj = date(y, m, d)
         if end_date:
-            end_date_obj = datetime.fromisoformat(end_date.replace('Z', '+00:00')).date()
+            ymd = end_date.split("T")[0]
+            y, m, d = map(int, ymd.split("-"))
+            end_date_obj = date(y, m, d)
             
         date_restricted_query = match_query.copy()
         if start_date or end_date:
             date_query = {}
             if start_date:
-                date_query["$gte"] = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                date_query["$gte"] = datetime(start_date_obj.year, start_date_obj.month, start_date_obj.day, tzinfo=timezone.utc)
             if end_date:
-                date_query["$lte"] = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                date_query["$lte"] = datetime(end_date_obj.year, end_date_obj.month, end_date_obj.day, tzinfo=timezone.utc) + timedelta(days=1) - timedelta(microseconds=1)
             date_restricted_query["UploadedAt"] = date_query
             
         datasets_count = len(issues_collection.distinct("UploadBatch", date_restricted_query))
@@ -3701,6 +3709,210 @@ async def get_analytics_historical(
             "totalVulnerabilities": period_total if mode.lower() == "daily" else cum_total,
             "resolved": period_res if mode.lower() == "daily" else cum_res,
             "unresolved": period_unres if mode.lower() == "daily" else cum_unres
+        }
+        
+        return {
+            "summary": summary,
+            "chartData": chart_data
+        }
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/analytics/owners")
+async def get_analytics_owners(
+    formats: str = None, 
+    start_date: str = None, 
+    end_date: str = None, 
+    upload_batches: str = None,
+    mode: str = "Cumulative",
+    owner: str = None
+):
+    if not _is_mongo_available():
+        return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
+    try:
+        match_query = {}
+        
+        if upload_batches:
+            batch_list = [b.strip() for b in upload_batches.split('||')]
+            match_query["UploadBatch"] = {"$in": batch_list}
+        elif formats:
+            format_list = [f.strip() for f in formats.split(',')]
+            match_query["SourceFormat"] = {"$in": format_list}
+            
+        start_date_obj = None
+        end_date_obj = None
+        if start_date:
+            ymd = start_date.split("T")[0]
+            y, m, d = map(int, ymd.split("-"))
+            start_date_obj = date(y, m, d)
+        if end_date:
+            ymd = end_date.split("T")[0]
+            y, m, d = map(int, ymd.split("-"))
+            end_date_obj = date(y, m, d)
+            
+        # For daily mode we only want issues IN the date range. For cumulative we include everything up to end_date.
+        if mode.lower() == "daily":
+            if start_date or end_date:
+                date_query = {}
+                if start_date:
+                    date_query["$gte"] = datetime(start_date_obj.year, start_date_obj.month, start_date_obj.day, tzinfo=timezone.utc)
+                if end_date:
+                    date_query["$lte"] = datetime(end_date_obj.year, end_date_obj.month, end_date_obj.day, tzinfo=timezone.utc) + timedelta(days=1) - timedelta(microseconds=1)
+                match_query["UploadedAt"] = date_query
+        else: # cumulative
+            if end_date:
+                match_query["UploadedAt"] = {"$lte": datetime(end_date_obj.year, end_date_obj.month, end_date_obj.day, tzinfo=timezone.utc) + timedelta(days=1) - timedelta(microseconds=1)}
+
+        if owner:
+            match_query["AssignedTo"] = owner
+
+        # If no owner is specified, group by owner to return the bar chart data
+        if not owner:
+            pipeline = [
+                {"$match": match_query},
+                {"$group": {
+                    "_id": {"$ifNull": ["$AssignedTo", "Unassigned"]},
+                    "total": {"$sum": 1},
+                    "resolved": {
+                        "$sum": {
+                            "$cond": [{"$in": [{"$toLower": "$Status"}, ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]]}, 1, 0]
+                        }
+                    },
+                    "unresolved": {
+                        "$sum": {
+                            "$cond": [{"$in": [{"$toLower": "$Status"}, ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]]}, 0, 1]
+                        }
+                    }
+                }},
+                {"$sort": {"total": -1}}
+            ]
+            results = list(issues_collection.aggregate(pipeline))
+            
+            owner_data = []
+            for r in results:
+                owner_data.append({
+                    "Owner": r["_id"],
+                    "Resolved": r["resolved"],
+                    "Unresolved": r["unresolved"],
+                    "Total": r["total"]
+                })
+            return {"ownerData": owner_data}
+            
+        # If owner IS specified, we want their timeline (Resolved/Unresolved over time) and their summary cards
+        # We need the daily aggregation to build a cumulative or daily timeline for this specific owner
+        # Just like historical analytics, we need to run it grouped by day.
+        # But we use the base_query (without daily restriction) to build a cumulative timeline.
+        
+        base_query = match_query.copy()
+        if mode.lower() == "daily" and "UploadedAt" in base_query:
+            del base_query["UploadedAt"] # Remove the date restriction for timeline generation
+            
+        pipeline = [
+            {"$match": base_query},
+            {"$group": {
+                "_id": {
+                    "year": {"$year": "$UploadedAt"},
+                    "month": {"$month": "$UploadedAt"},
+                    "day": {"$dayOfMonth": "$UploadedAt"}
+                },
+                "total": {"$sum": 1},
+                "resolved": {
+                    "$sum": {
+                        "$cond": [{"$in": [{"$toLower": "$Status"}, ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]]}, 1, 0]
+                    }
+                },
+                "unresolved": {
+                    "$sum": {
+                        "$cond": [{"$in": [{"$toLower": "$Status"}, ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]]}, 0, 1]
+                    }
+                },
+                "critical": {
+                    "$sum": {
+                        "$cond": [{"$eq": [{"$toLower": "$Severity"}, "critical"]}, 1, 0]
+                    }
+                },
+                "high": {
+                    "$sum": {
+                        "$cond": [{"$eq": [{"$toLower": "$Severity"}, "high"]}, 1, 0]
+                    }
+                }
+            }},
+            {"$sort": {"_id.year": 1, "_id.month": 1, "_id.day": 1}}
+        ]
+        
+        daily_results = list(issues_collection.aggregate(pipeline))
+        
+        chart_data = []
+        cum_total = cum_res = cum_unres = cum_crit = cum_high = 0
+        period_total = period_res = period_unres = period_crit = period_high = 0
+        
+        if daily_results:
+            first_day = datetime(daily_results[0]['_id']['year'], daily_results[0]['_id']['month'], daily_results[0]['_id']['day']).date()
+            last_day = datetime(daily_results[-1]['_id']['year'], daily_results[-1]['_id']['month'], daily_results[-1]['_id']['day']).date()
+            if end_date_obj and end_date_obj > last_day:
+                last_day = end_date_obj
+                
+            current_day = first_day
+            idx = 0
+            
+            while current_day <= last_day:
+                d_year, d_month, d_day = current_day.year, current_day.month, current_day.day
+                day_str = f"{d_year:04d}-{d_month:02d}-{d_day:02d}"
+                
+                d_tot = d_res = d_unres = d_crit = d_high = 0
+                if idx < len(daily_results):
+                    r = daily_results[idx]
+                    if r['_id']['year'] == d_year and r['_id']['month'] == d_month and r['_id']['day'] == d_day:
+                        d_tot = r["total"]
+                        d_res = r["resolved"]
+                        d_unres = r["unresolved"]
+                        d_crit = r.get("critical", 0)
+                        d_high = r.get("high", 0)
+                        idx += 1
+                        
+                cum_total += d_tot
+                cum_res += d_res
+                cum_unres += d_unres
+                cum_crit += d_crit
+                cum_high += d_high
+                
+                in_range = True
+                if start_date_obj and current_day < start_date_obj: in_range = False
+                if end_date_obj and current_day > end_date_obj: in_range = False
+                
+                if in_range:
+                    period_total += d_tot
+                    period_res += d_res
+                    period_unres += d_unres
+                    period_crit += d_crit
+                    period_high += d_high
+                    
+                    if mode.lower() == "cumulative":
+                        chart_data.append({
+                            "date": day_str,
+                            "Total": cum_total,
+                            "Resolved": cum_res,
+                            "Unresolved": cum_unres
+                        })
+                    else:
+                        chart_data.append({
+                            "date": day_str,
+                            "Total": d_tot,
+                            "Resolved": d_res,
+                            "Unresolved": d_unres
+                        })
+                        
+                current_day += timedelta(days=1)
+                
+        summary = {
+            "Total": period_total if mode.lower() == "daily" else cum_total,
+            "Resolved": period_res if mode.lower() == "daily" else cum_res,
+            "Unresolved": period_unres if mode.lower() == "daily" else cum_unres,
+            "Critical": period_crit if mode.lower() == "daily" else cum_crit,
+            "High": period_high if mode.lower() == "daily" else cum_high,
+            "Overdue": 0 # Would require due-date logic, stubbing for now
         }
         
         return {
