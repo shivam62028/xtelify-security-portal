@@ -919,6 +919,7 @@ const AppContent: React.FC = () => {
 
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [aiRecipient, setAiRecipient] = useState<string>("");
+  const [aiOwner, setAiOwner] = useState<string>("All");
   const [aiPrompt, setAiPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [includeGraph, setIncludeGraph] = useState<boolean>(false);
@@ -2482,59 +2483,16 @@ const AppContent: React.FC = () => {
     }
   };
 
+  const uniqueOwnersForEmail = Array.from(new Set(allIssues.map(i => i.AssignedTo || "Unassigned"))).sort();
+
   const handleAiEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!aiRecipient || !aiPrompt) return;
 
     setIsGenerating(true);
-    await new Promise((resolve) => setTimeout(resolve, 50));
 
     try {
-      const doc = new jsPDF();
-      doc.setFontSize(18);
-      doc.text("Security Vulnerability Report", 14, 20);
-      doc.setFontSize(11);
-      doc.setTextColor(100);
-      doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 28);
-
-      const splitPrompt = doc.splitTextToSize(
-        `Instructions: ${aiPrompt}`,
-        180
-      );
-      doc.text(splitPrompt, 14, 38);
-
-      const openGroups = (groupedIssues || []).filter(
-        (i) => !isResolved(i.Status)
-      );
-
-      const tableData = openGroups.map((i) => [
-        i.DisplayID,
-        i.Severity,
-        i.Remediation,
-        `${i.Assets?.length || 0} Assets Affected`,
-        i.DueDate,
-      ]);
-
-      autoTable(doc, {
-        startY: 40 + splitPrompt.length * 5,
-        head: [
-          [
-            "Vulnerability",
-            "Severity",
-            "Remediation Action",
-            "Impact",
-            "Due Date",
-          ],
-        ],
-        body: tableData,
-        theme: "grid",
-        headStyles: { fillColor: [30, 41, 59] },
-        styles: { fontSize: 8 },
-        columnStyles: { 2: { cellWidth: 60 } },
-      });
-
-      doc.save("Security_Action_Report.pdf");
-
+      let graphBase64 = null;
       if (includeGraph) {
         const chartEl = document.getElementById("vulnerability-history-chart");
         if (chartEl) {
@@ -2542,36 +2500,35 @@ const AppContent: React.FC = () => {
             backgroundColor: darkMode ? "#1e293b" : "#ffffff",
             scale: 2
           });
-          const imageBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-          if (imageBlob) {
-            const url = URL.createObjectURL(imageBlob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = "vulnerability-graph.png";
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-          }
+          graphBase64 = canvas.toDataURL("image/png");
         }
       }
 
-      const subject = encodeURIComponent(
-        `Security Action Required: Pending Vulnerabilities`
-      );
-      let body = `${aiPrompt}\n\n--- Report Summary ---\nTotal Unique Vulnerabilities: ${openGroups.length}\n\n[Please find the detailed PDF report${includeGraph ? " and the vulnerability graph" : ""} attached to this email.]`;
+      const response = await fetch("http://localhost:8000/api/email/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipient: aiRecipient,
+          prompt: aiPrompt,
+          owner: aiOwner,
+          graphBase64: graphBase64 || null
+        })
+      });
 
-      window.location.href = `mailto:${aiRecipient}?subject=${subject}&body=${encodeURIComponent(
-        body
-      )}`;
-    } catch (err) {
-      console.error("Error generating report/graph", err);
-    } finally {
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to send email");
+      }
+
+      alert("Email sent successfully!");
       setIsAiModalOpen(false);
       setAiPrompt("");
       setAiRecipient("");
+    } catch (err: any) {
+      console.error("Error sending email", err);
+      alert(err.message || "An error occurred while sending the email.");
+    } finally {
       setIsGenerating(false);
-      setIncludeGraph(false);
     }
   };
 
