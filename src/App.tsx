@@ -11,6 +11,7 @@ import React, {
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import html2canvas from "html2canvas";
 import {
   Shield,
   AlertTriangle,
@@ -52,7 +53,8 @@ import {
   Sparkles,
   Copy,
   RefreshCw,
-  Bug
+  Bug,
+  Share2
 } from "lucide-react";
 import {
   PieChart,
@@ -621,7 +623,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
         <p className={`text-sm italic mb-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Current cumulative totals as of {dateRange.end ? dateRange.end.toLocaleDateString() : new Date().toLocaleDateString()}</p>
       )}
 
-      <div className={`h-64 mb-6 p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+      <div id="vulnerability-history-chart" className={`h-64 mb-6 p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
         {loading ? <div className="h-full flex items-center justify-center">Loading...</div> : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData}>
@@ -787,6 +789,7 @@ const AppContent: React.FC = () => {
   const [aiRecipient, setAiRecipient] = useState<string>("");
   const [aiPrompt, setAiPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [includeGraph, setIncludeGraph] = useState<boolean>(false);
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
@@ -1144,8 +1147,8 @@ const AppContent: React.FC = () => {
     const abortController = new AbortController();
 
     const params = new URLSearchParams();
-    params.append("page", currentPage.toString());
-    params.append("limit", rowsPerPage.toString());
+    params.append("page", "1");
+    params.append("limit", "100000"); // Fetch all data to compute dashboard stats correctly
 
     if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
     if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
@@ -1249,7 +1252,7 @@ const AppContent: React.FC = () => {
       });
 
     return () => abortController.abort();
-  }, [currentPage, rowsPerPage, searchTerm, searchField, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, isAdvancedSearchOpen]);
+  }, [searchTerm, searchField, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, isAdvancedSearchOpen]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1617,9 +1620,9 @@ const AppContent: React.FC = () => {
   const totalPages = useMemo(() => Math.ceil((totalRecords || 0) / rowsPerPage), [totalRecords, rowsPerPage]);
 
   const paginatedIssues = useMemo(() => {
-    // The server has already paginated the data, so tableFilteredIssues is exactly the page we need.
-    return tableFilteredIssues || [];
-  }, [tableFilteredIssues]);
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    return (tableFilteredIssues || []).slice(startIndex, startIndex + rowsPerPage);
+  }, [tableFilteredIssues, currentPage, rowsPerPage]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -2347,77 +2350,100 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const handleAiEmailSubmit = (e: React.FormEvent) => {
+  const handleAiEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!aiRecipient || !aiPrompt) return;
 
     setIsGenerating(true);
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
-    setTimeout(() => {
-      try {
-        const doc = new jsPDF();
-        doc.setFontSize(18);
-        doc.text("Security Vulnerability Report", 14, 20);
-        doc.setFontSize(11);
-        doc.setTextColor(100);
-        doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 28);
+    try {
+      const doc = new jsPDF();
+      doc.setFontSize(18);
+      doc.text("Security Vulnerability Report", 14, 20);
+      doc.setFontSize(11);
+      doc.setTextColor(100);
+      doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 28);
 
-        const splitPrompt = doc.splitTextToSize(
-          `Instructions: ${aiPrompt}`,
-          180
-        );
-        doc.text(splitPrompt, 14, 38);
+      const splitPrompt = doc.splitTextToSize(
+        `Instructions: ${aiPrompt}`,
+        180
+      );
+      doc.text(splitPrompt, 14, 38);
 
-        const openGroups = (groupedIssues || []).filter(
-          (i) => !isResolved(i.Status)
-        );
+      const openGroups = (groupedIssues || []).filter(
+        (i) => !isResolved(i.Status)
+      );
 
-        const tableData = openGroups.map((i) => [
-          i.DisplayID,
-          i.Severity,
-          i.Remediation,
-          `${i.Assets?.length || 0} Assets Affected`,
-          i.DueDate,
-        ]);
+      const tableData = openGroups.map((i) => [
+        i.DisplayID,
+        i.Severity,
+        i.Remediation,
+        `${i.Assets?.length || 0} Assets Affected`,
+        i.DueDate,
+      ]);
 
-        autoTable(doc, {
-          startY: 40 + splitPrompt.length * 5,
-          head: [
-            [
-              "Vulnerability",
-              "Severity",
-              "Remediation Action",
-              "Impact",
-              "Due Date",
-            ],
+      autoTable(doc, {
+        startY: 40 + splitPrompt.length * 5,
+        head: [
+          [
+            "Vulnerability",
+            "Severity",
+            "Remediation Action",
+            "Impact",
+            "Due Date",
           ],
-          body: tableData,
-          theme: "grid",
-          headStyles: { fillColor: [30, 41, 59] },
-          styles: { fontSize: 8 },
-          columnStyles: { 2: { cellWidth: 60 } },
-        });
+        ],
+        body: tableData,
+        theme: "grid",
+        headStyles: { fillColor: [30, 41, 59] },
+        styles: { fontSize: 8 },
+        columnStyles: { 2: { cellWidth: 60 } },
+      });
 
-        doc.save("Security_Action_Report.pdf");
+      doc.save("Security_Action_Report.pdf");
 
-        const subject = encodeURIComponent(
-          `Security Action Required: Pending Vulnerabilities`
-        );
-        let body = `${aiPrompt}\n\n--- Report Summary ---\nTotal Unique Vulnerabilities: ${openGroups.length}\n\n[Please find the detailed PDF report attached to this email.]`;
-
-        window.location.href = `mailto:${aiRecipient}?subject=${subject}&body=${encodeURIComponent(
-          body
-        )}`;
-      } catch (err) {
-        console.error("PDF Error", err);
-      } finally {
-        setIsAiModalOpen(false);
-        setAiPrompt("");
-        setAiRecipient("");
-        setIsGenerating(false);
+      if (includeGraph) {
+        const chartEl = document.getElementById("vulnerability-history-chart");
+        if (chartEl) {
+          const canvas = await html2canvas(chartEl, {
+            backgroundColor: darkMode ? "#1e293b" : "#ffffff",
+            scale: 2
+          });
+          const imageBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+          if (imageBlob) {
+            const url = URL.createObjectURL(imageBlob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "vulnerability-graph.png";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+          }
+        }
       }
-    }, 1500);
+
+      const subject = encodeURIComponent(
+        `Security Action Required: Pending Vulnerabilities`
+      );
+      let body = `${aiPrompt}\n\n--- Report Summary ---\nTotal Unique Vulnerabilities: ${openGroups.length}\n\n[Please find the detailed PDF report${includeGraph ? " and the vulnerability graph" : ""} attached to this email.]`;
+
+      window.location.href = `mailto:${aiRecipient}?subject=${subject}&body=${encodeURIComponent(
+        body
+      )}`;
+    } catch (err) {
+      console.error("Error generating report/graph", err);
+    } finally {
+      setIsAiModalOpen(false);
+      setAiPrompt("");
+      setAiRecipient("");
+      setIsGenerating(false);
+      setIncludeGraph(false);
+    }
   };
+
+
 
   const handleDeleteSelectedBatches = async () => {
     if (selectedBatches.length === 0) return;
@@ -4261,11 +4287,22 @@ const AppContent: React.FC = () => {
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
                 />
+                <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
+                  <input 
+                    type="checkbox" 
+                    id="includeGraph" 
+                    checked={includeGraph} 
+                    onChange={(e) => setIncludeGraph(e.target.checked)}
+                    className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
+                  />
+                  <label htmlFor="includeGraph" className="text-sm text-slate-700 font-medium cursor-pointer">
+                    Include Vulnerability Graph
+                  </label>
+                </div>
                 <p className="text-[10px] text-slate-400 mt-2 font-medium flex items-start gap-1.5">
                   <Download size={12} className="shrink-0 mt-0.5" />
                   <span>
-                    The AI will append an issue count summary and download a PDF
-                    containing all currently visible open issues.
+                    The AI will append an issue summary and download a PDF of open issues. {includeGraph && "Additionally, a PNG of the vulnerability graph will be downloaded. "}You will need to manually attach any downloaded files to the email.
                   </span>
                 </p>
               </div>
@@ -4288,7 +4325,7 @@ const AppContent: React.FC = () => {
                   ) : (
                     <Send size={14} />
                   )}
-                  {isGenerating ? "Generating..." : "Generate PDF & Open Email"}
+                  Generate PDF & Open Email
                 </button>
               </div>
             </form>
