@@ -2901,7 +2901,7 @@ const AppContent: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
             <Card
               title="Total Vulnerabilities"
-              val={stats?.total || 0}
+              val={totalRecords || 0}
               Icon={Bug}
               color="text-indigo-500"
               bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
