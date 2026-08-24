@@ -51,7 +51,8 @@ import {
   CalendarDays,
   Sparkles,
   Copy,
-  RefreshCw
+  RefreshCw,
+  Bug
 } from "lucide-react";
 import {
   PieChart,
@@ -2897,7 +2898,14 @@ const AppContent: React.FC = () => {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
+            <Card
+              title="Total Vulnerabilities"
+              val={stats?.total || 0}
+              Icon={Bug}
+              color="text-indigo-500"
+              bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
+            />
             <Card
               title="Unique CVEs"
               val={stats?.uniqueVulns || 0}
