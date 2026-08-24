@@ -916,6 +916,8 @@ const AppContent: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [rowsPerPage, setRowsPerPage] = useState<number>(100);
   const [totalRecords, setTotalRecords] = useState<number>(0);
+  const [dashboardStats, setDashboardStats] = useState<any>(null);
+  const [uploadCounter, setUploadCounter] = useState<number>(0);
 
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [aiRecipient, setAiRecipient] = useState<string>("");
@@ -1261,7 +1263,7 @@ const AppContent: React.FC = () => {
   };
 
   useEffect(() => {
-    // Fetch batches on mount
+    // Fetch batches on mount or after upload
     fetch(`${BACKEND_URL}/api/db/metadata`, { mode: "cors" })
       .then(res => res.json())
       .then(data => {
@@ -1273,51 +1275,62 @@ const AppContent: React.FC = () => {
         }
       })
       .catch(console.error);
-  }, []);
+  }, [uploadCounter]);
 
   useEffect(() => {
     setIsLoading(true);
     const abortController = new AbortController();
 
-    const params = new URLSearchParams();
-    params.append("page", "1");
-    params.append("limit", "100000"); // Fetch all data to compute dashboard stats correctly
-
-    if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
-    if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
-
-    if (isAdvancedSearchOpen) {
-      params.append("is_advanced_search", "true");
-      if (searchTerm) {
-        params.append("search", searchTerm);
-        params.append("search_field", searchField);
+    const buildParams = (includePagination: boolean) => {
+      const params = new URLSearchParams();
+      if (includePagination) {
+        params.append("page", currentPage.toString());
+        params.append("limit", rowsPerPage.toString());
       }
-      if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
+  
+      if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
+      if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
+  
+      if (isAdvancedSearchOpen) {
+        params.append("is_advanced_search", "true");
+        if (searchTerm) {
+          params.append("search", searchTerm);
+          params.append("search_field", searchField);
+        }
+        if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
+  
+        if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
+        if (quickFilter === "critical") params.append("severity", "Critical");
+        if (quickFilter === "overdue") params.append("status", "Open");
+  
+        if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
+        if (dateFrom) params.append("date_from", dateFrom);
+        if (dateTo) params.append("date_to", dateTo);
+      }
+      return params.toString();
+    };
 
-      if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
-      if (quickFilter === "critical") params.append("severity", "Critical");
-      if (quickFilter === "overdue") params.append("status", "Open");
-
-      if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
-      if (dateFrom) params.append("date_from", dateFrom);
-      if (dateTo) params.append("date_to", dateTo);
-    }
-
-    fetch(`${BACKEND_URL}/api/db?${params.toString()}`, { mode: "cors", signal: abortController.signal })
+    const fetchVulnerabilities = fetch(`${BACKEND_URL}/api/db?${buildParams(true)}`, { mode: "cors", signal: abortController.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         return res.json();
-      })
-      .then((payload) => {
-        let rawArray: Record<string, any>[] = [];
-        let totalCount = 0;
+      });
 
-        if (payload && Array.isArray(payload.data)) {
-          rawArray = payload.data;
-          totalCount = payload.pagination?.total || 0;
-        } else if (Array.isArray(payload)) {
-          rawArray = payload;
-          totalCount = rawArray.length;
+    const fetchSummary = fetch(`${BACKEND_URL}/api/db/summary?${buildParams(false)}`, { mode: "cors", signal: abortController.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.json();
+      });
+
+    Promise.all([fetchVulnerabilities, fetchSummary])
+      .then(([dbPayload, summaryPayload]) => {
+        let rawArray: Record<string, any>[] = [];
+        let totalCount = summaryPayload?.total || 0;
+
+        if (dbPayload && Array.isArray(dbPayload.data)) {
+          rawArray = dbPayload.data;
+        } else if (Array.isArray(dbPayload)) {
+          rawArray = dbPayload;
         }
 
         if (Array.isArray(rawArray)) {
@@ -1370,9 +1383,11 @@ const AppContent: React.FC = () => {
 
           setAllIssues(safeData);
           setTotalRecords(totalCount);
+          setDashboardStats(summaryPayload);
         } else {
           setAllIssues([]);
           setTotalRecords(0);
+          setDashboardStats(null);
         }
         setIsLoading(false);
       })
@@ -1381,11 +1396,12 @@ const AppContent: React.FC = () => {
         console.error("Error fetching issues:", err);
         setAllIssues([]);
         setTotalRecords(0);
+        setDashboardStats(null);
         setIsLoading(false);
       });
 
     return () => abortController.abort();
-  }, [searchTerm, searchField, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, isAdvancedSearchOpen]);
+  }, [searchTerm, searchField, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, isAdvancedSearchOpen, currentPage, rowsPerPage, uploadCounter]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1832,6 +1848,13 @@ const AppContent: React.FC = () => {
   };
 
   const pipeline = useMemo(() => {
+    if (dashboardStats?.status) {
+      return {
+        open: dashboardStats.status.open || 0,
+        progress: 0,
+        resolved: dashboardStats.status.resolved || 0,
+      };
+    }
     try {
       return {
         open: (displayedIssues || []).filter(
@@ -1845,7 +1868,7 @@ const AppContent: React.FC = () => {
     } catch {
       return { open: 0, progress: 0, resolved: 0 };
     }
-  }, [displayedIssues]);
+  }, [displayedIssues, dashboardStats]);
 
   const stats = useMemo(() => {
     try {
@@ -1892,6 +1915,9 @@ const AppContent: React.FC = () => {
   }, [filteredActiveIssues, activeIssues]);
 
   const typeChartData = useMemo(() => {
+    if (dashboardStats?.category) {
+      return dashboardStats.category.slice(0, 6);
+    }
     try {
       const typeMap: Record<string, number> = {};
       (displayedIssues || []).forEach((issue) => {
@@ -1908,7 +1934,7 @@ const AppContent: React.FC = () => {
     } catch {
       return [];
     }
-  }, [displayedIssues]);
+  }, [displayedIssues, dashboardStats]);
 
   const getIssueSeverity = (issue: Issue): string => {
     const format = issue.SourceFormat || "CONTAINER";
@@ -1928,6 +1954,9 @@ const AppContent: React.FC = () => {
   };
 
   const ownerChartData = useMemo(() => {
+    if (dashboardStats?.owner) {
+      return dashboardStats.owner.map((o: any) => ({ name: o.name, Critical: o.Issues, High: 0, Medium: 0 })); // Fallback map
+    }
     try {
       const fendralis: Record<
         string,
@@ -1969,9 +1998,12 @@ const AppContent: React.FC = () => {
     } catch {
       return [];
     }
-  }, [displayedIssues]);
+  }, [displayedIssues, dashboardStats]);
 
   const lobChartData = useMemo(() => {
+    if (dashboardStats?.lob) {
+      return dashboardStats.lob.map((l: any) => ({ name: l.name, Critical: l.Issues, High: 0, Medium: 0 })); // Fallback map
+    }
     try {
       const lobMap: Record<string, { name: string; Critical: number; High: number; Medium: number }> = {};
       const vaptIssues = (displayedIssues || []).filter(i => i.SourceFormat === "VAPT");
@@ -1996,7 +2028,7 @@ const AppContent: React.FC = () => {
     } catch {
       return [];
     }
-  }, [displayedIssues]);
+  }, [displayedIssues, dashboardStats]);
 
   const timelineChartData = useMemo(() => {
     try {
@@ -2063,6 +2095,25 @@ const AppContent: React.FC = () => {
   };
 
   const severityPieData = useMemo(() => {
+    if (dashboardStats?.severity) {
+      const c = dashboardStats.severity;
+      return {
+        data: [
+          { name: "Critical", value: c.critical || 0, color: "#dc2626" },
+          { name: "High", value: c.high || 0, color: "#f97316" },
+          { name: "Medium", value: c.medium || 0, color: "#eab308" },
+          { name: "Low", value: c.low || 0, color: "#22c55e" },
+        ].filter(d => d.value > 0),
+        allData: [
+          { name: "Critical", value: c.critical || 0, color: "#dc2626" },
+          { name: "High", value: c.high || 0, color: "#f97316" },
+          { name: "Medium", value: c.medium || 0, color: "#eab308" },
+          { name: "Low", value: c.low || 0, color: "#22c55e" },
+        ],
+        total: (c.critical||0) + (c.high||0) + (c.medium||0) + (c.low||0),
+        counts: { Critical: c.critical||0, High: c.high||0, Medium: c.medium||0, Low: c.low||0 }
+      };
+    }
     try {
       const allIssues = activeIssues || [];
       const counts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
@@ -2101,6 +2152,9 @@ const AppContent: React.FC = () => {
   }, [activeIssues]);
 
   const cspmFindingChartData = useMemo(() => {
+    if (dashboardStats?.cspm) {
+      return dashboardStats.cspm.map((c: any) => ({ name: c.name, count: c.count }));
+    }
     try {
       const cspmIssues = (activeIssues || []).filter(i => i.SourceFormat === "CSPM");
       const findingMap: Record<string, number> = {};
@@ -2117,9 +2171,12 @@ const AppContent: React.FC = () => {
     } catch {
       return [];
     }
-  }, [activeIssues]);
+  }, [activeIssues, dashboardStats]);
 
   const topRemediations = useMemo(() => {
+    if (dashboardStats?.remediations) {
+      return dashboardStats.remediations;
+    }
     try {
       const actionMap: Record<string, number> = {};
       (groupedIssues || [])
@@ -2135,7 +2192,7 @@ const AppContent: React.FC = () => {
     } catch {
       return [];
     }
-  }, [groupedIssues]);
+  }, [groupedIssues, dashboardStats]);
 
   const slaComplianceData = useMemo(() => {
     try {
@@ -2638,7 +2695,8 @@ const AppContent: React.FC = () => {
 
         setUploadProgress("AI Processing Complete!");
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        window.location.reload();
+        setIsUploadModalOpen(false);
+        setUploadCounter(prev => prev + 1);
         return;
       }
 
@@ -2683,7 +2741,8 @@ const AppContent: React.FC = () => {
 
       setUploadProgress("AI Processing Complete!");
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      window.location.reload();
+      setIsUploadModalOpen(false);
+      setUploadCounter(prev => prev + 1);
     } catch (err: unknown) {
       setDuplicateUploadApproved(false);
       setIsProcessing(false);
@@ -2728,32 +2787,61 @@ const AppContent: React.FC = () => {
 
   const handleDragEndExport = () => setDraggedExportIdx(null);
 
-  const doDynamicExport = () => {
+  const doDynamicExport = async () => {
     let fendralis = exportFileName.trim() || "Wynk_Security_Report";
     if (!fendralis.toLowerCase().endsWith(".xlsx")) fendralis += ".xlsx";
 
-    const mexwf = activeIssues.map(issue => {
-      let row: Record<string, any> = {};
-      exportCols.forEach(col => {
-        let val = issue[col] !== undefined && issue[col] !== null ? issue[col] : "";
-        if ((col === "AffectedAsset" || col === "AssetName") && val) {
-          val = getShortAssetName(String(val));
+    try {
+      setIsLoading(true);
+      const params = new URLSearchParams();
+      if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
+      if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
+
+      if (isAdvancedSearchOpen) {
+        params.append("is_advanced_search", "true");
+        if (searchTerm) {
+          params.append("search", searchTerm);
+          params.append("search_field", searchField);
         }
-        row[col] = val;
+        if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
+
+        if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
+        if (quickFilter === "critical") params.append("severity", "Critical");
+        if (quickFilter === "overdue") params.append("status", "Open");
+
+        if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
+        if (dateFrom) params.append("date_from", dateFrom);
+        if (dateTo) params.append("date_to", dateTo);
+      }
+      
+      params.append("columns", exportCols.join(","));
+
+      const response = await fetch(`${BACKEND_URL}/api/export?${params.toString()}`, {
+        method: "GET",
       });
-      return row;
-    });
 
-    if (mexwf.length === 0) {
-      alert("No data available to export");
-      return;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Export failed with status: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fendralis;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      setIsExportModalOpen(false);
+    } catch (err: unknown) {
+      console.error("Export error:", err);
+      alert(`Export Failed:\n${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsLoading(false);
     }
-
-    const ws = XLSX.utils.json_to_sheet(mexwf, { header: exportCols });
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Security Report");
-    XLSX.writeFile(wb, fendralis);
-    setIsExportModalOpen(false);
   };
 
   const exportToPDF = () => {

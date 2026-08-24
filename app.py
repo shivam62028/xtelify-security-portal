@@ -1572,25 +1572,7 @@ def migrate_json_to_mongodb_once(json_file_path=dbf):
 _ensure_mongo_indexes()
 
 
-@app.get("/api/db")
-async def gd(
-    request: Request,
-    page: int = 1,
-    limit: int = 100,
-    search: str = None,
-    search_field: str = None,
-    severity: str = None,
-    status: str = None,
-    assigned_to: str = None,
-    source_format: str = None,
-    upload_batch: str = None,
-    date_from: str = None,
-    date_to: str = None,
-    is_advanced_search: str = None
-):
-    if not _is_mongo_available():
-        return ORJSONResponse(content={"data": [], "pagination": {"page": page, "limit": limit, "total": 0, "total_pages": 0}})
-
+def _build_db_query(search=None, search_field=None, severity=None, status=None, assigned_to=None, source_format=None, upload_batch=None, date_from=None, date_to=None, is_advanced_search=None):
     query = {}
     
     if source_format:
@@ -1690,6 +1672,40 @@ async def gd(
             if date_to:
                 date_query["$lte"] = date_to
             query["UploadedAt"] = date_query
+            
+    return query
+
+@app.get("/api/db")
+async def gd(
+    request: Request,
+    page: int = 1,
+    limit: int = 100,
+    search: str = None,
+    search_field: str = None,
+    severity: str = None,
+    status: str = None,
+    assigned_to: str = None,
+    source_format: str = None,
+    upload_batch: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    is_advanced_search: str = None
+):
+    if not _is_mongo_available():
+        return ORJSONResponse(content={"data": [], "pagination": {"page": page, "limit": limit, "total": 0, "total_pages": 0}})
+
+    query = _build_db_query(
+        search=search,
+        search_field=search_field,
+        severity=severity,
+        status=status,
+        assigned_to=assigned_to,
+        source_format=source_format,
+        upload_batch=upload_batch,
+        date_from=date_from,
+        date_to=date_to,
+        is_advanced_search=is_advanced_search
+    )
 
     try:
         total_records = issues_collection.count_documents(query)
@@ -1738,6 +1754,217 @@ async def gd(
     except Exception as e:
         print(f"[API Error] /api/db failed: {e}")
         return ORJSONResponse(status_code=500, content={"error": str(e), "data": [], "pagination": {"total": 0}})
+
+@app.get("/api/db/summary")
+async def db_summary(
+    request: Request,
+    search: str = None,
+    search_field: str = None,
+    severity: str = None,
+    status: str = None,
+    assigned_to: str = None,
+    source_format: str = None,
+    upload_batch: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    is_advanced_search: str = None
+):
+    if not _is_mongo_available():
+        return ORJSONResponse(content={"total": 0, "status": {"resolved": 0, "open": 0}, "severity": {"critical": 0, "high": 0, "medium": 0, "low": 0}, "cspm": []})
+
+    query = _build_db_query(
+        search=search, search_field=search_field, severity=severity, status=status,
+        assigned_to=assigned_to, source_format=source_format, upload_batch=upload_batch,
+        date_from=date_from, date_to=date_to, is_advanced_search=is_advanced_search
+    )
+
+    try:
+        pipeline = [
+            {"$match": query},
+            {"$facet": {
+                "total": [{"$count": "count"}],
+                "status": [
+                    {"$group": {
+                        "_id": {
+                            "$cond": [
+                                {"$regexMatch": {"input": {"$toLower": "$Status"}, "regex": "resolved|closed|fixed|mitigated|accepted|false positive"}},
+                                "resolved",
+                                "open"
+                            ]
+                        },
+                        "count": {"$sum": 1}
+                    }}
+                ],
+                "severity_raw": [
+                    {"$group": {
+                        "_id": {
+                            "Severity": "$Severity",
+                            "Criticality": "$Criticality",
+                            "CriticalityStatus": "$CriticalityStatus",
+                            "RiskFactor": "$RiskFactor",
+                            "Risk_Factor": "$Risk Factor",
+                            "SourceFormat": "$SourceFormat"
+                        },
+                        "count": {"$sum": 1}
+                    }}
+                ],
+                "cspm": [
+                    {"$match": {"SourceFormat": "CSPM"}},
+                    {"$group": {
+                        "_id": {"$ifNull": ["$finding_name", {"$ifNull": ["$FindingName", "Unknown"]}]},
+                        "count": {"$sum": 1}
+                    }},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10}
+                ],
+                "category": [
+                    {"$group": {
+                        "_id": {"$ifNull": ["$Category", "Uncategorized"]},
+                        "count": {"$sum": 1}
+                    }},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10}
+                ],
+                "owner": [
+                    {"$group": {
+                        "_id": {"$ifNull": ["$AssignedTo", "Unassigned"]},
+                        "count": {"$sum": 1}
+                    }},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10}
+                ],
+                "lob": [
+                    {"$group": {
+                        "_id": {"$ifNull": ["$LOB Name", {"$ifNull": ["$LOBName", {"$ifNull": ["$LOB", "NA"]}]}]},
+                        "count": {"$sum": 1}
+                    }},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10}
+                ],
+                "remediations": [
+                    {"$group": {
+                        "_id": {"$ifNull": ["$RecommendedAction", "No remediation steps provided."]},
+                        "count": {"$sum": 1}
+                    }},
+                    {"$match": {"_id": {"$nin": ["", "NA", "No remediation steps provided."]}}},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10}
+                ]
+            }}
+        ]
+        
+        result = list(issues_collection.aggregate(pipeline))
+        if not result:
+            return ORJSONResponse(content={"total": 0, "status": {"resolved": 0, "open": 0}, "severity": {"critical": 0, "high": 0, "medium": 0, "low": 0}, "cspm": [], "category": [], "owner": [], "lob": [], "remediations": []})
+            
+        data = result[0]
+        
+        total = data["total"][0]["count"] if data.get("total") else 0
+        
+        status_counts = {"resolved": 0, "open": 0}
+        for s in data.get("status", []):
+            if s["_id"] == "resolved":
+                status_counts["resolved"] += s["count"]
+            else:
+                status_counts["open"] += s["count"]
+                
+        severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for s in data.get("severity_raw", []):
+            count = s["count"]
+            grp = s["_id"]
+            if not isinstance(grp, dict):
+                continue
+                
+            fmt = grp.get("SourceFormat") or "CONTAINER"
+            sev_val = ""
+            if fmt == "SAST_DAST":
+                sev_val = grp.get("Criticality") or grp.get("CriticalityStatus") or grp.get("Severity") or ""
+            elif fmt == "VAPT":
+                sev_val = grp.get("Risk_Factor") or grp.get("RiskFactor") or grp.get("Severity") or ""
+            else:
+                sev_val = grp.get("Severity") or ""
+                
+            sev_lower = str(sev_val).lower().strip()
+            if sev_lower in ["critical", "urgent"]:
+                severity_counts["critical"] += count
+            elif sev_lower == "high":
+                severity_counts["high"] += count
+            elif sev_lower in ["low", "info"]:
+                severity_counts["low"] += count
+            else:
+                severity_counts["medium"] += count
+                
+        cspm = [{"name": c["_id"], "count": c["count"]} for c in data.get("cspm", []) if c["_id"] not in ["NA", "Unknown"]]
+        category = [{"name": c["_id"], "Issues": c["count"]} for c in data.get("category", [])]
+        owner = [{"name": c["_id"], "Issues": c["count"]} for c in data.get("owner", [])]
+        lob = [{"name": c["_id"], "Issues": c["count"]} for c in data.get("lob", [])]
+        remediations = [{"action": c["_id"], "count": c["count"]} for c in data.get("remediations", [])]
+        
+        return ORJSONResponse(content={
+            "total": total,
+            "status": status_counts,
+            "severity": severity_counts,
+            "cspm": cspm,
+            "category": category,
+            "owner": owner,
+            "lob": lob,
+            "remediations": remediations
+        })
+    except Exception as e:
+        print(f"[API Error] /api/db/summary failed: {e}")
+        return ORJSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/export")
+async def export_data(
+    request: Request,
+    search: str = None,
+    search_field: str = None,
+    severity: str = None,
+    status: str = None,
+    assigned_to: str = None,
+    source_format: str = None,
+    upload_batch: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    is_advanced_search: str = None
+):
+    if not _is_mongo_available():
+        return Response(content="Database unavailable", status_code=503)
+
+    query = _build_db_query(
+        search=search, search_field=search_field, severity=severity, status=status,
+        assigned_to=assigned_to, source_format=source_format, upload_batch=upload_batch,
+        date_from=date_from, date_to=date_to, is_advanced_search=is_advanced_search
+    )
+
+    try:
+        cursor = issues_collection.find(query).sort("UploadedAt", -1)
+        records = list(cursor)
+        
+        if not records:
+            # Return empty excel
+            df = pd.DataFrame(["No data found matching filters."])
+        else:
+            for rec in records:
+                rec.pop("_id", None)
+            df = pd.DataFrame(records)
+            
+        excel_buffer = io.BytesIO()
+        df.to_excel(excel_buffer, index=False)
+        excel_buffer.seek(0)
+        
+        headers = {
+            'Content-Disposition': 'attachment; filename="Security_Export.xlsx"',
+            'Access-Control-Expose-Headers': 'Content-Disposition'
+        }
+        return Response(
+            content=excel_buffer.read(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=headers
+        )
+    except Exception as e:
+        print(f"[API Error] /api/export failed: {e}")
+        return Response(content=f"Export failed: {str(e)}", status_code=500)
 
 @app.get("/api/db/metadata")
 async def db_metadata():
