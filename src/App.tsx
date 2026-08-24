@@ -853,6 +853,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
 const AppContent: React.FC = () => {
   const [allIssues, setAllIssues] = useState<Issue[]>([]);
   const [batches, setBatches] = useState<string[]>([]);
+  const [batchFormats, setBatchFormats] = useState<Record<string, string>>({});
   const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
   const [isBatchDropdownOpen, setIsBatchDropdownOpen] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -1269,8 +1270,14 @@ const AppContent: React.FC = () => {
       .then(data => {
         if (data.batches && Array.isArray(data.batches)) {
           setBatches(data.batches);
+          if (data.formats) {
+            setBatchFormats(data.formats);
+          }
           if (data.batches.length > 0 && selectedBatches.length === 0) {
-            setSelectedBatches(data.batches);
+            setSelectedBatches(selectedFormatFilter !== "All" 
+              ? data.batches.filter((b: string) => (data.formats?.[b] || "CONTAINER") === selectedFormatFilter)
+              : data.batches
+            );
           }
         }
       })
@@ -1568,30 +1575,15 @@ const AppContent: React.FC = () => {
     return Array.from(fendralis);
   }, [activeIssues]);
 
-  const batchFormats = useMemo(() => {
-    const formats: Record<string, string> = {};
-    batches.forEach(batch => {
-      const batchIssues = allIssues.filter(i => i.UploadBatch === batch);
-      if (batchIssues.length > 0) {
-        const formatCounts: Record<string, number> = {};
-        batchIssues.forEach(i => {
-          const fmt = i.SourceFormat || "CONTAINER";
-          formatCounts[fmt] = (formatCounts[fmt] || 0) + 1;
-        });
-        const mostCommon = Object.entries(formatCounts).sort((a, b) => b[1] - a[1])[0];
-        formats[batch] = mostCommon ? mostCommon[0] : "CONTAINER";
-      }
-    });
-    return formats;
-  }, [batches, allIssues]);
+
 
   const availableFormats = useMemo(() => {
     const formats = new Set<string>();
-    (allIssues || []).filter(i => selectedBatches.includes(i.UploadBatch)).forEach(i => {
-      formats.add(i.SourceFormat || "CONTAINER");
+    selectedBatches.forEach(batch => {
+      if (batchFormats[batch]) formats.add(batchFormats[batch]);
     });
     return Array.from(formats);
-  }, [allIssues, selectedBatches]);
+  }, [batchFormats, selectedBatches]);
 
   const dominantFormat = useMemo(() => {
     if (selectedFormatFilter !== "All") return selectedFormatFilter;
@@ -1630,6 +1622,18 @@ const AppContent: React.FC = () => {
 
   const handleFormatFilterChange = (format: string) => {
     setSelectedFormatFilter(format);
+    
+    // Auto-select batches that match this format
+    if (format === "All") {
+      setSelectedBatches(batches);
+    } else {
+      const matchingBatches = batches.filter(batch => {
+        const batchFormat = batchFormats[batch] || "CONTAINER";
+        return batchFormat === format;
+      });
+      setSelectedBatches(matchingBatches);
+    }
+
     setSelectedOwners([]);
     setSelectedFindingType("All");
     setSearchTerm("");

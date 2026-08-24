@@ -1969,15 +1969,27 @@ async def export_data(
 @app.get("/api/db/metadata")
 async def db_metadata():
     if not _is_mongo_available():
-        return ORJSONResponse(content={"batches": []})
+        return ORJSONResponse(content={"batches": [], "formats": {}})
     try:
-        # Get all distinct batches efficiently
-        batches = issues_collection.distinct("UploadBatch")
-        unique_batches = sorted([b for b in batches if b and b != "NA"], reverse=True)
-        return ORJSONResponse(content={"batches": unique_batches})
+        pipeline = [
+            {"$match": {"UploadBatch": {"$ne": "NA", "$exists": True}}},
+            {"$group": {"_id": "$UploadBatch", "format": {"$first": "$SourceFormat"}}},
+            {"$sort": {"_id": -1}}
+        ]
+        results = list(issues_collection.aggregate(pipeline))
+        batches = []
+        formats = {}
+        for r in results:
+            b = r.get("_id")
+            fmt = r.get("format", "CONTAINER")
+            if b:
+                batches.append(b)
+                formats[b] = fmt
+                
+        return ORJSONResponse(content={"batches": batches, "formats": formats})
     except Exception as e:
         print(f"[API Error] /api/db/metadata failed: {e}")
-        return ORJSONResponse(status_code=500, content={"error": str(e), "batches": []})
+        return ORJSONResponse(status_code=500, content={"error": str(e), "batches": [], "formats": {}})
 
 @app.post("/api/db")
 async def sd(req: Request):
