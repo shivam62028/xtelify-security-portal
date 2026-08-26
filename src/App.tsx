@@ -887,6 +887,10 @@ const AppContent: React.FC = () => {
   const [isGeneratingAI, setIsGeneratingAI] = useState<Record<string, boolean>>({});
   const [selectedDepartment, setSelectedDepartment] = useState<string>("All");
 
+  const [selectedContainerOwner, setSelectedContainerOwner] = useState<string>("All");
+  const [selectedContainerSubTypes, setSelectedContainerSubTypes] = useState<string[]>([]);
+  const [containerChartData, setContainerChartData] = useState<any[]>([]);
+
   const [viewMode, setViewMode] = useState<"Optimized" | "Raw" | "Calendar">("Optimized");
 
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -1297,6 +1301,16 @@ const AppContent: React.FC = () => {
   
       if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
       if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
+
+      if (selectedFormatFilter === "CONTAINER") {
+        if (selectedContainerOwner !== "All") {
+          params.append("assigned_to", selectedContainerOwner);
+        }
+        if (selectedContainerSubTypes.length > 0) {
+          params.append("container_sub_types", selectedContainerSubTypes.join("||"));
+        }
+      }
+
   
       if (isAdvancedSearchOpen) {
         params.append("is_advanced_search", "true");
@@ -1408,7 +1422,22 @@ const AppContent: React.FC = () => {
       });
 
     return () => abortController.abort();
-  }, [searchTerm, searchField, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, isAdvancedSearchOpen, currentPage, rowsPerPage, uploadCounter]);
+  }, [searchTerm, searchField, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, isAdvancedSearchOpen, currentPage, rowsPerPage, uploadCounter, selectedContainerOwner, selectedContainerSubTypes]);
+
+  useEffect(() => {
+    if (selectedFormatFilter === "CONTAINER") {
+      let url = `${BACKEND_URL}/api/container_analytics`;
+      if (selectedContainerOwner && selectedContainerOwner !== "All") {
+        url += `?assigned_to=${encodeURIComponent(selectedContainerOwner)}`;
+      }
+      fetch(url, { mode: "cors" })
+        .then(res => res.json())
+        .then(data => setContainerChartData(data))
+        .catch(err => console.error("Error fetching container analytics", err));
+    } else {
+      setContainerChartData([]);
+    }
+  }, [selectedFormatFilter, selectedContainerOwner, uploadCounter]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -2557,6 +2586,16 @@ const AppContent: React.FC = () => {
       if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
       if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
 
+      if (selectedFormatFilter === "CONTAINER") {
+        if (selectedContainerOwner !== "All") {
+          params.append("assigned_to", selectedContainerOwner);
+        }
+        if (selectedContainerSubTypes.length > 0) {
+          params.append("container_sub_types", selectedContainerSubTypes.join("||"));
+        }
+      }
+
+
       if (isAdvancedSearchOpen) {
         params.append("is_advanced_search", "true");
         if (searchTerm) {
@@ -2605,7 +2644,7 @@ const AppContent: React.FC = () => {
       window.URL.revokeObjectURL(url);
 
       // Open Outlook via mailto
-      const subject = encodeURIComponent(`Security Vulnerability Report - ${aiOwner !== "All" ? aiOwner : "All Owners"}`);
+      const subject = encodeURIComponent(`Vulnerability Data`);
       const body = encodeURIComponent(`Hello,\n\nPlease find attached the vulnerability data assigned to ${aiOwner !== "All" ? aiOwner : "All Owners"}.\n\nSummary:\nTotal Vulnerabilities: ${total}\nResolved: ${resolved}\nUnresolved: ${unresolved}\n\nRegards,\nWynk Security Portal`);
       
       window.location.href = `mailto:${aiRecipient}?subject=${subject}&body=${body}`;
@@ -2827,6 +2866,16 @@ const AppContent: React.FC = () => {
       const params = new URLSearchParams();
       if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
       if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
+
+      if (selectedFormatFilter === "CONTAINER") {
+        if (selectedContainerOwner !== "All") {
+          params.append("assigned_to", selectedContainerOwner);
+        }
+        if (selectedContainerSubTypes.length > 0) {
+          params.append("container_sub_types", selectedContainerSubTypes.join("||"));
+        }
+      }
+
 
       if (isAdvancedSearchOpen) {
         params.append("is_advanced_search", "true");
@@ -3472,7 +3521,104 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
+          {(currentFormat === "CONTAINER" || selectedFormatFilter === "CONTAINER") && (
+            <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+              <div className="flex items-center justify-between mb-4 border-b pb-2" style={{ borderColor: darkMode ? "#374151" : "#f1f5f9" }}>
+                <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+                  Container Sub-Types
+                </h2>
+                <div className="flex items-center gap-4">
+                  <select
+                    value={selectedContainerOwner}
+                    onChange={(e) => setSelectedContainerOwner(e.target.value)}
+                    className={`text-sm px-2 py-1 rounded border ${darkMode ? "bg-slate-700 border-slate-600 text-slate-200" : "bg-white border-slate-300 text-slate-800"}`}
+                  >
+                    <option value="All">All Owners</option>
+                    {Array.from(new Set(allIssues.filter(i => i.SourceFormat === "CONTAINER").map(i => i.AssignedTo || "Unassigned"))).sort().map(owner => (
+                      <option key={owner} value={owner}>{owner}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              
+              <div className="mb-4">
+                <p className="text-xs text-slate-500 mb-2 font-semibold">Filter by Sub-Type:</p>
+                <div className="flex items-center gap-3 flex-wrap">
+                  {["Wiz CLI", "Zero-day VA", "Compliance VA", "Quarterly VA", "Unclassified"].map(subtype => (
+                    <label key={subtype} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedContainerSubTypes.includes(subtype)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedContainerSubTypes(prev => [...prev, subtype]);
+                          } else {
+                            setSelectedContainerSubTypes(prev => prev.filter(s => s !== subtype));
+                          }
+                        }}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className={darkMode ? "text-slate-300" : "text-slate-700"}>{subtype}</span>
+                    </label>
+                  ))}
+                  {selectedContainerSubTypes.length > 0 && (
+                    <button onClick={() => setSelectedContainerSubTypes([])} className="text-xs text-blue-600 hover:text-blue-800 ml-2">Clear Selection</button>
+                  )}
+                </div>
+              </div>
+
+              {selectedContainerOwner !== "All" && (
+                <div className="h-80 mt-6">
+                  {containerChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={containerChartData}
+                        margin={{ left: 20, right: 30, bottom: 80 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
+                        <XAxis 
+                          dataKey="name" 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }}
+                          angle={-45}
+                          textAnchor="end"
+                        />
+                        <YAxis 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }}
+                        />
+                        <Tooltip 
+                          cursor={{ fill: darkMode ? "#374151" : "#f1f5f9" }}
+                          contentStyle={{
+                            backgroundColor: darkMode ? "#1e293b" : "#fff",
+                            borderColor: darkMode ? "#374151" : "#e2e8f0",
+                            color: darkMode ? "#e2e8f0" : "#1e293b",
+                            fontSize: "12px",
+                            borderRadius: "4px",
+                          }}
+                        />
+                        <Bar 
+                          dataKey="value" 
+                          fill="#8b5cf6" 
+                          radius={[0, 4, 4, 0]}
+                          barSize={30}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-slate-400 text-sm">No data available for {selectedContainerOwner}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {(currentFormat === "CSPM" || selectedFormatFilter === "CSPM") && cspmFindingChartData.length > 0 && (
+
             <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
               <div className="flex items-center justify-between mb-4 border-b pb-2" style={{ borderColor: darkMode ? "#374151" : "#f1f5f9" }}>
                 <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>

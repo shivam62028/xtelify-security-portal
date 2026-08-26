@@ -898,6 +898,27 @@ def process_container_row(row, idx, dsn, rc_lower):
     rec["Namespaces"] = get_val(["Namespaces", "Namespace", "NS"])
     rec["Clusters"] = get_val(["Clusters", "Cluster", "K8sCluster"])
     rec["Tags"] = get_val(["Tags", "Tag", "Labels"])
+    rec["DetectionMethod"] = get_val(["DetectionMethod", "Detection", "Method"])
+
+    # Container SubType Classification
+    wiz_url = str(rec.get("WizURL") or "").lower()
+    tags = str(rec.get("Tags") or "").lower()
+    projects = str(rec.get("Projects") or "").lower()
+    det_method = str(rec.get("DetectionMethod") or "").lower()
+    name = str(rec.get("Name") or "").lower()
+    det_name = str(rec.get("DetailedName") or "").lower()
+
+    if wiz_url or "wiz" in tags or "wiz" in projects or "wiz" in det_method:
+        rec["ContainerSubType"] = "Wiz CLI"
+    elif "zero-day" in name or "0-day" in name or "zeroday" in name or "zero-day" in det_name or "0-day" in det_name or "zeroday" in det_name or "zero-day" in tags or "0-day" in tags or "zeroday" in tags:
+        rec["ContainerSubType"] = "Zero-day VA"
+    elif "compliance" in name or "cis" in name or "pci" in name or "nist" in name or "compliance" in tags or "cis" in tags or "pci" in tags or "nist" in tags or "compliance" in projects or "cis" in projects or "pci" in projects or "nist" in projects:
+        rec["ContainerSubType"] = "Compliance VA"
+    elif "quarterly" in tags or "quarterly" in projects:
+        rec["ContainerSubType"] = "Quarterly VA"
+    else:
+        rec["ContainerSubType"] = "Unclassified"
+
 
     # Generate short vulnerability description
     rec["Description"] = generate_short_description(
@@ -1572,12 +1593,18 @@ def migrate_json_to_mongodb_once(json_file_path=dbf):
 _ensure_mongo_indexes()
 
 
-def _build_db_query(search=None, search_field=None, severity=None, status=None, assigned_to=None, source_format=None, upload_batch=None, date_from=None, date_to=None, is_advanced_search=None):
+def _build_db_query(search=None, search_field=None, severity=None, status=None, assigned_to=None, source_format=None, upload_batch=None, date_from=None, date_to=None, is_advanced_search=None, container_sub_types=None):
     query = {}
     
     if source_format:
         query["SourceFormat"] = source_format
         
+    if container_sub_types and source_format == "CONTAINER":
+        if '||' in container_sub_types:
+            query["ContainerSubType"] = {"$in": [s.strip() for s in container_sub_types.split("||")]}
+        else:
+            query["ContainerSubType"] = container_sub_types
+
     if upload_batch:
         if '||' in upload_batch:
             query["UploadBatch"] = {"$in": [b.strip() for b in upload_batch.split("||")]}
@@ -1689,7 +1716,8 @@ async def gd(
     upload_batch: str = None,
     date_from: str = None,
     date_to: str = None,
-    is_advanced_search: str = None
+    is_advanced_search: str = None,
+    container_sub_types: str = None
 ):
     if not _is_mongo_available():
         return ORJSONResponse(content={"data": [], "pagination": {"page": page, "limit": limit, "total": 0, "total_pages": 0}})
@@ -1704,7 +1732,8 @@ async def gd(
         upload_batch=upload_batch,
         date_from=date_from,
         date_to=date_to,
-        is_advanced_search=is_advanced_search
+        is_advanced_search=is_advanced_search,
+        container_sub_types=container_sub_types
     )
 
     try:
@@ -1755,6 +1784,45 @@ async def gd(
         print(f"[API Error] /api/db failed: {e}")
         return ORJSONResponse(status_code=500, content={"error": str(e), "data": [], "pagination": {"total": 0}})
 
+
+@app.get("/api/container_analytics")
+async def container_analytics(
+    request: Request,
+    assigned_to: str = None
+):
+    if not _is_mongo_available():
+        return ORJSONResponse(content=[])
+
+    query = {"SourceFormat": "CONTAINER"}
+    if assigned_to:
+        query["AssignedTo"] = assigned_to
+
+    try:
+        pipeline = [
+            {"$match": query},
+            {"$group": {
+                "_id": {"$ifNull": ["$ContainerSubType", "Unclassified"]},
+                "count": {"$sum": 1}
+            }}
+        ]
+        
+        results = list(issues_collection.aggregate(pipeline))
+        formatted_results = [{"name": r["_id"], "value": r["count"]} for r in results]
+        
+        # Ensure all types exist even if 0
+        all_types = ["Wiz CLI", "Zero-day VA", "Compliance VA", "Quarterly VA", "Unclassified"]
+        for t in all_types:
+            if not any(r["name"] == t for r in formatted_results):
+                formatted_results.append({"name": t, "value": 0})
+                
+        # Sort by predefined order
+        formatted_results.sort(key=lambda x: all_types.index(x["name"]))
+        
+        return ORJSONResponse(content=formatted_results)
+    except Exception as e:
+        logger.error(f"Error fetching container analytics: {e}")
+        return ORJSONResponse(status_code=500, content={"error": str(e)})
+
 @app.get("/api/db/summary")
 async def db_summary(
     request: Request,
@@ -1767,7 +1835,8 @@ async def db_summary(
     upload_batch: str = None,
     date_from: str = None,
     date_to: str = None,
-    is_advanced_search: str = None
+    is_advanced_search: str = None,
+    container_sub_types: str = None
 ):
     if not _is_mongo_available():
         return ORJSONResponse(content={"total": 0, "status": {"resolved": 0, "open": 0}, "severity": {"critical": 0, "high": 0, "medium": 0, "low": 0}, "cspm": []})
@@ -1775,7 +1844,8 @@ async def db_summary(
     query = _build_db_query(
         search=search, search_field=search_field, severity=severity, status=status,
         assigned_to=assigned_to, source_format=source_format, upload_batch=upload_batch,
-        date_from=date_from, date_to=date_to, is_advanced_search=is_advanced_search
+        date_from=date_from, date_to=date_to, is_advanced_search=is_advanced_search,
+        container_sub_types=container_sub_types
     )
 
     try:
@@ -1926,7 +1996,8 @@ async def export_data(
     upload_batch: str = None,
     date_from: str = None,
     date_to: str = None,
-    is_advanced_search: str = None
+    is_advanced_search: str = None,
+    container_sub_types: str = None
 ):
     if not _is_mongo_available():
         return Response(content="Database unavailable", status_code=503)
@@ -1934,7 +2005,8 @@ async def export_data(
     query = _build_db_query(
         search=search, search_field=search_field, severity=severity, status=status,
         assigned_to=assigned_to, source_format=source_format, upload_batch=upload_batch,
-        date_from=date_from, date_to=date_to, is_advanced_search=is_advanced_search
+        date_from=date_from, date_to=date_to, is_advanced_search=is_advanced_search,
+        container_sub_types=container_sub_types
     )
 
     try:
@@ -4466,7 +4538,8 @@ async def generate_email_excel(
     upload_batch: str = None,
     date_from: str = None,
     date_to: str = None,
-    is_advanced_search: str = None
+    is_advanced_search: str = None,
+    container_sub_types: str = None
 ):
     if not _is_mongo_available():
         return Response(content="Database unavailable", status_code=503)
@@ -4475,7 +4548,8 @@ async def generate_email_excel(
     query = _build_db_query(
         search=search, search_field=search_field, severity=severity, status=status,
         assigned_to=assigned_to_email, source_format=source_format, upload_batch=upload_batch,
-        date_from=date_from, date_to=date_to, is_advanced_search=is_advanced_search
+        date_from=date_from, date_to=date_to, is_advanced_search=is_advanced_search,
+        container_sub_types=container_sub_types
     )
 
     try:
