@@ -890,6 +890,7 @@ const AppContent: React.FC = () => {
   const [selectedContainerOwner, setSelectedContainerOwner] = useState<string>("All");
   const [selectedContainerSubTypes, setSelectedContainerSubTypes] = useState<string[]>([]);
   const [containerChartData, setContainerChartData] = useState<any[]>([]);
+  const [containerAnalyticsError, setContainerAnalyticsError] = useState<string | null>(null);
 
   const [viewMode, setViewMode] = useState<"Optimized" | "Raw" | "Calendar">("Optimized");
 
@@ -1430,12 +1431,23 @@ const AppContent: React.FC = () => {
       if (selectedContainerOwner && selectedContainerOwner !== "All") {
         url += `?assigned_to=${encodeURIComponent(selectedContainerOwner)}`;
       }
+      setContainerAnalyticsError(null);
       fetch(url, { mode: "cors" })
-        .then(res => res.json())
-        .then(data => setContainerChartData(data))
-        .catch(err => console.error("Error fetching container analytics", err));
+        .then(res => {
+          if (!res.ok) throw new Error("Failed to fetch");
+          return res.json();
+        })
+        .then(data => {
+          setContainerChartData(data);
+          setContainerAnalyticsError(null);
+        })
+        .catch(err => {
+          console.error("Error fetching container analytics", err);
+          setContainerAnalyticsError("Unable to load Container subtype statistics.");
+        });
     } else {
       setContainerChartData([]);
+      setContainerAnalyticsError(null);
     }
   }, [selectedFormatFilter, selectedContainerOwner, uploadCounter]);
 
@@ -1808,7 +1820,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [quickFilter, filter, searchTerm, searchField, selectedBatches, selectedFormatFilter, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo]);
+  }, [quickFilter, filter, searchTerm, searchField, selectedBatches, selectedFormatFilter, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, selectedContainerOwner, selectedContainerSubTypes]);
 
   const groupedIssues = useMemo(() => {
     try {
@@ -3569,7 +3581,11 @@ const AppContent: React.FC = () => {
 
               {selectedContainerOwner !== "All" && (
                 <div className="h-80 mt-6">
-                  {containerChartData.length > 0 ? (
+                  {containerAnalyticsError ? (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-red-500 text-sm font-medium">{containerAnalyticsError}</p>
+                    </div>
+                  ) : containerChartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         data={containerChartData}
@@ -3589,7 +3605,7 @@ const AppContent: React.FC = () => {
                           tickLine={false}
                           tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }}
                         />
-                        <Tooltip 
+                        <RechartsTooltip 
                           cursor={{ fill: darkMode ? "#374151" : "#f1f5f9" }}
                           contentStyle={{
                             backgroundColor: darkMode ? "#1e293b" : "#fff",
@@ -3604,6 +3620,18 @@ const AppContent: React.FC = () => {
                           fill="#8b5cf6" 
                           radius={[0, 4, 4, 0]}
                           barSize={30}
+                          onClick={(data) => {
+                            if (!data || !data.name) return;
+                            const subtype = data.name;
+                            setSelectedContainerSubTypes(prev => {
+                              if (prev.includes(subtype)) {
+                                return prev.filter(s => s !== subtype);
+                              } else {
+                                return [...prev, subtype];
+                              }
+                            });
+                          }}
+                          style={{ cursor: "pointer" }}
                         />
                       </BarChart>
                     </ResponsiveContainer>

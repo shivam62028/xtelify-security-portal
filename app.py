@@ -760,6 +760,30 @@ def process_cspm_row(row, idx, dsn, rc_lower):
     return rec
 
 
+def classify_container_subtype(rec: dict) -> str:
+    """
+    Classifies a container vulnerability record into exactly one of:
+    "Wiz CLI", "Zero-day VA", "Quarterly VA", "Compliance VA", "Unclassified"
+    """
+    wiz_url = str(rec.get("WizURL") or "").lower()
+    tags = str(rec.get("Tags") or "").lower()
+    projects = str(rec.get("Projects") or "").lower()
+    det_method = str(rec.get("DetectionMethod") or "").lower()
+    name = str(rec.get("Name") or "").lower()
+    det_name = str(rec.get("DetailedName") or "").lower()
+
+    if wiz_url or "wiz" in tags or "wiz" in projects or "wiz" in det_method:
+        return "Wiz CLI"
+    elif "zero-day" in name or "0-day" in name or "zeroday" in name or "zero-day" in det_name or "0-day" in det_name or "zeroday" in det_name or "zero-day" in tags or "0-day" in tags or "zeroday" in tags:
+        return "Zero-day VA"
+    elif "compliance" in name or "cis" in name or "pci" in name or "nist" in name or "compliance" in tags or "cis" in tags or "pci" in tags or "nist" in tags or "compliance" in projects or "cis" in projects or "pci" in projects or "nist" in projects:
+        return "Compliance VA"
+    elif "quarterly" in tags or "quarterly" in projects:
+        return "Quarterly VA"
+    
+    return "Unclassified"
+
+
 def process_container_row(row, idx, dsn, rc_lower):
     """Process a Container/Container Image format row"""
     def get_val(patterns):
@@ -900,24 +924,7 @@ def process_container_row(row, idx, dsn, rc_lower):
     rec["Tags"] = get_val(["Tags", "Tag", "Labels"])
     rec["DetectionMethod"] = get_val(["DetectionMethod", "Detection", "Method"])
 
-    # Container SubType Classification
-    wiz_url = str(rec.get("WizURL") or "").lower()
-    tags = str(rec.get("Tags") or "").lower()
-    projects = str(rec.get("Projects") or "").lower()
-    det_method = str(rec.get("DetectionMethod") or "").lower()
-    name = str(rec.get("Name") or "").lower()
-    det_name = str(rec.get("DetailedName") or "").lower()
-
-    if wiz_url or "wiz" in tags or "wiz" in projects or "wiz" in det_method:
-        rec["ContainerSubType"] = "Wiz CLI"
-    elif "zero-day" in name or "0-day" in name or "zeroday" in name or "zero-day" in det_name or "0-day" in det_name or "zeroday" in det_name or "zero-day" in tags or "0-day" in tags or "zeroday" in tags:
-        rec["ContainerSubType"] = "Zero-day VA"
-    elif "compliance" in name or "cis" in name or "pci" in name or "nist" in name or "compliance" in tags or "cis" in tags or "pci" in tags or "nist" in tags or "compliance" in projects or "cis" in projects or "pci" in projects or "nist" in projects:
-        rec["ContainerSubType"] = "Compliance VA"
-    elif "quarterly" in tags or "quarterly" in projects:
-        rec["ContainerSubType"] = "Quarterly VA"
-    else:
-        rec["ContainerSubType"] = "Unclassified"
+    rec["ContainerSubType"] = classify_container_subtype(rec)
 
 
     # Generate short vulnerability description
