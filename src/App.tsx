@@ -1278,29 +1278,42 @@ const AppContent: React.FC = () => {
           if (data.formats) {
             setBatchFormats(data.formats);
           }
+          
+          let latestFmt: string | null = null;
+          
           setBatches(prevBatches => {
             const isInitialLoad = prevBatches.length === 0 && uploadCounter === 0;
             const newBatches = data.batches.filter((b: string) => !prevBatches.includes(b));
             
+            if (isInitialLoad && data.batches.length > 0) {
+               latestFmt = data.formats?.[data.batches[0]] || "CONTAINER";
+            }
+
             setSelectedBatches(prevSelected => {
               if (isInitialLoad && prevSelected.length === 0) {
-                return selectedFormatFilter !== "All" 
-                  ? data.batches.filter((b: string) => (data.formats?.[b] || "CONTAINER") === selectedFormatFilter)
-                  : data.batches;
+                 const fmtToUse = latestFmt || selectedFormatFilter;
+                 return fmtToUse !== "All"
+                   ? data.batches.filter((b: string) => (data.formats?.[b] || "CONTAINER") === fmtToUse)
+                   : data.batches;
               }
               
               if (!isInitialLoad && newBatches.length > 0) {
-                const toAdd = newBatches.filter((b: string) => !prevSelected.includes(b));
-                const validToAdd = selectedFormatFilter !== "All"
-                  ? toAdd.filter((b: string) => (data.formats?.[b] || "CONTAINER") === selectedFormatFilter)
-                  : toAdd;
-                return [...validToAdd, ...prevSelected];
+                // Determine format of the newly uploaded batch
+                const uploadedFormat = data.formats?.[newBatches[0]] || "CONTAINER";
+                const validToAdd = newBatches.filter((b: string) => (data.formats?.[b] || "CONTAINER") === uploadedFormat);
+                // Remove stale batches from previous format
+                const validPrev = prevSelected.filter((b: string) => (data.formats?.[b] || "CONTAINER") === uploadedFormat);
+                return [...validToAdd, ...validPrev];
               }
               return prevSelected;
             });
             
             return data.batches;
           });
+          
+          if (latestFmt) {
+            setSelectedFormatFilter(latestFmt);
+          }
         }
       })
       .catch(console.error);
@@ -1318,7 +1331,9 @@ const AppContent: React.FC = () => {
       }
   
       if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
-      if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
+      if (!(dateFrom || dateTo) && selectedBatches.length > 0) {
+        params.append("upload_batch", selectedBatches.join("||"));
+      }
 
       if (selectedFormatFilter === "CONTAINER") {
         if (selectedOwners.length > 0) {
@@ -1343,9 +1358,11 @@ const AppContent: React.FC = () => {
         if (quickFilter === "overdue") params.append("status", "Open");
   
         if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
-        if (dateFrom) params.append("date_from", dateFrom);
-        if (dateTo) params.append("date_to", dateTo);
       }
+
+      if (dateFrom) params.append("date_from", dateFrom);
+      if (dateTo) params.append("date_to", dateTo);
+
       return params.toString();
     };
 
@@ -2616,7 +2633,9 @@ const AppContent: React.FC = () => {
     if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
 
     // Datasets
-    if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
+    if (!(dateFrom || dateTo) && selectedBatches.length > 0) {
+      params.append("upload_batch", selectedBatches.join("||"));
+    }
 
     // Container-specific: owner + sub-types
     if (selectedFormatFilter === "CONTAINER") {
@@ -2635,9 +2654,10 @@ const AppContent: React.FC = () => {
       if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
       if (quickFilter === "critical") params.append("severity", "Critical");
       if (quickFilter === "overdue") params.append("status", "Open");
-      if (dateFrom) params.append("date_from", dateFrom);
-      if (dateTo) params.append("date_to", dateTo);
     }
+
+    if (dateFrom) params.append("date_from", dateFrom);
+    if (dateTo) params.append("date_to", dateTo);
 
     // Owner (non-container, or added when advanced search is off)
     if (selectedOwners.length > 0 && selectedFormatFilter !== "CONTAINER") {
@@ -2840,6 +2860,11 @@ const AppContent: React.FC = () => {
 
         if (data.format) {
           setDetectedFormat(data.format);
+          setSelectedFormatFilter(data.format);
+          setCurrentPage(1);
+          setSearchTerm("");
+          setFilter("All");
+          setSearchField("All");
         }
 
         setUploadProgress("AI Processing Complete!");
@@ -2882,6 +2907,11 @@ const AppContent: React.FC = () => {
 
       if (data.format) {
         setDetectedFormat(data.format);
+        setSelectedFormatFilter(data.format);
+        setCurrentPage(1);
+        setSearchTerm("");
+        setFilter("All");
+        setSearchField("All");
       }
 
       if (!response.ok) {
@@ -2969,9 +2999,10 @@ const AppContent: React.FC = () => {
         if (quickFilter === "overdue") params.append("status", "Open");
 
         if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
-        if (dateFrom) params.append("date_from", dateFrom);
-        if (dateTo) params.append("date_to", dateTo);
       }
+      
+      if (dateFrom) params.append("date_from", dateFrom);
+      if (dateTo) params.append("date_to", dateTo);
       
       params.append("columns", exportCols.join(","));
 
@@ -3174,6 +3205,48 @@ const AppContent: React.FC = () => {
               {fmt.label}
             </button>
           ))}
+        </div>
+
+        {/* Historical Data Filter */}
+        <div className={`flex items-center gap-3 p-1.5 px-4 rounded-xl ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-slate-100 border border-slate-200"}`}>
+          <div className="flex items-center gap-2">
+            <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>From:</label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setSelectedBatches([]); // Clear dataset selection when using historical dates
+                setCurrentPage(1);
+              }}
+              className={`px-2 py-1.5 rounded border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-700 text-slate-300" : "bg-white border-slate-300 text-slate-700"}`}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>To:</label>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                setSelectedBatches([]); // Clear dataset selection when using historical dates
+                setCurrentPage(1);
+              }}
+              className={`px-2 py-1.5 rounded border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-700 text-slate-300" : "bg-white border-slate-300 text-slate-700"}`}
+            />
+          </div>
+          {(dateFrom || dateTo) && (
+            <button
+              onClick={() => {
+                setDateFrom("");
+                setDateTo("");
+                setCurrentPage(1);
+              }}
+              className={`text-xs hover:underline ${darkMode ? "text-red-400" : "text-red-600"}`}
+            >
+              Clear
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -4317,28 +4390,6 @@ const AppContent: React.FC = () => {
                     </select>
                   </div>
 
-                  {/* Uploaded From */}
-                  <div className="flex flex-col gap-1">
-                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Uploaded From</label>
-                    <input
-                      type="date"
-                      value={dateFrom}
-                      onChange={(e) => setDateFrom(e.target.value)}
-                      className={`px-2 py-1.5 rounded border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
-                    />
-                  </div>
-
-                  {/* Uploaded To */}
-                  <div className="flex flex-col gap-1">
-                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Uploaded To</label>
-                    <input
-                      type="date"
-                      value={dateTo}
-                      onChange={(e) => setDateTo(e.target.value)}
-                      className={`px-2 py-1.5 rounded border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
-                    />
-                  </div>
-
                 </div>
 
                 <div className="flex justify-end border-t pt-3 mt-3 border-slate-200 dark:border-slate-700">
@@ -4437,7 +4488,11 @@ const AppContent: React.FC = () => {
                       <td colSpan={tableCols.length} className={`px-4 py-12 text-center ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle size={24} />
-                          <span className="text-sm font-medium">No {filter === "ZeroDay" ? "Zero Day vulnerabilities" : "issues"} found</span>
+                          <span className="text-sm font-medium">
+                            {dateFrom || dateTo
+                              ? `No ${selectedFormatFilter !== "All" ? selectedFormatFilter : ""} data found for the selected date range.`
+                              : `No ${selectedFormatFilter !== "All" ? selectedFormatFilter : "vulnerability"} data available.`}
+                          </span>
                         </div>
                       </td>
                     </tr>

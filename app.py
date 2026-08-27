@@ -2059,24 +2059,32 @@ async def export_data(
 @app.get("/api/db/metadata")
 async def db_metadata():
     if not _is_mongo_available():
-        return ORJSONResponse(content={"batches": [], "formats": {}})
+        return ORJSONResponse(content={"batches": [], "formats": {}, "upload_dates": {}})
     try:
         pipeline = [
             {"$match": {"UploadBatch": {"$ne": "NA", "$exists": True}}},
-            {"$group": {"_id": "$UploadBatch", "format": {"$first": "$SourceFormat"}}},
-            {"$sort": {"_id": -1}}
+            {"$group": {
+                "_id": "$UploadBatch", 
+                "format": {"$first": "$SourceFormat"},
+                "uploaded_at": {"$max": "$UploadedAt"}
+            }},
+            {"$sort": {"uploaded_at": -1}}
         ]
         results = list(issues_collection.aggregate(pipeline))
         batches = []
         formats = {}
+        upload_dates = {}
         for r in results:
             b = r.get("_id")
             fmt = r.get("format", "CONTAINER")
+            dt = r.get("uploaded_at")
             if b:
                 batches.append(b)
                 formats[b] = fmt
+                if dt:
+                    upload_dates[b] = dt
                 
-        return ORJSONResponse(content={"batches": batches, "formats": formats})
+        return ORJSONResponse(content={"batches": batches, "formats": formats, "upload_dates": upload_dates})
     except Exception as e:
         print(f"[API Error] /api/db/metadata failed: {e}")
         return ORJSONResponse(status_code=500, content={"error": str(e), "batches": [], "formats": {}})
