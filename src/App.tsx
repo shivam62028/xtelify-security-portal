@@ -1275,16 +1275,32 @@ const AppContent: React.FC = () => {
       .then(res => res.json())
       .then(data => {
         if (data.batches && Array.isArray(data.batches)) {
-          setBatches(data.batches);
           if (data.formats) {
             setBatchFormats(data.formats);
           }
-          if (data.batches.length > 0 && selectedBatches.length === 0) {
-            setSelectedBatches(selectedFormatFilter !== "All" 
-              ? data.batches.filter((b: string) => (data.formats?.[b] || "CONTAINER") === selectedFormatFilter)
-              : data.batches
-            );
-          }
+          setBatches(prevBatches => {
+            const isInitialLoad = prevBatches.length === 0 && uploadCounter === 0;
+            const newBatches = data.batches.filter((b: string) => !prevBatches.includes(b));
+            
+            setSelectedBatches(prevSelected => {
+              if (isInitialLoad && prevSelected.length === 0) {
+                return selectedFormatFilter !== "All" 
+                  ? data.batches.filter((b: string) => (data.formats?.[b] || "CONTAINER") === selectedFormatFilter)
+                  : data.batches;
+              }
+              
+              if (!isInitialLoad && newBatches.length > 0) {
+                const toAdd = newBatches.filter((b: string) => !prevSelected.includes(b));
+                const validToAdd = selectedFormatFilter !== "All"
+                  ? toAdd.filter((b: string) => (data.formats?.[b] || "CONTAINER") === selectedFormatFilter)
+                  : toAdd;
+                return [...validToAdd, ...prevSelected];
+              }
+              return prevSelected;
+            });
+            
+            return data.batches;
+          });
         }
       })
       .catch(console.error);
