@@ -1802,7 +1802,10 @@ async def container_analytics(
 
     query = {"SourceFormat": "CONTAINER"}
     if assigned_to:
-        query["AssignedTo"] = assigned_to
+        if ',' in assigned_to:
+            query["AssignedTo"] = {"$in": [a.strip() for a in assigned_to.split(",")]}
+        else:
+            query["AssignedTo"] = assigned_to
 
     try:
         pipeline = [

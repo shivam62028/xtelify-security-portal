@@ -887,7 +887,7 @@ const AppContent: React.FC = () => {
   const [isGeneratingAI, setIsGeneratingAI] = useState<Record<string, boolean>>({});
   const [selectedDepartment, setSelectedDepartment] = useState<string>("All");
 
-  const [selectedContainerOwner, setSelectedContainerOwner] = useState<string>("All");
+
   const [selectedContainerSubTypes, setSelectedContainerSubTypes] = useState<string[]>([]);
   const [containerChartData, setContainerChartData] = useState<any[]>([]);
   const [containerAnalyticsError, setContainerAnalyticsError] = useState<string | null>(null);
@@ -1303,8 +1303,8 @@ const AppContent: React.FC = () => {
       if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
 
       if (selectedFormatFilter === "CONTAINER") {
-        if (selectedContainerOwner !== "All") {
-          params.append("assigned_to", selectedContainerOwner);
+        if (selectedOwners.length > 0) {
+          params.append("assigned_to", selectedOwners.join(","));
         }
         if (selectedContainerSubTypes.length > 0) {
           params.append("container_sub_types", selectedContainerSubTypes.join("||"));
@@ -1422,13 +1422,13 @@ const AppContent: React.FC = () => {
       });
 
     return () => abortController.abort();
-  }, [searchTerm, searchField, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, isAdvancedSearchOpen, currentPage, rowsPerPage, uploadCounter, selectedContainerOwner, selectedContainerSubTypes]);
+  }, [searchTerm, searchField, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, isAdvancedSearchOpen, currentPage, rowsPerPage, uploadCounter, selectedContainerSubTypes]);
 
   useEffect(() => {
     if (selectedFormatFilter === "CONTAINER") {
       let url = `${BACKEND_URL}/api/container_analytics`;
-      if (selectedContainerOwner && selectedContainerOwner !== "All") {
-        url += `?assigned_to=${encodeURIComponent(selectedContainerOwner)}`;
+      if (selectedOwners.length > 0) {
+        url += `?assigned_to=${encodeURIComponent(selectedOwners.join(","))}`;
       }
       setContainerAnalyticsError(null);
       fetch(url, { mode: "cors" })
@@ -1448,7 +1448,7 @@ const AppContent: React.FC = () => {
       setContainerChartData([]);
       setContainerAnalyticsError(null);
     }
-  }, [selectedFormatFilter, selectedContainerOwner, uploadCounter]);
+  }, [selectedFormatFilter, selectedOwners, uploadCounter]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1819,7 +1819,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [quickFilter, filter, searchTerm, searchField, selectedBatches, selectedFormatFilter, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, selectedContainerOwner, selectedContainerSubTypes]);
+  }, [quickFilter, filter, searchTerm, searchField, selectedBatches, selectedFormatFilter, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, selectedContainerSubTypes]);
 
   const groupedIssues = useMemo(() => {
     try {
@@ -2590,16 +2590,44 @@ const AppContent: React.FC = () => {
     e.preventDefault();
     if (!aiRecipient) return;
 
-    setIsGenerating(true);
+    const activeOwner = selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners";
 
+    // ── Step 1: Open Outlook immediately via mailto — no backend dependency ──
+    const emailSubject = `Vulnerability Report — ${activeOwner}`;
+    const emailBody = [
+      `Hello,`,
+      ``,
+      `Please find the vulnerability report from the Wynk Security Portal attached.`,
+      ``,
+      `Scope:`,
+      `  Owner       : ${activeOwner}`,
+      `  Format      : ${selectedFormatFilter}`,
+      `  Date Range  : ${dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : "All time"}`,
+      `  Total       : ${groupedIssues.reduce((a, g) => a + g.total, 0)}`,
+      `  Resolved    : ${groupedIssues.reduce((a, g) => a + g.resolved, 0)}`,
+      `  Unresolved  : ${groupedIssues.reduce((a, g) => a + g.unresolved, 0)}`,
+      ``,
+      `Regards,`,
+      `Wynk Security Portal`,
+    ].join("\n");
+
+    const mailtoUrl = `mailto:${encodeURIComponent(aiRecipient)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+    window.location.href = mailtoUrl;
+
+    // Close modal immediately after opening Outlook
+    setIsAiModalOpen(false);
+    setAiRecipient("");
+
+    // ── Step 2: Attempt Excel download separately — does NOT block Outlook ──
+    setIsGenerating(true);
     try {
       const params = new URLSearchParams();
       if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
       if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
 
       if (selectedFormatFilter === "CONTAINER") {
-        if (selectedContainerOwner !== "All") {
-          params.append("assigned_to", selectedContainerOwner);
+        if (selectedOwners.length > 0) {
+          params.append("assigned_to", selectedOwners.join(","));
         }
         if (selectedContainerSubTypes.length > 0) {
           params.append("container_sub_types", selectedContainerSubTypes.join("||"));
@@ -2613,19 +2641,14 @@ const AppContent: React.FC = () => {
           params.append("search_field", searchField);
         }
         if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
-
         if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
         if (quickFilter === "critical") params.append("severity", "Critical");
         if (quickFilter === "overdue") params.append("status", "Open");
-
-        if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
         if (dateFrom) params.append("date_from", dateFrom);
         if (dateTo) params.append("date_to", dateTo);
       }
-      
-      params.append("columns", exportCols.join(","));
-      const activeOwner = selectedOwner || "All";
-      if (activeOwner !== "All") params.append("assigned_to", activeOwner);
+
+      if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
       if (includeGraph) params.append("include_graph", "true");
 
       const response = await fetch(`${BACKEND_URL}/api/email/generate_excel?${params.toString()}`, {
@@ -2634,16 +2657,15 @@ const AppContent: React.FC = () => {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || "Unable to generate the Excel report.");
+        // Excel failed but Outlook is already open — show a non-blocking notice
+        console.warn("Excel generation failed:", errData.error || response.status);
+        alert(`Outlook has been opened.\n\nNote: The Excel report could not be generated at this time (${errData.error || `HTTP ${response.status}`}). Please try exporting from the Export View tab manually.`);
+        return;
       }
-
-      const total = response.headers.get("X-Total-Vulnerabilities") || "0";
-      const resolved = response.headers.get("X-Resolved") || "0";
-      const unresolved = response.headers.get("X-Unresolved") || "0";
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      const safeOwner = activeOwner !== "All" ? activeOwner.replace(/\s+/g, "_") : "All_Owners";
+      const safeOwner = selectedOwners.length > 0 ? selectedOwners.join("_").replace(/\s+/g, "_") : "All_Owners";
       const filename = `Security_Vulnerabilities_${safeOwner}.xlsx`;
 
       const link = document.createElement("a");
@@ -2654,22 +2676,16 @@ const AppContent: React.FC = () => {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
-      // Open Outlook via mailto
-      const subject = encodeURIComponent(`Vulnerability Report — ${activeOwner !== "All" ? activeOwner : "All Owners"}`);
-      const body = encodeURIComponent(`Hello,\n\nPlease find below the vulnerability report for ${activeOwner !== "All" ? activeOwner : "All Owners"} from the Wynk Security Portal.\n\nOwner:\n${activeOwner !== "All" ? activeOwner : "All Owners"}\n\nTotal Vulnerabilities:\n${total}\n\nResolved:\n${resolved}\n\nUnresolved:\n${unresolved}\n\nDate Range:\n${dateFrom ? `${dateFrom} – ${dateTo}` : "All time"}\n\nDataset:\n${selectedFormatFilter}\n\nRegards,\nWynk Security Portal`);
-      
-      window.location.href = `mailto:${aiRecipient}?subject=${subject}&body=${body}`;
-
-      setIsAiModalOpen(false);
-      setAiRecipient("");
-      alert(`Outlook opened with the vulnerability report prepared for ${activeOwner !== "All" ? activeOwner : "All Owners"}.\n\nPlease manually attach the downloaded Excel file to the email draft.`);
+      alert(`Outlook has been opened and the Excel report has been downloaded.\n\nPlease manually attach "${filename}" to the email draft.`);
     } catch (err: any) {
-      console.error("Error generating email Excel", err);
-      alert(err.message || "Unable to prepare vulnerability data.");
+      // Network error (backend offline) — Outlook is already open, just inform user
+      console.warn("Excel download error (backend may be offline):", err.message);
+      alert(`Outlook has been opened.\n\nNote: The Excel report could not be downloaded because the report server is currently unavailable. Please try exporting from the Export View tab and attach the file manually.`);
     } finally {
       setIsGenerating(false);
     }
   };
+
 
 
 
@@ -2880,8 +2896,8 @@ const AppContent: React.FC = () => {
       if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
 
       if (selectedFormatFilter === "CONTAINER") {
-        if (selectedContainerOwner !== "All") {
-          params.append("assigned_to", selectedContainerOwner);
+        if (selectedOwners.length > 0) {
+          params.append("assigned_to", selectedOwners.join(","));
         }
         if (selectedContainerSubTypes.length > 0) {
           params.append("container_sub_types", selectedContainerSubTypes.join("||"));
@@ -3538,19 +3554,12 @@ const AppContent: React.FC = () => {
               <div className="flex items-center justify-between mb-4 border-b pb-2" style={{ borderColor: darkMode ? "#374151" : "#f1f5f9" }}>
                 <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
                   Container Sub-Types
+                  {selectedOwners.length > 0 && (
+                    <span className="text-xs text-slate-500 font-normal ml-2">
+                      (Filtered by Owner)
+                    </span>
+                  )}
                 </h2>
-                <div className="flex items-center gap-4">
-                  <select
-                    value={selectedContainerOwner}
-                    onChange={(e) => setSelectedContainerOwner(e.target.value)}
-                    className={`text-sm px-2 py-1 rounded border ${darkMode ? "bg-slate-700 border-slate-600 text-slate-200" : "bg-white border-slate-300 text-slate-800"}`}
-                  >
-                    <option value="All">All Owners</option>
-                    {Array.from(new Set(allIssues.filter(i => i.SourceFormat === "CONTAINER").map(i => i.AssignedTo || "Unassigned"))).sort().map(owner => (
-                      <option key={owner} value={owner}>{owner}</option>
-                    ))}
-                  </select>
-                </div>
               </div>
               
               <div className="mb-4">
@@ -3579,8 +3588,7 @@ const AppContent: React.FC = () => {
                 </div>
               </div>
 
-              {selectedContainerOwner !== "All" && (
-                <div className="h-80 mt-6">
+              <div className="h-80 mt-6">
                   {containerAnalyticsError ? (
                     <div className="flex items-center justify-center h-full">
                       <p className="text-red-500 text-sm font-medium">{containerAnalyticsError}</p>
@@ -3637,11 +3645,10 @@ const AppContent: React.FC = () => {
                     </ResponsiveContainer>
                   ) : (
                     <div className="flex items-center justify-center h-full">
-                      <p className="text-slate-400 text-sm">No data available for {selectedContainerOwner}</p>
+                      <p className="text-slate-400 text-sm">No data available for {selectedOwners.length > 0 ? selectedOwners.join(", ") : "All"}</p>
                     </div>
                   )}
                 </div>
-              )}
             </div>
           )}
 
@@ -4648,13 +4655,13 @@ const AppContent: React.FC = () => {
                 <h4 className="font-bold text-slate-700 mb-2 border-b border-slate-200 pb-2">Included Data</h4>
                 <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-slate-600">
                   <div className="font-semibold">Owner:</div>
-                  <div>{selectedOwner || "All Owners"}</div>
+                  <div>{selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners"}</div>
                   <div className="font-semibold">Total:</div>
-                  <div>{selectedOwner ? (ownerSummary['Total'] || 0) : groupedIssues.reduce((acc, g) => acc + g.total, 0)}</div>
+                  <div>{groupedIssues.reduce((acc, g) => acc + g.total, 0)}</div>
                   <div className="font-semibold">Resolved:</div>
-                  <div>{selectedOwner ? (ownerSummary['Resolved'] || 0) : groupedIssues.reduce((acc, g) => acc + g.resolved, 0)}</div>
+                  <div>{groupedIssues.reduce((acc, g) => acc + g.resolved, 0)}</div>
                   <div className="font-semibold">Unresolved:</div>
-                  <div>{selectedOwner ? (ownerSummary['Unresolved'] || 0) : groupedIssues.reduce((acc, g) => acc + g.unresolved, 0)}</div>
+                  <div>{groupedIssues.reduce((acc, g) => acc + g.unresolved, 0)}</div>
                   <div className="font-semibold">Format:</div>
                   <div>{selectedFormatFilter}</div>
                   <div className="font-semibold">Date Range:</div>
@@ -4686,7 +4693,7 @@ const AppContent: React.FC = () => {
                     className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
                   />
                   <label htmlFor="includeGraph" className="text-sm text-slate-700 font-medium cursor-pointer">
-                    Include Vulnerability Graph in Excel
+                    Include Resolved/Unresolved Graph in Excel
                   </label>
                 </div>
                 <p className="text-[10px] text-slate-400 mt-2 font-medium flex items-start gap-1.5">
@@ -4707,7 +4714,7 @@ const AppContent: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isGenerating || (selectedOwner === null && selectedOwners.length === 0 && selectedContainerOwner === "All" && selectedFormatFilter === "CONTAINER")}
+                  disabled={isGenerating || !aiRecipient}
                   className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded text-xs font-bold hover:bg-purple-700 transition-colors disabled:bg-purple-400"
                 >
                   {isGenerating ? (
