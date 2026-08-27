@@ -4534,7 +4534,7 @@ PRIORITY RECOMMENDATION:
 @app.get("/api/email/generate_excel")
 async def generate_email_excel(
     request: Request,
-    assigned_to_email: str = None,
+    assigned_to: str = None,
     include_graph: str = None,
     columns: str = None,
     search: str = None,
@@ -4554,7 +4554,7 @@ async def generate_email_excel(
     # Use existing DB query builder
     query = _build_db_query(
         search=search, search_field=search_field, severity=severity, status=status,
-        assigned_to=assigned_to_email, source_format=source_format, upload_batch=upload_batch,
+        assigned_to=assigned_to, source_format=source_format, upload_batch=upload_batch,
         date_from=date_from, date_to=date_to, is_advanced_search=is_advanced_search,
         container_sub_types=container_sub_types
     )
@@ -4611,7 +4611,7 @@ async def generate_email_excel(
                 chart = BarChart()
                 chart.type = "col"
                 chart.style = 10
-                chart.title = f"Vulnerability Status - {assigned_to_email or 'Selected Owner'}"
+                chart.title = f"Vulnerability Status - {assigned_to or 'Selected Owner'}"
                 chart.y_axis.title = 'Count'
                 chart.x_axis.title = 'Status'
 
@@ -4624,7 +4624,7 @@ async def generate_email_excel(
 
         excel_buffer.seek(0)
         
-        safe_owner = assigned_to_email.replace(' ', '_') if assigned_to_email else 'All'
+        safe_owner = assigned_to.replace(' ', '_') if assigned_to else 'All'
         headers = {
             'Content-Disposition': f'attachment; filename="Security_Vulnerabilities_{safe_owner}.xlsx"',
             'Access-Control-Expose-Headers': 'Content-Disposition, X-Total-Vulnerabilities, X-Resolved, X-Unresolved',

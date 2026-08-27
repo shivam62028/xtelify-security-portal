@@ -927,7 +927,6 @@ const AppContent: React.FC = () => {
 
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [aiRecipient, setAiRecipient] = useState<string>("");
-  const [aiOwner, setAiOwner] = useState<string>("All");
   const [aiPrompt, setAiPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [includeGraph, setIncludeGraph] = useState<boolean>(false);
@@ -2607,7 +2606,6 @@ const AppContent: React.FC = () => {
         }
       }
 
-
       if (isAdvancedSearchOpen) {
         params.append("is_advanced_search", "true");
         if (searchTerm) {
@@ -2626,7 +2624,8 @@ const AppContent: React.FC = () => {
       }
       
       params.append("columns", exportCols.join(","));
-      if (aiOwner && aiOwner !== "All") params.append("assigned_to_email", aiOwner);
+      const activeOwner = selectedOwner || "All";
+      if (activeOwner !== "All") params.append("assigned_to", activeOwner);
       if (includeGraph) params.append("include_graph", "true");
 
       const response = await fetch(`${BACKEND_URL}/api/email/generate_excel?${params.toString()}`, {
@@ -2635,7 +2634,7 @@ const AppContent: React.FC = () => {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || "Failed to generate Excel file");
+        throw new Error(errData.error || "Unable to generate the Excel report.");
       }
 
       const total = response.headers.get("X-Total-Vulnerabilities") || "0";
@@ -2644,7 +2643,7 @@ const AppContent: React.FC = () => {
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      const safeOwner = aiOwner !== "All" ? aiOwner.replace(" ", "_") : "All";
+      const safeOwner = activeOwner !== "All" ? activeOwner.replace(/\s+/g, "_") : "All_Owners";
       const filename = `Security_Vulnerabilities_${safeOwner}.xlsx`;
 
       const link = document.createElement("a");
@@ -2656,16 +2655,17 @@ const AppContent: React.FC = () => {
       window.URL.revokeObjectURL(url);
 
       // Open Outlook via mailto
-      const subject = encodeURIComponent(`Vulnerability Data`);
-      const body = encodeURIComponent(`Hello,\n\nPlease find attached the vulnerability data assigned to ${aiOwner !== "All" ? aiOwner : "All Owners"}.\n\nSummary:\nTotal Vulnerabilities: ${total}\nResolved: ${resolved}\nUnresolved: ${unresolved}\n\nRegards,\nWynk Security Portal`);
+      const subject = encodeURIComponent(`Vulnerability Report — ${activeOwner !== "All" ? activeOwner : "All Owners"}`);
+      const body = encodeURIComponent(`Hello,\n\nPlease find below the vulnerability report for ${activeOwner !== "All" ? activeOwner : "All Owners"} from the Wynk Security Portal.\n\nOwner:\n${activeOwner !== "All" ? activeOwner : "All Owners"}\n\nTotal Vulnerabilities:\n${total}\n\nResolved:\n${resolved}\n\nUnresolved:\n${unresolved}\n\nDate Range:\n${dateFrom ? `${dateFrom} – ${dateTo}` : "All time"}\n\nDataset:\n${selectedFormatFilter}\n\nRegards,\nWynk Security Portal`);
       
       window.location.href = `mailto:${aiRecipient}?subject=${subject}&body=${body}`;
 
       setIsAiModalOpen(false);
       setAiRecipient("");
+      alert(`Outlook opened with the vulnerability report prepared for ${activeOwner !== "All" ? activeOwner : "All Owners"}.\n\nPlease manually attach the downloaded Excel file to the email draft.`);
     } catch (err: any) {
       console.error("Error generating email Excel", err);
-      alert(err.message || "An error occurred while generating the Excel file.");
+      alert(err.message || "Unable to prepare vulnerability data.");
     } finally {
       setIsGenerating(false);
     }
@@ -4644,28 +4644,22 @@ const AppContent: React.FC = () => {
               onSubmit={handleShareEmailSubmit}
               className="p-6 flex flex-col gap-4"
             >
-              <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
-                  Selected Owner (AssignedTo)
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-purple-500 outline-none text-sm bg-white"
-                  value={aiOwner}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setAiOwner(val);
-                    if (val !== "All") {
-                      setAiRecipient(`${val.toLowerCase().replace(/\s+/g, ".")}@company.com`);
-                    } else {
-                      setAiRecipient("");
-                    }
-                  }}
-                >
-                  <option value="All">All Owners</option>
-                  {uniqueOwnersForEmail.map(o => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                </select>
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
+                <h4 className="font-bold text-slate-700 mb-2 border-b border-slate-200 pb-2">Included Data</h4>
+                <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-slate-600">
+                  <div className="font-semibold">Owner:</div>
+                  <div>{selectedOwner || "All Owners"}</div>
+                  <div className="font-semibold">Total:</div>
+                  <div>{selectedOwner ? (ownerSummary['Total'] || 0) : groupedIssues.reduce((acc, g) => acc + g.total, 0)}</div>
+                  <div className="font-semibold">Resolved:</div>
+                  <div>{selectedOwner ? (ownerSummary['Resolved'] || 0) : groupedIssues.reduce((acc, g) => acc + g.resolved, 0)}</div>
+                  <div className="font-semibold">Unresolved:</div>
+                  <div>{selectedOwner ? (ownerSummary['Unresolved'] || 0) : groupedIssues.reduce((acc, g) => acc + g.unresolved, 0)}</div>
+                  <div className="font-semibold">Format:</div>
+                  <div>{selectedFormatFilter}</div>
+                  <div className="font-semibold">Date Range:</div>
+                  <div>{dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : "All time"}</div>
+                </div>
               </div>
 
               <div>
@@ -4696,10 +4690,9 @@ const AppContent: React.FC = () => {
                   </label>
                 </div>
                 <p className="text-[10px] text-slate-400 mt-2 font-medium flex items-start gap-1.5">
-                  <Download size={12} className="shrink-0 mt-0.5" />
+                  <Send size={12} className="shrink-0 mt-0.5" />
                   <span>
-                    This will download an Excel file containing the filtered vulnerabilities. 
-                    Outlook will open automatically. You must manually attach the downloaded Excel file to the email draft.
+                    Outlook will open automatically. Please manually attach the generated Excel file to the email draft if not natively supported by your browser.
                   </span>
                 </p>
               </div>
@@ -4714,7 +4707,7 @@ const AppContent: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isGenerating}
+                  disabled={isGenerating || (selectedOwner === null && selectedOwners.length === 0 && selectedContainerOwner === "All" && selectedFormatFilter === "CONTAINER")}
                   className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded text-xs font-bold hover:bg-purple-700 transition-colors disabled:bg-purple-400"
                 >
                   {isGenerating ? (
