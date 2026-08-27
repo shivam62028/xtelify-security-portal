@@ -930,6 +930,7 @@ const AppContent: React.FC = () => {
   const [aiPrompt, setAiPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [includeGraph, setIncludeGraph] = useState<boolean>(false);
+  const [mailtoResult, setMailtoResult] = useState<{ subject: string; body: string; recipient: string } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
@@ -2591,8 +2592,6 @@ const AppContent: React.FC = () => {
     if (!aiRecipient) return;
 
     const activeOwner = selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners";
-
-    // ── Step 1: Open Outlook immediately via mailto — no backend dependency ──
     const emailSubject = `Vulnerability Report — ${activeOwner}`;
     const emailBody = [
       `Hello,`,
@@ -2611,14 +2610,24 @@ const AppContent: React.FC = () => {
       `Wynk Security Portal`,
     ].join("\n");
 
+    // ── Step 1: Fire mailto: via hidden anchor (works in all browsers/OS).
+    // Using a hidden <a> click is the most reliable cross-environment technique.
+    // window.location.href = mailto: can silently fail on Linux servers or
+    // environments where no mail handler is registered.
     const mailtoUrl = `mailto:${encodeURIComponent(aiRecipient)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
-    window.location.href = mailtoUrl;
+    const anchor = document.createElement("a");
+    anchor.href = mailtoUrl;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
 
-    // Close modal immediately after opening Outlook
-    setIsAiModalOpen(false);
-    setAiRecipient("");
+    // ── Step 2: Store the email data so the modal can show fallback links.
+    // The modal stays OPEN so the user can use Outlook Web / Gmail if the
+    // native handler didn't fire (common on servers without Outlook installed).
+    setMailtoResult({ subject: emailSubject, body: emailBody, recipient: aiRecipient });
 
-    // ── Step 2: Attempt Excel download separately — does NOT block Outlook ──
+    // ── Step 3: Attempt Excel download — non-blocking, does NOT affect above ──
     setIsGenerating(true);
     try {
       const params = new URLSearchParams();
@@ -2626,20 +2635,13 @@ const AppContent: React.FC = () => {
       if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
 
       if (selectedFormatFilter === "CONTAINER") {
-        if (selectedOwners.length > 0) {
-          params.append("assigned_to", selectedOwners.join(","));
-        }
-        if (selectedContainerSubTypes.length > 0) {
-          params.append("container_sub_types", selectedContainerSubTypes.join("||"));
-        }
+        if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
+        if (selectedContainerSubTypes.length > 0) params.append("container_sub_types", selectedContainerSubTypes.join("||"));
       }
 
       if (isAdvancedSearchOpen) {
         params.append("is_advanced_search", "true");
-        if (searchTerm) {
-          params.append("search", searchTerm);
-          params.append("search_field", searchField);
-        }
+        if (searchTerm) { params.append("search", searchTerm); params.append("search_field", searchField); }
         if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
         if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
         if (quickFilter === "critical") params.append("severity", "Critical");
@@ -2651,40 +2653,33 @@ const AppContent: React.FC = () => {
       if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
       if (includeGraph) params.append("include_graph", "true");
 
-      const response = await fetch(`${BACKEND_URL}/api/email/generate_excel?${params.toString()}`, {
-        method: "GET",
-      });
+      const response = await fetch(`${BACKEND_URL}/api/email/generate_excel?${params.toString()}`, { method: "GET" });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        // Excel failed but Outlook is already open — show a non-blocking notice
         console.warn("Excel generation failed:", errData.error || response.status);
-        alert(`Outlook has been opened.\n\nNote: The Excel report could not be generated at this time (${errData.error || `HTTP ${response.status}`}). Please try exporting from the Export View tab manually.`);
-        return;
+        // Do not alert — user already has fallback links visible in the modal
+      } else {
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        const safeOwner = selectedOwners.length > 0 ? selectedOwners.join("_").replace(/\s+/g, "_") : "All_Owners";
+        const filename = `Security_Vulnerabilities_${safeOwner}.xlsx`;
+        const dl = document.createElement("a");
+        dl.href = blobUrl;
+        dl.download = filename;
+        document.body.appendChild(dl);
+        dl.click();
+        document.body.removeChild(dl);
+        window.URL.revokeObjectURL(blobUrl);
       }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const safeOwner = selectedOwners.length > 0 ? selectedOwners.join("_").replace(/\s+/g, "_") : "All_Owners";
-      const filename = `Security_Vulnerabilities_${safeOwner}.xlsx`;
-
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-      alert(`Outlook has been opened and the Excel report has been downloaded.\n\nPlease manually attach "${filename}" to the email draft.`);
     } catch (err: any) {
-      // Network error (backend offline) — Outlook is already open, just inform user
-      console.warn("Excel download error (backend may be offline):", err.message);
-      alert(`Outlook has been opened.\n\nNote: The Excel report could not be downloaded because the report server is currently unavailable. Please try exporting from the Export View tab and attach the file manually.`);
+      // Backend offline — not a problem, user already sees fallback links
+      console.warn("Excel download skipped (backend unavailable):", err.message);
     } finally {
       setIsGenerating(false);
     }
   };
+
 
 
 
@@ -4640,13 +4635,101 @@ const AppContent: React.FC = () => {
                 <h3 className="font-bold text-sm">Send Vulnerability Data</h3>
               </div>
               <button
-                onClick={() => setIsAiModalOpen(false)}
+                onClick={() => { setIsAiModalOpen(false); setMailtoResult(null); setAiRecipient(""); }}
                 className="text-slate-300 hover:text-white transition-colors"
               >
                 <X size={18} />
               </button>
             </div>
 
+            {/* ── Phase 2: Fallback panel shown after launch attempt ── */}
+            {mailtoResult ? (
+              <div className="p-6 flex flex-col gap-4">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800 flex items-start gap-2">
+                  <span className="text-green-500 text-base">✓</span>
+                  <span>
+                    Email launch attempted for <strong>{mailtoResult.recipient}</strong>.
+                    If your email client did not open, use one of the options below.
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Open with</p>
+
+                  {/* Native mailto (retry) */}
+                  <a
+                    href={`mailto:${encodeURIComponent(mailtoResult.recipient)}?subject=${encodeURIComponent(mailtoResult.subject)}&body=${encodeURIComponent(mailtoResult.body)}`}
+                    className="flex items-center gap-3 px-4 py-3 rounded-lg border border-slate-200 hover:border-purple-400 hover:bg-purple-50 transition-colors text-sm font-medium text-slate-700"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <span className="text-lg">📧</span>
+                    <div>
+                      <div className="font-semibold">Default Email Client</div>
+                      <div className="text-xs text-slate-400">Outlook Desktop, Thunderbird, Apple Mail…</div>
+                    </div>
+                  </a>
+
+                  {/* Outlook Web */}
+                  <a
+                    href={`https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(mailtoResult.recipient)}&subject=${encodeURIComponent(mailtoResult.subject)}&body=${encodeURIComponent(mailtoResult.body)}`}
+                    className="flex items-center gap-3 px-4 py-3 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-colors text-sm font-medium text-slate-700"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <span className="text-lg">🌐</span>
+                    <div>
+                      <div className="font-semibold">Outlook Web (Microsoft 365)</div>
+                      <div className="text-xs text-slate-400">Opens compose in your browser</div>
+                    </div>
+                  </a>
+
+                  {/* Gmail */}
+                  <a
+                    href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(mailtoResult.recipient)}&su=${encodeURIComponent(mailtoResult.subject)}&body=${encodeURIComponent(mailtoResult.body)}`}
+                    className="flex items-center gap-3 px-4 py-3 rounded-lg border border-slate-200 hover:border-red-400 hover:bg-red-50 transition-colors text-sm font-medium text-slate-700"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <span className="text-lg">✉️</span>
+                    <div>
+                      <div className="font-semibold">Gmail</div>
+                      <div className="text-xs text-slate-400">Opens compose in Gmail</div>
+                    </div>
+                  </a>
+
+                  {/* Copy body */}
+                  <button
+                    type="button"
+                    onClick={() => { navigator.clipboard.writeText(mailtoResult.body).catch(() => {}); }}
+                    className="flex items-center gap-3 px-4 py-3 rounded-lg border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 text-left"
+                  >
+                    <span className="text-lg">📋</span>
+                    <div>
+                      <div className="font-semibold">Copy Email Body</div>
+                      <div className="text-xs text-slate-400">Paste into any email client manually</div>
+                    </div>
+                  </button>
+                </div>
+
+                {isGenerating && (
+                  <p className="text-xs text-slate-400 flex items-center gap-1">
+                    <Activity size={12} className="animate-spin" /> Preparing Excel report…
+                  </p>
+                )}
+
+                <div className="pt-2 flex justify-end border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => { setIsAiModalOpen(false); setMailtoResult(null); setAiRecipient(""); }}
+                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+            /* ── Phase 1: Compose form ── */
             <form
               onSubmit={handleShareEmailSubmit}
               className="p-6 flex flex-col gap-4"
@@ -4685,10 +4768,10 @@ const AppContent: React.FC = () => {
 
               <div>
                 <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-                  <input 
-                    type="checkbox" 
-                    id="includeGraph" 
-                    checked={includeGraph} 
+                  <input
+                    type="checkbox"
+                    id="includeGraph"
+                    checked={includeGraph}
                     onChange={(e) => setIncludeGraph(e.target.checked)}
                     className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
                   />
@@ -4699,7 +4782,7 @@ const AppContent: React.FC = () => {
                 <p className="text-[10px] text-slate-400 mt-2 font-medium flex items-start gap-1.5">
                   <Send size={12} className="shrink-0 mt-0.5" />
                   <span>
-                    Outlook will open automatically. Please manually attach the generated Excel file to the email draft if not natively supported by your browser.
+                    Clicking Share will attempt to open your default email client. If it doesn't open, you'll see direct links for Outlook Web and Gmail.
                   </span>
                 </p>
               </div>
@@ -4722,13 +4805,15 @@ const AppContent: React.FC = () => {
                   ) : (
                     <Send size={14} />
                   )}
-                  Share via Outlook
+                  Share via Email
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}
+
 
       {isUploadModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
