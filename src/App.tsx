@@ -931,6 +931,7 @@ const AppContent: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [includeGraph, setIncludeGraph] = useState<boolean>(false);
   const [mailtoResult, setMailtoResult] = useState<{ subject: string; body: string; recipient: string } | null>(null);
+  const [emailGraphMode, setEmailGraphMode] = useState<'Daily' | 'Cumulative'>('Daily');
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
@@ -2587,33 +2588,87 @@ const AppContent: React.FC = () => {
 
   const uniqueOwnersForEmail = Array.from(new Set(allIssues.map(i => i.AssignedTo || "Unassigned"))).sort();
 
+  /**
+   * buildEmailFilterParams — mirrors doDynamicExport's param construction.
+   * Both use the same AppContent filter state → same _build_db_query() call on backend.
+   * This is the single source of truth: no separate filter state for email.
+   */
+  const buildEmailFilterParams = () => {
+    const params = new URLSearchParams();
+
+    // Format
+    if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
+
+    // Datasets
+    if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
+
+    // Container-specific: owner + sub-types
+    if (selectedFormatFilter === "CONTAINER") {
+      if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
+      if (selectedContainerSubTypes.length > 0) params.append("container_sub_types", selectedContainerSubTypes.join("||"));
+    }
+
+    // Advanced Search / other filters
+    if (isAdvancedSearchOpen) {
+      params.append("is_advanced_search", "true");
+      if (searchTerm) {
+        params.append("search", searchTerm);
+        params.append("search_field", searchField);
+      }
+      if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
+      if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
+      if (quickFilter === "critical") params.append("severity", "Critical");
+      if (quickFilter === "overdue") params.append("status", "Open");
+      if (dateFrom) params.append("date_from", dateFrom);
+      if (dateTo) params.append("date_to", dateTo);
+    }
+
+    // Owner (non-container, or added when advanced search is off)
+    if (selectedOwners.length > 0 && selectedFormatFilter !== "CONTAINER") {
+      params.append("assigned_to", selectedOwners.join(","));
+    }
+
+    return params;
+  };
+
   const handleShareEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!aiRecipient) return;
 
     const activeOwner = selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners";
+    const totalVulns  = totalRecords;
+    const resolvedVulns   = groupedIssues.reduce((a, g) => a + g.resolved, 0);
+    const unresolvedVulns = groupedIssues.reduce((a, g) => a + g.unresolved, 0);
+
+    // ── Step 1: Build professional email body with full scope summary ──────
     const emailSubject = `Vulnerability Report — ${activeOwner}`;
     const emailBody = [
       `Hello,`,
       ``,
-      `Please find the vulnerability report from the Wynk Security Portal attached.`,
+      `Please find attached the vulnerability report from the Wynk Security Portal.`,
       ``,
-      `Scope:`,
+      `Report Scope:`,
       `  Owner       : ${activeOwner}`,
       `  Format      : ${selectedFormatFilter}`,
       `  Date Range  : ${dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : "All time"}`,
-      `  Total       : ${groupedIssues.reduce((a, g) => a + g.total, 0)}`,
-      `  Resolved    : ${groupedIssues.reduce((a, g) => a + g.resolved, 0)}`,
-      `  Unresolved  : ${groupedIssues.reduce((a, g) => a + g.unresolved, 0)}`,
+      `  Mode        : ${emailGraphMode}`,
+      ``,
+      `Summary:`,
+      `  Total Vulnerabilities : ${totalVulns}`,
+      `  Resolved              : ${resolvedVulns}`,
+      `  Unresolved            : ${unresolvedVulns}`,
+      ``,
+      `The attached Excel file contains the filtered vulnerability data.`,
+      includeGraph
+        ? `The attached graph shows the Resolved vs Unresolved vulnerability trend for the same filtered data.`
+        : ``,
       ``,
       `Regards,`,
       `Wynk Security Portal`,
-    ].join("\n");
+    ].filter(line => line !== undefined).join("\n");
 
-    // ── Step 1: Fire mailto: via hidden anchor (works in all browsers/OS).
-    // Using a hidden <a> click is the most reliable cross-environment technique.
-    // window.location.href = mailto: can silently fail on Linux servers or
-    // environments where no mail handler is registered.
+    // ── Step 2: Fire mailto: via hidden anchor immediately on click event ──
+    // Must happen synchronously (before any await) to avoid popup blocking.
     const mailtoUrl = `mailto:${encodeURIComponent(aiRecipient)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
     const anchor = document.createElement("a");
     anchor.href = mailtoUrl;
@@ -2622,48 +2677,33 @@ const AppContent: React.FC = () => {
     anchor.click();
     document.body.removeChild(anchor);
 
-    // ── Step 2: Store the email data so the modal can show fallback links.
-    // The modal stays OPEN so the user can use Outlook Web / Gmail if the
-    // native handler didn't fire (common on servers without Outlook installed).
+    // ── Step 3: Show fallback panel — modal stays open ────────────────────
     setMailtoResult({ subject: emailSubject, body: emailBody, recipient: aiRecipient });
 
-    // ── Step 3: Attempt Excel download — non-blocking, does NOT affect above ──
+    // ── Step 4: Call POST /api/email/report — fully non-blocking ──────────
+    // Uses EXACT same filter state as Dashboard/Export View via buildEmailFilterParams().
+    // _build_db_query() on the backend is called once for both Excel and graph.
     setIsGenerating(true);
     try {
-      const params = new URLSearchParams();
-      if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
-      if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
-
-      if (selectedFormatFilter === "CONTAINER") {
-        if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
-        if (selectedContainerSubTypes.length > 0) params.append("container_sub_types", selectedContainerSubTypes.join("||"));
-      }
-
-      if (isAdvancedSearchOpen) {
-        params.append("is_advanced_search", "true");
-        if (searchTerm) { params.append("search", searchTerm); params.append("search_field", searchField); }
-        if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
-        if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
-        if (quickFilter === "critical") params.append("severity", "Critical");
-        if (quickFilter === "overdue") params.append("status", "Open");
-        if (dateFrom) params.append("date_from", dateFrom);
-        if (dateTo) params.append("date_to", dateTo);
-      }
-
-      if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
+      const params = buildEmailFilterParams();
       if (includeGraph) params.append("include_graph", "true");
+      params.append("graph_mode", emailGraphMode);
 
-      const response = await fetch(`${BACKEND_URL}/api/email/generate_excel?${params.toString()}`, { method: "GET" });
+      const response = await fetch(`${BACKEND_URL}/api/email/report?${params.toString()}`, {
+        method: "POST",
+      });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        console.warn("Excel generation failed:", errData.error || response.status);
-        // Do not alert — user already has fallback links visible in the modal
+        console.warn("[Send Mail] Report generation failed:", errData.error || response.status);
+        // Do not alert — user already sees fallback compose links in the modal
       } else {
         const blob = await response.blob();
         const blobUrl = window.URL.createObjectURL(blob);
-        const safeOwner = selectedOwners.length > 0 ? selectedOwners.join("_").replace(/\s+/g, "_") : "All_Owners";
-        const filename = `Security_Vulnerabilities_${safeOwner}.xlsx`;
+        const safeOwner = selectedOwners.length > 0
+          ? selectedOwners.join("_").replace(/\s+/g, "_")
+          : "All_Owners";
+        const filename = `Security_Report_${safeOwner}.zip`;
         const dl = document.createElement("a");
         dl.href = blobUrl;
         dl.download = filename;
@@ -2673,12 +2713,12 @@ const AppContent: React.FC = () => {
         window.URL.revokeObjectURL(blobUrl);
       }
     } catch (err: any) {
-      // Backend offline — not a problem, user already sees fallback links
-      console.warn("Excel download skipped (backend unavailable):", err.message);
+      console.warn("[Send Mail] Backend unavailable, skipping report download:", err.message);
     } finally {
       setIsGenerating(false);
     }
   };
+
 
 
 
@@ -4732,26 +4772,52 @@ const AppContent: React.FC = () => {
             /* ── Phase 1: Compose form ── */
             <form
               onSubmit={handleShareEmailSubmit}
-              className="p-6 flex flex-col gap-4"
+              className="p-5 flex flex-col gap-4 max-h-[80vh] overflow-y-auto"
             >
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
-                <h4 className="font-bold text-slate-700 mb-2 border-b border-slate-200 pb-2">Included Data</h4>
-                <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-slate-600">
-                  <div className="font-semibold">Owner:</div>
-                  <div>{selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners"}</div>
-                  <div className="font-semibold">Total:</div>
-                  <div>{groupedIssues.reduce((acc, g) => acc + g.total, 0)}</div>
-                  <div className="font-semibold">Resolved:</div>
-                  <div>{groupedIssues.reduce((acc, g) => acc + g.resolved, 0)}</div>
-                  <div className="font-semibold">Unresolved:</div>
-                  <div>{groupedIssues.reduce((acc, g) => acc + g.unresolved, 0)}</div>
-                  <div className="font-semibold">Format:</div>
-                  <div>{selectedFormatFilter}</div>
-                  <div className="font-semibold">Date Range:</div>
-                  <div>{dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : "All time"}</div>
+              {/* ── Active filter summary (read-only) ── */}
+              <div className={`rounded-lg border text-sm ${totalRecords === 0 ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-200"}`}>
+                <div className="px-4 pt-3 pb-2 border-b border-slate-200 flex items-center justify-between">
+                  <h4 className="font-bold text-slate-700 text-xs uppercase tracking-wide">Report Scope</h4>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${totalRecords === 0 ? "bg-amber-100 text-amber-700" : "bg-purple-100 text-purple-700"}`}>
+                    {totalRecords.toLocaleString()} record{totalRecords !== 1 ? "s" : ""}
+                  </span>
                 </div>
+                <div className="px-4 py-3 grid grid-cols-2 gap-y-1.5 gap-x-4 text-slate-600 text-xs">
+                  <span className="font-semibold text-slate-500">Format</span>
+                  <span>{selectedFormatFilter}</span>
+                  <span className="font-semibold text-slate-500">Owner</span>
+                  <span>{selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners"}</span>
+                  {selectedBatches.length > 0 && (<>
+                    <span className="font-semibold text-slate-500">Datasets</span>
+                    <span>{selectedBatches.length} selected</span>
+                  </>)}
+                  {selectedContainerSubTypes.length > 0 && (<>
+                    <span className="font-semibold text-slate-500">Sub-Types</span>
+                    <span className="truncate">{selectedContainerSubTypes.join(", ")}</span>
+                  </>)}
+                  <span className="font-semibold text-slate-500">Date Range</span>
+                  <span>{dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : dateFrom ? `from ${dateFrom}` : dateTo ? `to ${dateTo}` : "All time"}</span>
+                  {filter !== "All" && (<>
+                    <span className="font-semibold text-slate-500">Severity</span>
+                    <span>{filter}</span>
+                  </>)}
+                  {isAdvancedSearchOpen && searchTerm && (<>
+                    <span className="font-semibold text-slate-500">Search</span>
+                    <span className="truncate">{searchTerm}</span>
+                  </>)}
+                  <span className="font-semibold text-slate-500 border-t border-slate-100 pt-1.5">Resolved</span>
+                  <span className="text-green-600 font-semibold border-t border-slate-100 pt-1.5">{groupedIssues.reduce((acc, g) => acc + g.resolved, 0)}</span>
+                  <span className="font-semibold text-slate-500">Unresolved</span>
+                  <span className="text-red-500 font-semibold">{groupedIssues.reduce((acc, g) => acc + g.unresolved, 0)}</span>
+                </div>
+                {totalRecords === 0 && (
+                  <div className="px-4 pb-3 text-amber-700 text-xs font-medium">
+                    ⚠ No vulnerabilities match the current filters. Please adjust your filters before sending.
+                  </div>
+                )}
               </div>
 
+              {/* ── Recipient email ── */}
               <div>
                 <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
                   Recipient Email
@@ -4766,8 +4832,9 @@ const AppContent: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+              {/* ── Graph options ── */}
+              <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
                     id="includeGraph"
@@ -4776,18 +4843,44 @@ const AppContent: React.FC = () => {
                     className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
                   />
                   <label htmlFor="includeGraph" className="text-sm text-slate-700 font-medium cursor-pointer">
-                    Include Resolved/Unresolved Graph in Excel
+                    Include Resolved/Unresolved Graph (PNG)
                   </label>
                 </div>
-                <p className="text-[10px] text-slate-400 mt-2 font-medium flex items-start gap-1.5">
-                  <Send size={12} className="shrink-0 mt-0.5" />
+
+                {/* Graph mode toggle — only shown when graph is included */}
+                {includeGraph && (
+                  <div className="ml-6 flex items-center gap-2">
+                    <span className="text-xs text-slate-500 font-medium">Graph mode:</span>
+                    <div className="flex bg-slate-100 rounded p-0.5 text-xs font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setEmailGraphMode('Daily')}
+                        className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Daily' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                        Daily
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEmailGraphMode('Cumulative')}
+                        className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Cumulative' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                        Cumulative
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-[10px] text-slate-400 font-medium flex items-start gap-1.5">
+                  <Send size={11} className="shrink-0 mt-0.5" />
                   <span>
-                    Clicking Share will attempt to open your default email client. If it doesn't open, you'll see direct links for Outlook Web and Gmail.
+                    Clicking Share will attempt to open your email client. If it doesn't open, fallback links for Outlook Web and Gmail will appear.
+                    The report ZIP (Excel{includeGraph ? " + graph PNG" : ""}) downloads automatically.
                   </span>
                 </p>
               </div>
 
-              <div className="pt-2 flex justify-end gap-3 mt-2 border-t border-slate-100">
+              {/* ── Actions ── */}
+              <div className="pt-2 flex justify-end gap-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsAiModalOpen(false)}
@@ -4797,8 +4890,9 @@ const AppContent: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isGenerating || !aiRecipient}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded text-xs font-bold hover:bg-purple-700 transition-colors disabled:bg-purple-400"
+                  disabled={isGenerating || !aiRecipient || totalRecords === 0}
+                  title={totalRecords === 0 ? "No records match current filters" : ""}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded text-xs font-bold hover:bg-purple-700 transition-colors disabled:bg-purple-300 disabled:cursor-not-allowed"
                 >
                   {isGenerating ? (
                     <Activity size={14} className="animate-spin" />
@@ -4810,6 +4904,7 @@ const AppContent: React.FC = () => {
               </div>
             </form>
             )}
+
           </div>
         </div>
       )}

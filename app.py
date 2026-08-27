@@ -1,6 +1,6 @@
 __author__ = "richyrik"
 
-import os, json, re, time
+import os, json, re, time, zipfile, io
 import pandas as pd
 import httpx
 from io import BytesIO
@@ -4645,4 +4645,356 @@ async def generate_email_excel(
         import traceback
         err = traceback.format_exc()
         print(f"Error in generate_email_excel:\n{err}")
+        return ORJSONResponse({"error": str(e)}, status_code=500)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# POST /api/email/report  — unified Send Mail endpoint
+# Uses EXACTLY the same filter path as /api/export and /api/db.
+# Returns a ZIP containing:
+#   - report.xlsx  (all filtered records, same as Export View)
+#   - graph.png    (Resolved vs Unresolved bar chart, only if include_graph=true)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _generate_resolved_unresolved_graph(
+    query: dict,
+    graph_mode: str,
+    owner_label: str,
+    format_label: str,
+    date_from: str,
+    date_to: str,
+) -> bytes:
+    """
+    Runs a MongoDB aggregation over 'query' to get daily Resolved/Unresolved
+    counts (same logic as /api/analytics/historical), then renders a PNG chart
+    using matplotlib (with Pillow fallback if matplotlib is unavailable).
+    Returns raw PNG bytes.
+    """
+    resolved_statuses = ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]
+
+    pipeline = [
+        {"$match": query},
+        {
+            "$group": {
+                "_id": {
+                    "year":  {"$year":  "$UploadedAt"},
+                    "month": {"$month": "$UploadedAt"},
+                    "day":   {"$dayOfMonth": "$UploadedAt"},
+                },
+                "resolved":   {"$sum": {"$cond": [{"$in": [{"$toLower": "$Status"}, resolved_statuses]}, 1, 0]}},
+                "unresolved": {"$sum": {"$cond": [{"$in": [{"$toLower": "$Status"}, resolved_statuses]}, 0, 1]}},
+            }
+        },
+        {"$sort": {"_id.year": 1, "_id.month": 1, "_id.day": 1}},
+    ]
+
+    daily_results = list(issues_collection.aggregate(pipeline))
+
+    # Build chart data (daily or cumulative) — same logic as /api/analytics/historical
+    chart_rows = []  # [{"date": str, "Resolved": int, "Unresolved": int}]
+    cum_res = 0
+    cum_unres = 0
+
+    for r in daily_results:
+        d = r["_id"]
+        day_str = f"{d['year']:04d}-{d['month']:02d}-{d['day']:02d}"
+        cum_res   += r["resolved"]
+        cum_unres += r["unresolved"]
+        if graph_mode.lower() == "cumulative":
+            chart_rows.append({"date": day_str, "Resolved": cum_res, "Unresolved": cum_unres})
+        else:
+            chart_rows.append({"date": day_str, "Resolved": r["resolved"], "Unresolved": r["unresolved"]})
+
+    # Subtitle for the chart
+    parts = []
+    if format_label and format_label != "All": parts.append(format_label)
+    if owner_label:  parts.append(owner_label)
+    date_range = ""
+    if date_from and date_to: date_range = f"{date_from} – {date_to}"
+    elif date_from: date_range = f"from {date_from}"
+    elif date_to:   date_range = f"to {date_to}"
+    if date_range:  parts.append(date_range)
+    subtitle = " | ".join(parts) if parts else "All Data"
+
+    # ── Try matplotlib first (best quality) ──────────────────────────────────
+    try:
+        import matplotlib
+        matplotlib.use("Agg")  # non-interactive backend, safe for servers
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+        from matplotlib.dates import DateFormatter
+        import numpy as np
+
+        dates = [r["date"] for r in chart_rows]
+        resolved_vals   = [r["Resolved"]   for r in chart_rows]
+        unresolved_vals = [r["Unresolved"] for r in chart_rows]
+
+        fig, ax = plt.subplots(figsize=(12, 5))
+        fig.patch.set_facecolor("#f8fafc")
+        ax.set_facecolor("#f8fafc")
+
+        x = range(len(dates))
+        w = 0.4
+        bars_res   = ax.bar([i - w/2 for i in x], resolved_vals,   width=w, label="Resolved",   color="#22c55e", alpha=0.85)
+        bars_unres = ax.bar([i + w/2 for i in x], unresolved_vals, width=w, label="Unresolved", color="#ef4444", alpha=0.85)
+
+        # value labels on bars
+        for bar in bars_res:
+            if bar.get_height() > 0:
+                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
+                        str(int(bar.get_height())), ha="center", va="bottom", fontsize=7, color="#166534")
+        for bar in bars_unres:
+            if bar.get_height() > 0:
+                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
+                        str(int(bar.get_height())), ha="center", va="bottom", fontsize=7, color="#991b1b")
+
+        ax.set_xticks(list(x))
+        ax.set_xticklabels(dates, rotation=45, ha="right", fontsize=8)
+        ax.set_ylabel("Count", fontsize=10)
+        ax.set_title(
+            f"Resolved vs Unresolved Vulnerabilities — {graph_mode}",
+            fontsize=13, fontweight="bold", pad=12
+        )
+        ax.text(0.5, 1.02, subtitle, transform=ax.transAxes,
+                ha="center", fontsize=9, color="#64748b")
+        ax.legend(loc="upper right", fontsize=9)
+        ax.grid(axis="y", linestyle="--", alpha=0.4)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        buf.seek(0)
+        return buf.read()
+
+    except Exception as mpl_err:
+        print(f"[email/report] matplotlib unavailable ({mpl_err}), using PIL fallback")
+
+    # ── PIL fallback — draws a simple bar chart ───────────────────────────────
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+
+        W, H = 1200, 500
+        PAD = 60
+        BAR_AREA_W = W - 2 * PAD
+        BAR_AREA_H = H - 130
+
+        img = Image.new("RGB", (W, H), "#f8fafc")
+        draw = ImageDraw.Draw(img)
+
+        # Title
+        draw.text((W // 2, 18), f"Resolved vs Unresolved — {graph_mode}",
+                  fill="#0f172a", anchor="mt")
+        draw.text((W // 2, 40), subtitle, fill="#64748b", anchor="mt")
+
+        n = len(chart_rows)
+        if n == 0:
+            draw.text((W // 2, H // 2), "No data available", fill="#94a3b8", anchor="mm")
+        else:
+            max_val = max(
+                max((r["Resolved"]   for r in chart_rows), default=0),
+                max((r["Unresolved"] for r in chart_rows), default=0),
+                1
+            )
+            slot_w = BAR_AREA_W / n
+            bar_w  = max(4, int(slot_w * 0.35))
+            top_y  = PAD + 55
+            bot_y  = top_y + BAR_AREA_H
+
+            # Axis
+            draw.line([(PAD, top_y), (PAD, bot_y), (W - PAD, bot_y)], fill="#cbd5e1", width=1)
+
+            for idx, row in enumerate(chart_rows):
+                cx = int(PAD + (idx + 0.5) * slot_w)
+
+                # Resolved bar
+                rh = int((row["Resolved"] / max_val) * BAR_AREA_H)
+                draw.rectangle([(cx - bar_w - 1, bot_y - rh), (cx - 1, bot_y)], fill="#22c55e")
+
+                # Unresolved bar
+                uh = int((row["Unresolved"] / max_val) * BAR_AREA_H)
+                draw.rectangle([(cx + 1, bot_y - uh), (cx + bar_w + 1, bot_y)], fill="#ef4444")
+
+                # Date label (every Nth to avoid overlap)
+                step = max(1, n // 20)
+                if idx % step == 0:
+                    draw.text((cx, bot_y + 5), row["date"][-5:],
+                              fill="#64748b", anchor="mt")
+
+            # Legend
+            draw.rectangle([(PAD, H - 40), (PAD + 14, H - 26)], fill="#22c55e")
+            draw.text((PAD + 18, H - 40), "Resolved", fill="#166534", anchor="lt")
+            draw.rectangle([(PAD + 90, H - 40), (PAD + 104, H - 26)], fill="#ef4444")
+            draw.text((PAD + 108, H - 40), "Unresolved", fill="#991b1b", anchor="lt")
+
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return buf.read()
+
+    except Exception as pil_err:
+        print(f"[email/report] PIL fallback also failed: {pil_err}")
+        return b""
+
+
+@app.post("/api/email/report")
+async def generate_email_report(
+    request: Request,
+    source_format: str = None,
+    upload_batch: str = None,
+    assigned_to: str = None,
+    search: str = None,
+    search_field: str = None,
+    severity: str = None,
+    status: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    is_advanced_search: str = None,
+    container_sub_types: str = None,
+    include_graph: str = "false",
+    graph_mode: str = "Daily",
+):
+    """
+    Unified Send Mail report endpoint.
+
+    Accepts exactly the same filter parameters as /api/export and /api/db.
+    Calls _build_db_query() ONCE — the same query is used for both:
+      1. Excel generation (all filtered records, no pagination)
+      2. Graph generation (MongoDB aggregation for Resolved/Unresolved counts)
+
+    Returns a ZIP archive containing:
+      - report.xlsx
+      - graph.png  (only if include_graph == 'true')
+    """
+    if not _is_mongo_available():
+        return Response(content="Database unavailable", status_code=503)
+
+    # ── Build the shared filter query ─────────────────────────────────────────
+    query = _build_db_query(
+        search=search,
+        search_field=search_field,
+        severity=severity,
+        status=status,
+        assigned_to=assigned_to,
+        source_format=source_format,
+        upload_batch=upload_batch,
+        date_from=date_from,
+        date_to=date_to,
+        is_advanced_search=is_advanced_search,
+        container_sub_types=container_sub_types,
+    )
+
+    try:
+        # ── 1. Fetch ALL matching records (no pagination — same as Export View) ─
+        cursor = issues_collection.find(query).sort("UploadedAt", -1)
+        records = list(cursor)
+
+        total      = len(records)
+        resolved   = 0
+        unresolved = 0
+        resolved_terms = ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]
+
+        # ── 2. Build Excel ────────────────────────────────────────────────────
+        if not records:
+            df = pd.DataFrame([{"message": "No vulnerabilities match the selected filters."}])
+        else:
+            for rec in records:
+                st = str(rec.get("Status", "")).lower()
+                if any(t in st for t in resolved_terms):
+                    resolved += 1
+                else:
+                    unresolved += 1
+                rec.pop("_id", None)
+            df = pd.DataFrame(records)
+
+        xlsx_buf = io.BytesIO()
+        with pd.ExcelWriter(xlsx_buf, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Vulnerabilities")
+
+            # Embed a simple summary + openpyxl bar chart in a Statistics sheet
+            if total > 0:
+                wb = writer.book
+                ws = wb.create_sheet("Statistics")
+                ws["A1"] = "Scope"
+                ws["B1"] = "Value"
+                scope_rows = [
+                    ("Format",     source_format or "All"),
+                    ("Owner",      assigned_to   or "All Owners"),
+                    ("Date From",  date_from     or "—"),
+                    ("Date To",    date_to       or "—"),
+                    ("Graph Mode", graph_mode),
+                    ("Total",      total),
+                    ("Resolved",   resolved),
+                    ("Unresolved", unresolved),
+                ]
+                for i, (k, v) in enumerate(scope_rows, start=2):
+                    ws.cell(row=i, column=1, value=k)
+                    ws.cell(row=i, column=2, value=v)
+
+                # openpyxl embedded bar chart (Resolved vs Unresolved)
+                from openpyxl.chart import BarChart, Reference
+                ws["D1"] = "Status"
+                ws["E1"] = "Count"
+                ws["D2"] = "Resolved"
+                ws["E2"] = resolved
+                ws["D3"] = "Unresolved"
+                ws["E3"] = unresolved
+
+                chart = BarChart()
+                chart.type = "col"
+                chart.style = 10
+                chart.title = f"Vulnerability Status — {assigned_to or 'All Owners'}"
+                chart.y_axis.title = "Count"
+                chart.x_axis.title = "Status"
+                data_ref = Reference(ws, min_col=5, min_row=1, max_row=3)
+                cats_ref = Reference(ws, min_col=4, min_row=2, max_row=3)
+                chart.add_data(data_ref, titles_from_data=True)
+                chart.set_categories(cats_ref)
+                ws.add_chart(chart, "G2")
+
+        xlsx_buf.seek(0)
+        xlsx_bytes = xlsx_buf.read()
+
+        # ── 3. Generate graph PNG (optional) ──────────────────────────────────
+        png_bytes = b""
+        if include_graph == "true" and total > 0:
+            png_bytes = _generate_resolved_unresolved_graph(
+                query=query,
+                graph_mode=graph_mode,
+                owner_label=assigned_to or "",
+                format_label=source_format or "All",
+                date_from=date_from or "",
+                date_to=date_to or "",
+            )
+
+        # ── 4. Pack into ZIP ──────────────────────────────────────────────────
+        safe_owner = (assigned_to or "All").replace(" ", "_")
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(f"Security_Report_{safe_owner}.xlsx", xlsx_bytes)
+            if png_bytes:
+                zf.writestr(f"Resolved_Unresolved_{safe_owner}_{graph_mode}.png", png_bytes)
+
+        zip_buf.seek(0)
+
+        # ── 5. Return ZIP with stats headers ──────────────────────────────────
+        from fastapi.responses import Response as FastResponse
+        headers = {
+            "Content-Disposition": f'attachment; filename="Security_Report_{safe_owner}.zip"',
+            "Access-Control-Expose-Headers": "Content-Disposition, X-Total, X-Resolved, X-Unresolved",
+            "X-Total":      str(total),
+            "X-Resolved":   str(resolved),
+            "X-Unresolved": str(unresolved),
+        }
+        return Response(
+            content=zip_buf.read(),
+            media_type="application/zip",
+            headers=headers,
+        )
+
+    except Exception as e:
+        import traceback
+        print(f"[api/email/report] Error:\n{traceback.format_exc()}")
         return ORJSONResponse({"error": str(e)}, status_code=500)
