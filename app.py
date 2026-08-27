@@ -2007,7 +2007,8 @@ async def export_data(
     date_from: str = None,
     date_to: str = None,
     is_advanced_search: str = None,
-    container_sub_types: str = None
+    container_sub_types: str = None,
+    columns: str = None
 ):
     if not _is_mongo_available():
         return Response(content="Database unavailable", status_code=503)
@@ -2030,6 +2031,13 @@ async def export_data(
             for rec in records:
                 rec.pop("_id", None)
             df = pd.DataFrame(records)
+
+            # Filter to requested columns (same list that Export View sends)
+            if columns:
+                requested_cols = [c.strip() for c in columns.split(",") if c.strip()]
+                existing_cols = [c for c in requested_cols if c in df.columns]
+                if existing_cols:
+                    df = df[existing_cols]
             
         excel_buffer = io.BytesIO()
         df.to_excel(excel_buffer, index=False)
