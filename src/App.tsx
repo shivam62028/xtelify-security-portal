@@ -100,6 +100,15 @@ interface Issue {
   ReferenceLinks: string;
 }
 
+interface AiRemediationResult {
+  AI_Summary: string;
+  AI_RootCause: string;
+  AI_Impact: string;
+  AI_Remediation: string[];
+  AI_Validation: string[];
+  AI_Priority: string;
+}
+
 interface IssueGroup {
   [key: string]: any;
   DisplayID: string;
@@ -952,6 +961,11 @@ const AppContent: React.FC = () => {
   const [shareError, setShareError]   = useState<string>('');
   const [emailGraphMode, setEmailGraphMode] = useState<'Daily' | 'Cumulative'>('Daily');
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
+
+  // AI Remediation States
+  const [aiRemediationData, setAiRemediationData] = useState<Record<string, AiRemediationResult>>({});
+  const [isAiGenerating, setIsAiGenerating] = useState<Record<string, boolean>>({});
+  const [aiError, setAiError] = useState<Record<string, string | null>>({});
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -2698,6 +2712,38 @@ const AppContent: React.FC = () => {
    *
    * No local helper. No browser download. No manual attachment.
    */
+
+  const handleGenerateAiRemediation = async (issue: Issue, regenerate: boolean = false) => {
+    const id = issue.IssueID;
+    setIsAiGenerating(prev => ({ ...prev, [id]: true }));
+    setAiError(prev => ({ ...prev, [id]: null }));
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/ai/remediation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          IssueID: id,
+          UploadBatch: issue.UploadBatch,
+          SourceFormat: issue.SourceFormat || issue.Type || issue.Category || "UNKNOWN",
+          vulnerability: issue,
+          regenerate
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate AI remediation');
+      }
+
+      setAiRemediationData(prev => ({ ...prev, [id]: data.result }));
+    } catch (err: any) {
+      setAiError(prev => ({ ...prev, [id]: err.message || 'Unable to generate AI remediation. Please verify the Ollama service.' }));
+    } finally {
+      setIsAiGenerating(prev => ({ ...prev, [id]: false }));
+    }
+  };
+
   const handleShareEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!aiRecipient || totalRecords === 0) return;
@@ -4646,6 +4692,72 @@ const AppContent: React.FC = () => {
                                   )}
                                 </div>
                               )}
+
+                              {/* AI Remediation Section */}
+                              <div className={`mt-4 p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
+                                 <div className="flex items-center justify-between mb-4">
+                                    <h4 className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${darkMode ? "text-purple-400" : "text-purple-600"}`}>
+                                      <Bot size={14} /> AI Remediation
+                                    </h4>
+                                    {!isAiGenerating[issue.IssueID] && aiRemediationData[issue.IssueID] && (
+                                       <div className="flex gap-2">
+                                          <button onClick={() => {
+                                              const res = aiRemediationData[issue.IssueID];
+                                              const text = `AI Remediation\n\nRoot Cause:\n${res.AI_RootCause}\n\nRisk:\n${res.AI_Impact}\n\nRecommended Fix:\n${res.AI_Remediation.join('\n')}\n\nValidation Steps:\n${res.AI_Validation.join('\n')}\n\nPriority: ${res.AI_Priority}`;
+                                              navigator.clipboard.writeText(text);
+                                          }} className={`px-3 py-1 rounded text-xs font-medium ${darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-200 text-slate-700 hover:bg-slate-300"}`}>Copy Remediation</button>
+                                          <button onClick={() => handleGenerateAiRemediation(issue as Issue, true)} className={`px-3 py-1 rounded text-xs font-medium ${darkMode ? "bg-purple-900/50 text-purple-300 hover:bg-purple-900/70" : "bg-purple-100 text-purple-700 hover:bg-purple-200"}`}>Regenerate</button>
+                                       </div>
+                                    )}
+                                 </div>
+
+                                 {isAiGenerating[issue.IssueID] ? (
+                                   <div className="flex items-center gap-3 p-4">
+                                      <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+                                      <span className={`text-sm font-medium ${darkMode ? "text-slate-300" : "text-slate-600"}`}>Analyzing vulnerability with Ollama...</span>
+                                   </div>
+                                 ) : aiError[issue.IssueID] ? (
+                                   <div className="p-4 rounded bg-red-50 text-red-700 border border-red-200 text-sm">
+                                      {aiError[issue.IssueID]}
+                                   </div>
+                                 ) : aiRemediationData[issue.IssueID] ? (
+                                   <div className="space-y-4">
+                                      <div>
+                                        <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Root Cause</p>
+                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{aiRemediationData[issue.IssueID].AI_RootCause}</p>
+                                      </div>
+                                      <div>
+                                        <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Risk</p>
+                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{aiRemediationData[issue.IssueID].AI_Impact}</p>
+                                      </div>
+                                      <div>
+                                        <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Recommended Fix</p>
+                                        <ul className={`list-decimal ml-4 text-sm space-y-1 ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                                          {aiRemediationData[issue.IssueID].AI_Remediation.map((step, i) => <li key={i}>{step}</li>)}
+                                        </ul>
+                                      </div>
+                                      <div>
+                                        <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Validation Steps</p>
+                                        <ul className={`list-decimal ml-4 text-sm space-y-1 ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                                          {aiRemediationData[issue.IssueID].AI_Validation.map((step, i) => <li key={i}>{step}</li>)}
+                                        </ul>
+                                      </div>
+                                      <div>
+                                        <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Priority</p>
+                                        <p className={`text-sm font-medium ${
+                                          aiRemediationData[issue.IssueID].AI_Priority === 'High' || aiRemediationData[issue.IssueID].AI_Priority === 'Immediate' 
+                                            ? 'text-red-500' : aiRemediationData[issue.IssueID].AI_Priority === 'Medium' ? 'text-orange-500' : 'text-slate-500'
+                                        }`}>{aiRemediationData[issue.IssueID].AI_Priority}</p>
+                                      </div>
+                                   </div>
+                                 ) : (
+                                   <div>
+                                     <button onClick={() => handleGenerateAiRemediation(issue as Issue, false)} className="px-4 py-2 rounded text-sm font-bold bg-purple-600 text-white hover:bg-purple-700 transition-colors">
+                                       Generate AI Remediation
+                                     </button>
+                                   </div>
+                                 )}
+                              </div>
                             </td>
                           </tr>
                         )}
