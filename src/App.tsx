@@ -930,8 +930,16 @@ const AppContent: React.FC = () => {
   const [aiPrompt, setAiPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [includeGraph, setIncludeGraph] = useState<boolean>(false);
-  // ── Outlook share state ──────────────────────────────────────────────────
-  type ShareStep = 'form' | 'preparing' | 'ready' | 'error';
+  // ── Outlook share state ─────────────────────────────────────────────
+  // 'preparing'  → backend generating XLSX
+  // 'launching'  → helper creating Outlook draft
+  // 'done'       → Outlook opened with attachment
+  type ShareStep = 'form' | 'preparing' | 'launching' | 'done' | 'error';
+  // 'checking'   → pinging 127.0.0.1:7789/health on modal open
+  // 'available'  → helper responds + Outlook COM accessible
+  // 'missing'    → helper not running or Outlook not installed
+  type HelperStatus = 'checking' | 'available' | 'missing';
+  const [helperStatus, setHelperStatus] = useState<HelperStatus | null>(null);
   const [shareStep, setShareStep] = useState<ShareStep>('form');
   interface ShareResult {
     mode: 'token' | 'graph';
@@ -2681,11 +2689,39 @@ const AppContent: React.FC = () => {
     return params;
   };
 
+  // ── Ping Outlook Helper whenever the modal opens ────────────────────────
+  useEffect(() => {
+    if (!isAiModalOpen) {
+      // Reset helper status when modal closes so it re-checks on next open
+      setHelperStatus(null);
+      return;
+    }
+    setHelperStatus('checking');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000); // 3-second timeout
+    fetch('http://127.0.0.1:7789/health', { signal: controller.signal })
+      .then(r => r.ok ? r.json() : Promise.reject(r))
+      .then((data: any) => setHelperStatus(data.outlook_available ? 'available' : 'missing'))
+      .catch(() => setHelperStatus('missing'))
+      .finally(() => clearTimeout(timer));
+  }, [isAiModalOpen]);
+
   /**
-   * handleShareEmailSubmit — Step 1
-   * Sends ONLY filters to POST /api/share/outlook.
-   * Backend generates XLSX + optional graph and returns a secure token.
-   * No mailto:, no createObjectURL, no browser download at this stage.
+   * handleShareEmailSubmit
+   *
+   * TWO-STEP flow:
+   *
+   * Step 1 — POST /api/share/outlook
+   *   Backend generates XLSX with the EXACT same filters as Export View,
+   *   stores it in memory with a UUID token (15-min TTL), returns token.
+   *
+   * Step 2 — POST http://127.0.0.1:7789/create-draft
+   *   Local Outlook Helper (running on this Windows PC) downloads the XLSX
+   *   using the token, then uses win32com to create a Classic Outlook draft
+   *   with the XLSX already attached, and calls .Display().
+   *
+   * Result: Outlook Desktop opens showing a fully-populated draft.
+   *   User clicks Send. No browser download. No manual attachment.
    */
   const handleShareEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2695,26 +2731,31 @@ const AppContent: React.FC = () => {
     setShareError('');
     setShareResult(null);
 
+    // Track which stage failed, for precise error messages
+    let stage: 'backend' | 'helper' = 'backend';
+
     try {
+      // ── Step 1: Ask backend to generate XLSX and get token ──────────────
       const params = buildEmailFilterParams();
       params.append('recipient', aiRecipient);
       if (includeGraph) params.append('include_graph', 'true');
       params.append('graph_mode', emailGraphMode);
+      // Mirror Export View column selection so XLSX has identical columns
+      if (exportCols.length > 0) params.append('columns', exportCols.join(','));
 
-      const response = await fetch(`${BACKEND_URL}/api/share/outlook?${params.toString()}`, {
-        method: 'POST',
-      });
+      const response = await fetch(
+        `${BACKEND_URL}/api/share/outlook?${params.toString()}`,
+        { method: 'POST' }
+      );
 
-      const data = await response.json().catch(() => ({}));
+      const data = await response.json().catch(() => ({})) as any;
 
       if (!response.ok) {
-        const msg = data.error || `Server error (${response.status})`;
+        const msg: string = data.error || `Server error (${response.status})`;
         if (response.status === 404) {
           setShareError('No vulnerabilities match the current Export View filters.');
         } else if (msg.toLowerCase().includes('excel') || msg.toLowerCase().includes('generate')) {
-          setShareError('Unable to generate the Excel report.');
-        } else if (msg.toLowerCase().includes('draft')) {
-          setShareError('Unable to create the Outlook draft.');
+          setShareError('Unable to generate the Excel report. Please try again.');
         } else {
           setShareError(msg);
         }
@@ -2722,68 +2763,72 @@ const AppContent: React.FC = () => {
         return;
       }
 
-      // ── Graph API mode: backend already created the draft ─────────────────
-      if (data.mode === 'graph' && data.draft_url) {
-        setShareResult(data as any);
-        setShareStep('ready');
-        // Open the actual Outlook draft immediately
-        window.open(data.draft_url, '_blank', 'noopener,noreferrer');
+      const result = data as ShareResult;
+      setShareResult(result);
+
+      // ── Graph API path (Azure AD configured): draft already created server-side
+      if (result.mode === 'graph' && result.draft_url) {
+        window.open(result.draft_url, '_blank', 'noopener,noreferrer');
+        setShareStep('done');
         return;
       }
 
-      // ── Token mode: store result, show confirmation ───────────────────────
-      setShareResult(data as any);
-      setShareStep('ready');
+      // ── Step 2: Send token to local Outlook Helper ─────────────────────
+      stage = 'helper';
+      setShareStep('launching');
+
+      // Helper needs an absolute URL to download the XLSX from the backend.
+      // When BACKEND_URL is '' (same origin), derive the absolute URL.
+      const actualBackendUrl = BACKEND_URL || window.location.origin;
+      const safeOwner = selectedOwners.length > 0
+        ? selectedOwners[0].replace(/\s+/g, '_')
+        : 'All';
+
+      const helperPayload = {
+        token:         result.token,
+        png_token:     result.png_token || null,
+        backend_url:   actualBackendUrl,
+        recipient:     aiRecipient,
+        subject:       result.subject,
+        body:          result.body,
+        xlsx_filename: `Vulnerability_Report_${safeOwner}.xlsx`,
+        png_filename:  `Resolved_Unresolved_Graph_${safeOwner}.png`,
+      };
+
+      const helperResp = await fetch('http://127.0.0.1:7789/create-draft', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(helperPayload),
+      });
+
+      const helperData = await helperResp.json().catch(() => ({})) as any;
+
+      if (!helperResp.ok) {
+        setShareError(helperData.error || 'Outlook Helper failed to create the draft.');
+        setShareStep('error');
+        return;
+      }
+
+      // Success — Outlook Desktop is now open showing the draft
+      setShareStep('done');
 
     } catch (err: any) {
-      setShareError('Unable to reach the server. Please try again.');
+      if (stage === 'helper') {
+        const isNetErr = err.name === 'TypeError' || err.name === 'AbortError'
+          || (err.message || '').includes('fetch') || (err.message || '').includes('Failed');
+        setShareError(
+          isNetErr
+            ? 'Cannot connect to the Outlook Desktop Helper (http://127.0.0.1:7789). ' +
+              'Make sure the helper is running on this PC. ' +
+              'See outlook-helper/README.md for setup instructions.'
+            : `Outlook Helper error: ${err.message || 'Unknown error'}`
+        );
+      } else {
+        setShareError(err.message || 'Unable to reach the server. Please try again.');
+      }
       setShareStep('error');
     }
   };
-
-  /**
-   * handleOpenOutlookDraft — Step 2 (token mode only)
-   * Opens Outlook compose with pre-filled subject/body/recipient.
-   * Simultaneously triggers the XLSX download (single click, no Save As).
-   */
-  const handleOpenOutlookDraft = () => {
-    if (!shareResult) return;
-
-    const { subject, body, token, png_token } = shareResult as any;
-
-    // Open Outlook compose deeplink — recipient/subject/body pre-filled
-    const outlookUrl =
-      `https://outlook.office.com/mail/deeplink/compose` +
-      `?to=${encodeURIComponent(aiRecipient)}` +
-      `&subject=${encodeURIComponent(subject)}` +
-      `&body=${encodeURIComponent(body)}`;
-    window.open(outlookUrl, '_blank', 'noopener,noreferrer');
-
-    // Trigger XLSX download via backend token — no browser Save As
-    if (token) {
-      const dlLink = document.createElement('a');
-      dlLink.href = `${BACKEND_URL}/api/share/download/${token}`;
-      dlLink.style.display = 'none';
-      document.body.appendChild(dlLink);
-      dlLink.click();
-      document.body.removeChild(dlLink);
-    }
-
-    // Trigger optional PNG download
-    if (png_token) {
-      setTimeout(() => {
-        const pngLink = document.createElement('a');
-        pngLink.href = `${BACKEND_URL}/api/share/download/${png_token}`;
-        pngLink.style.display = 'none';
-        document.body.appendChild(pngLink);
-        pngLink.click();
-        document.body.removeChild(pngLink);
-      }, 800);
-    }
-  };
-
-
-
 
 
 
@@ -4766,11 +4811,13 @@ const AppContent: React.FC = () => {
 
       {isAiModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
-            <div className="bg-slate-800 p-4 flex justify-between items-center text-white">
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+
+            {/* ── Header ── */}
+            <div className="bg-slate-800 p-4 flex justify-between items-center text-white shrink-0">
               <div className="flex items-center gap-2">
                 <Send size={18} className="text-blue-400" />
-                <h3 className="font-bold text-sm">Share via Outlook</h3>
+                <h3 className="font-bold text-sm">Share via Outlook Desktop</h3>
               </div>
               <button
                 onClick={() => {
@@ -4779,6 +4826,7 @@ const AppContent: React.FC = () => {
                   setShareStep('form');
                   setShareResult(null);
                   setShareError('');
+                  setHelperStatus(null);
                 }}
                 className="text-slate-300 hover:text-white transition-colors"
               >
@@ -4786,21 +4834,127 @@ const AppContent: React.FC = () => {
               </button>
             </div>
 
-            {/* ── Phase: Preparing (spinner) ── */}
+            {/* ── Phase: Preparing (backend generating XLSX) ── */}
             {shareStep === 'preparing' && (
               <div className="p-10 flex flex-col items-center gap-4 text-slate-500">
-                <Activity size={32} className="animate-spin text-blue-500" />
-                <p className="text-sm font-medium">Generating Excel report…</p>
-                <p className="text-xs text-slate-400">Fetching all filtered records from the database.</p>
+                <Activity size={36} className="animate-spin text-blue-500" />
+                <p className="text-sm font-semibold text-slate-700">Generating Excel report…</p>
+                <p className="text-xs text-slate-400 text-center">
+                  Fetching all{' '}
+                  <strong className="text-slate-600">{totalRecords.toLocaleString()}</strong>
+                  {' '}filtered records from the database.
+                </p>
+              </div>
+            )}
+
+            {/* ── Phase: Launching (helper creating Outlook draft) ── */}
+            {shareStep === 'launching' && (
+              <div className="p-10 flex flex-col items-center gap-5 text-slate-500">
+                <Activity size={36} className="animate-spin text-green-500" />
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-slate-700">Preparing Outlook draft…</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    The Outlook Helper is downloading the report and
+                    creating a new draft in Outlook Desktop.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── Phase: Done (success) ── */}
+            {shareStep === 'done' && shareResult && (
+              <div className="p-6 flex flex-col gap-4 overflow-y-auto">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
+                  <span className="text-green-500 text-2xl shrink-0 leading-none mt-0.5">✓</span>
+                  <div>
+                    <p className="font-bold text-green-800 text-sm">
+                      {shareResult.mode === 'graph'
+                        ? 'Outlook draft created in your mailbox.'
+                        : 'Outlook Desktop has opened with your draft.'}
+                    </p>
+                    <p className="text-xs text-green-700 mt-1">
+                      {shareResult.mode === 'graph'
+                        ? 'The Excel report is attached. Open your Drafts folder in Outlook and click Send.'
+                        : 'The Excel report is attached. Review the draft and click Send in Outlook.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
+                  <div className="bg-slate-700 px-4 py-2 text-white text-[10px] font-bold uppercase tracking-widest">
+                    Report Summary
+                  </div>
+                  <div className="p-4 text-sm grid grid-cols-2 gap-y-2 gap-x-4 text-slate-700">
+                    <span className="font-semibold text-slate-500">To</span>
+                    <span className="truncate">{aiRecipient}</span>
+                    <span className="font-semibold text-slate-500">Format</span>
+                    <span>{selectedFormatFilter}</span>
+                    <span className="font-semibold text-slate-500">Owner</span>
+                    <span>{selectedOwners.length > 0 ? selectedOwners.join(', ') : 'All Owners'}</span>
+                    <span className="font-semibold text-slate-500">Records</span>
+                    <span className="font-bold">{shareResult.record_count.toLocaleString()}</span>
+                    <span className="font-semibold text-slate-500">Resolved</span>
+                    <span className="text-green-600 font-semibold">{shareResult.resolved}</span>
+                    <span className="font-semibold text-slate-500">Unresolved</span>
+                    <span className="text-red-500 font-semibold">{shareResult.unresolved}</span>
+                    <span className="font-semibold text-slate-500">Excel</span>
+                    <span className="text-green-700 font-semibold">📎 Attached</span>
+                    {shareResult.graph_included && <>
+                      <span className="font-semibold text-slate-500">Graph</span>
+                      <span className="text-green-700 font-semibold">📊 Attached</span>
+                    </>}
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAiModalOpen(false);
+                      setShareStep('form');
+                      setShareResult(null);
+                      setHelperStatus(null);
+                    }}
+                    className="px-5 py-2 text-xs font-bold bg-slate-700 text-white rounded hover:bg-slate-600 transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
             )}
 
             {/* ── Phase: Error ── */}
             {shareStep === 'error' && (
               <div className="p-6 flex flex-col gap-4">
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-800 flex items-start gap-2">
-                  <span className="text-red-500 text-base shrink-0">✕</span>
-                  <span>{shareError}</span>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+                  <span className="text-red-500 text-xl shrink-0 leading-none mt-0.5">✕</span>
+                  <div className="text-sm min-w-0">
+                    <p className="font-semibold text-red-800 mb-1">Something went wrong</p>
+                    <p className="text-red-700 break-words">{shareError}</p>
+                    {/* Show setup instructions if the helper connection failed */}
+                    {(shareError.toLowerCase().includes('helper') ||
+                      shareError.toLowerCase().includes('127.0.0.1')) && (
+                      <div className="mt-3 bg-red-100 rounded p-3 text-xs text-red-800 space-y-1">
+                        <p className="font-bold">To set up the Outlook Desktop Helper:</p>
+                        <ol className="list-decimal list-inside space-y-1">
+                          <li>
+                            Copy the{' '}
+                            <code className="bg-red-200 px-1 py-0.5 rounded">
+                              outlook-helper/
+                            </code>
+                            {' '}folder from the project to your Windows PC
+                          </li>
+                          <li>
+                            Double-click{' '}
+                            <code className="bg-red-200 px-1 py-0.5 rounded">
+                              install_and_run.bat
+                            </code>
+                          </li>
+                          <li>Keep the terminal window open, then try again</li>
+                        </ol>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
                   <button
@@ -4826,155 +4980,91 @@ const AppContent: React.FC = () => {
               </div>
             )}
 
-            {/* ── Phase: Ready (Graph API mode — draft already created) ── */}
-            {shareStep === 'ready' && shareResult?.mode === 'graph' && (
-              <div className="p-6 flex flex-col gap-4">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800 flex items-start gap-2">
-                  <span className="text-green-500 text-xl shrink-0">✓</span>
-                  <div>
-                    <p className="font-semibold">Outlook draft prepared successfully with Excel attachment.</p>
-                    <p className="text-xs text-green-700 mt-1">The draft has been created in the portal mailbox with your Excel report attached.</p>
-                  </div>
-                </div>
-                <div className="bg-slate-50 rounded-lg border border-slate-200 p-4 text-sm grid grid-cols-2 gap-y-2 gap-x-4 text-slate-700">
-                  <span className="font-semibold text-slate-500">To</span>
-                  <span className="truncate">{aiRecipient}</span>
-                  <span className="font-semibold text-slate-500">Records</span>
-                  <span>{shareResult.record_count.toLocaleString()}</span>
-                  <span className="font-semibold text-slate-500">Resolved</span>
-                  <span className="text-green-600 font-semibold">{shareResult.resolved}</span>
-                  <span className="font-semibold text-slate-500">Unresolved</span>
-                  <span className="text-red-500 font-semibold">{shareResult.unresolved}</span>
-                  <span className="font-semibold text-slate-500">Excel</span>
-                  <span className="text-green-600">📎 Attached</span>
-                  {shareResult.graph_included && <>
-                    <span className="font-semibold text-slate-500">Graph</span>
-                    <span className="text-green-600">📊 Attached</span>
-                  </>}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => shareResult.draft_url && window.open(shareResult.draft_url, '_blank', 'noopener,noreferrer')}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded text-sm font-bold hover:bg-blue-700 transition-colors"
-                >
-                  <Send size={14} />
-                  Open Draft in Outlook
-                </button>
-                <div className="flex justify-end pt-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsAiModalOpen(false);
-                      setShareStep('form');
-                      setShareResult(null);
-                    }}
-                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900"
-                  >
-                    Done
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* ── Phase: Ready (Token mode — show confirmation + download) ── */}
-            {shareStep === 'ready' && shareResult?.mode === 'token' && (
-              <div className="p-6 flex flex-col gap-4">
-                {/* Confirmation summary */}
-                <div className="bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
-                  <div className="bg-slate-700 px-4 py-2 text-white text-xs font-bold uppercase tracking-wide">Report Summary</div>
-                  <div className="p-4 text-sm grid grid-cols-2 gap-y-2 gap-x-4 text-slate-700">
-                    <span className="font-semibold text-slate-500">To</span>
-                    <span className="truncate">{aiRecipient}</span>
-                    <span className="font-semibold text-slate-500">Format</span>
-                    <span>{selectedFormatFilter}</span>
-                    <span className="font-semibold text-slate-500">Owner</span>
-                    <span>{selectedOwners.length > 0 ? selectedOwners.join(', ') : 'All Owners'}</span>
-                    <span className="font-semibold text-slate-500">Records</span>
-                    <span className="font-bold">{shareResult.record_count.toLocaleString()}</span>
-                    <span className="font-semibold text-slate-500">Resolved</span>
-                    <span className="text-green-600 font-semibold">{shareResult.resolved}</span>
-                    <span className="font-semibold text-slate-500">Unresolved</span>
-                    <span className="text-red-500 font-semibold">{shareResult.unresolved}</span>
-                    <span className="font-semibold text-slate-500">Excel</span>
-                    <span className="text-green-700 font-medium">📎 Included</span>
-                    <span className="font-semibold text-slate-500">Graph</span>
-                    <span className={shareResult.graph_included ? 'text-green-700 font-medium' : 'text-slate-400'}>
-                      {shareResult.graph_included ? '📊 Included' : 'Not requested'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Action button */}
-                <button
-                  type="button"
-                  id="btn-open-outlook-draft"
-                  onClick={handleOpenOutlookDraft}
-                  className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded text-sm font-bold hover:bg-blue-700 transition-colors shadow"
-                >
-                  <Send size={15} />
-                  Open in Outlook &amp; Download Excel
-                </button>
-
-                {/* Helper note */}
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 flex items-start gap-2">
-                  <span className="shrink-0 text-base">📌</span>
-                  <div>
-                    <p className="font-semibold mb-0.5">Two things will happen simultaneously:</p>
-                    <ol className="list-decimal list-inside space-y-0.5 text-amber-700">
-                      <li>Outlook opens with <strong>To</strong>, <strong>Subject</strong>, and <strong>Body</strong> pre-filled.</li>
-                      <li>Your Excel file (<strong>{shareResult.record_count.toLocaleString()} records</strong>) downloads automatically.</li>
-                    </ol>
-                    <p className="mt-1.5 font-medium">Click the paperclip 📎 in Outlook to attach the downloaded file, then click Send.</p>
-                    <p className="mt-1 text-amber-600 text-[10px]">For true auto-attachment, ask your IT admin to set up Azure AD credentials (see documentation).</p>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsAiModalOpen(false);
-                      setShareStep('form');
-                      setShareResult(null);
-                    }}
-                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900"
-                  >
-                    Done
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* ── Phase: Form (initial) ── */}
             {shareStep === 'form' && (
               <form
                 onSubmit={handleShareEmailSubmit}
-                className="p-5 flex flex-col gap-4 max-h-[80vh] overflow-y-auto"
+                className="p-5 flex flex-col gap-4 overflow-y-auto"
               >
+                {/* ── Helper status banner ── */}
+                <div className={`rounded-lg border px-4 py-2.5 text-xs flex items-start gap-2 font-medium ${
+                  helperStatus === null || helperStatus === 'checking'
+                    ? 'bg-slate-50 border-slate-200 text-slate-500'
+                    : helperStatus === 'available'
+                    ? 'bg-green-50 border-green-200 text-green-700'
+                    : 'bg-amber-50 border-amber-300 text-amber-800'
+                }`}>
+                  {(helperStatus === null || helperStatus === 'checking') && (
+                    <>
+                      <Activity size={13} className="animate-spin shrink-0 mt-0.5" />
+                      <span>Checking for Outlook Desktop Helper…</span>
+                    </>
+                  )}
+                  {helperStatus === 'available' && (
+                    <>
+                      <span className="text-green-600 font-bold shrink-0">✓</span>
+                      <span>Outlook Desktop is ready</span>
+                    </>
+                  )}
+                  {helperStatus === 'missing' && (
+                    <div className="flex flex-col gap-1.5 w-full">
+                      <div className="flex items-center gap-2">
+                        <span className="text-amber-600 font-bold shrink-0">⚠</span>
+                        <span className="font-semibold">Outlook Desktop Helper is not running</span>
+                      </div>
+                      <ol className="list-decimal list-inside text-amber-700 space-y-0.5 ml-4 text-[11px] leading-relaxed">
+                        <li>
+                          Copy{' '}
+                          <code className="bg-amber-100 px-1 rounded">outlook-helper/</code>
+                          {' '}from the project to your Windows PC
+                        </li>
+                        <li>
+                          Double-click{' '}
+                          <code className="bg-amber-100 px-1 rounded">install_and_run.bat</code>
+                        </li>
+                        <li>Keep the terminal open, then reload this page</li>
+                      </ol>
+                    </div>
+                  )}
+                </div>
+
                 {/* ── Active filter summary (read-only) ── */}
-                <div className={`rounded-lg border text-sm ${totalRecords === 0 ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-200"}`}>
+                <div className={`rounded-lg border text-sm ${
+                  totalRecords === 0
+                    ? 'bg-amber-50 border-amber-200'
+                    : 'bg-slate-50 border-slate-200'
+                }`}>
                   <div className="px-4 pt-3 pb-2 border-b border-slate-200 flex items-center justify-between">
                     <h4 className="font-bold text-slate-700 text-xs uppercase tracking-wide">Report Scope</h4>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${totalRecords === 0 ? "bg-amber-100 text-amber-700" : "bg-purple-100 text-purple-700"}`}>
-                      {totalRecords.toLocaleString()} record{totalRecords !== 1 ? "s" : ""}
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      totalRecords === 0
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {totalRecords.toLocaleString()} record{totalRecords !== 1 ? 's' : ''}
                     </span>
                   </div>
                   <div className="px-4 py-3 grid grid-cols-2 gap-y-1.5 gap-x-4 text-slate-600 text-xs">
                     <span className="font-semibold text-slate-500">Format</span>
                     <span>{selectedFormatFilter}</span>
                     <span className="font-semibold text-slate-500">Owner</span>
-                    <span>{selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners"}</span>
+                    <span>{selectedOwners.length > 0 ? selectedOwners.join(', ') : 'All Owners'}</span>
                     {selectedBatches.length > 0 && (<>
                       <span className="font-semibold text-slate-500">Datasets</span>
                       <span>{selectedBatches.length} selected</span>
                     </>)}
                     {selectedContainerSubTypes.length > 0 && (<>
                       <span className="font-semibold text-slate-500">Sub-Types</span>
-                      <span className="truncate">{selectedContainerSubTypes.join(", ")}</span>
+                      <span className="truncate">{selectedContainerSubTypes.join(', ')}</span>
                     </>)}
                     <span className="font-semibold text-slate-500">Date Range</span>
-                    <span>{dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : dateFrom ? `from ${dateFrom}` : dateTo ? `to ${dateTo}` : "All time"}</span>
-                    {filter !== "All" && (<>
+                    <span>{
+                      dateFrom && dateTo ? `${dateFrom} – ${dateTo}`
+                      : dateFrom ? `from ${dateFrom}`
+                      : dateTo  ? `to ${dateTo}`
+                      : 'All time'
+                    }</span>
+                    {filter !== 'All' && (<>
                       <span className="font-semibold text-slate-500">Severity</span>
                       <span>{filter}</span>
                     </>)}
@@ -4983,13 +5073,17 @@ const AppContent: React.FC = () => {
                       <span className="truncate">{searchTerm}</span>
                     </>)}
                     <span className="font-semibold text-slate-500 border-t border-slate-100 pt-1.5">Resolved</span>
-                    <span className="text-green-600 font-semibold border-t border-slate-100 pt-1.5">{groupedIssues.reduce((acc, g) => acc + g.resolved, 0)}</span>
+                    <span className="text-green-600 font-semibold border-t border-slate-100 pt-1.5">
+                      {groupedIssues.reduce((acc, g) => acc + g.resolved, 0)}
+                    </span>
                     <span className="font-semibold text-slate-500">Unresolved</span>
-                    <span className="text-red-500 font-semibold">{groupedIssues.reduce((acc, g) => acc + g.unresolved, 0)}</span>
+                    <span className="text-red-500 font-semibold">
+                      {groupedIssues.reduce((acc, g) => acc + g.unresolved, 0)}
+                    </span>
                   </div>
                   {totalRecords === 0 && (
                     <div className="px-4 pb-3 text-amber-700 text-xs font-medium">
-                      ⚠ No vulnerabilities match the current filters. Please adjust your filters before sending.
+                      ⚠ No vulnerabilities match the current filters. Adjust before sending.
                     </div>
                   )}
                 </div>
@@ -5003,7 +5097,7 @@ const AppContent: React.FC = () => {
                     type="email"
                     required
                     placeholder="team.lead@company.com"
-                    className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-purple-500 outline-none text-sm"
+                    className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                     value={aiRecipient}
                     onChange={(e) => setAiRecipient(e.target.value)}
                   />
@@ -5017,14 +5111,13 @@ const AppContent: React.FC = () => {
                       id="includeGraph"
                       checked={includeGraph}
                       onChange={(e) => setIncludeGraph(e.target.checked)}
-                      className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
+                      className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
                     />
                     <label htmlFor="includeGraph" className="text-sm text-slate-700 font-medium cursor-pointer">
                       Include Resolved/Unresolved Graph (PNG)
                     </label>
                   </div>
 
-                  {/* Graph mode toggle — only shown when graph is included */}
                   {includeGraph && (
                     <div className="ml-6 flex items-center gap-2">
                       <span className="text-xs text-slate-500 font-medium">Graph mode:</span>
@@ -5032,14 +5125,22 @@ const AppContent: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setEmailGraphMode('Daily')}
-                          className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Daily' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                          className={`px-3 py-1 rounded transition-colors ${
+                            emailGraphMode === 'Daily'
+                              ? 'bg-white shadow text-slate-800'
+                              : 'text-slate-500 hover:text-slate-700'
+                          }`}
                         >
                           Daily
                         </button>
                         <button
                           type="button"
                           onClick={() => setEmailGraphMode('Cumulative')}
-                          className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Cumulative' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                          className={`px-3 py-1 rounded transition-colors ${
+                            emailGraphMode === 'Cumulative'
+                              ? 'bg-white shadow text-slate-800'
+                              : 'text-slate-500 hover:text-slate-700'
+                          }`}
                         >
                           Cumulative
                         </button>
@@ -5047,12 +5148,12 @@ const AppContent: React.FC = () => {
                     </div>
                   )}
 
-                  <p className="text-[10px] text-slate-400 font-medium flex items-start gap-1.5">
+                  <p className="text-[10px] text-slate-400 flex items-start gap-1.5">
                     <Send size={11} className="shrink-0 mt-0.5" />
                     <span>
-                      The backend will generate an Excel report with all {totalRecords.toLocaleString()} filtered records.
-                      Outlook will open with the recipient, subject and body pre-filled.
-                      The Excel file downloads simultaneously for attachment.
+                      The backend generates an Excel report from the current Export View filters.
+                      The Outlook Desktop Helper attaches it directly to a new Outlook draft.
+                      No download or manual attachment required.
                     </span>
                   </p>
                 </div>
@@ -5069,15 +5170,17 @@ const AppContent: React.FC = () => {
                   <button
                     type="submit"
                     id="btn-share-via-outlook"
-                    disabled={shareStep === 'preparing' || !aiRecipient || totalRecords === 0}
-                    title={totalRecords === 0 ? "No records match current filters" : ""}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 transition-colors disabled:bg-blue-300 disabled:cursor-not-allowed"
+                    disabled={helperStatus !== 'available' || !aiRecipient || totalRecords === 0}
+                    title={
+                      helperStatus !== 'available'
+                        ? 'Start the Outlook Desktop Helper first (see instructions above)'
+                        : totalRecords === 0
+                        ? 'No records match current filters'
+                        : ''
+                    }
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed disabled:text-slate-500"
                   >
-                    {shareStep === 'preparing' ? (
-                      <Activity size={14} className="animate-spin" />
-                    ) : (
-                      <Send size={14} />
-                    )}
+                    <Send size={14} />
                     Share via Outlook
                   </button>
                 </div>
@@ -5087,6 +5190,8 @@ const AppContent: React.FC = () => {
           </div>
         </div>
       )}
+
+
 
 
       {isUploadModalOpen && (

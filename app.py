@@ -5185,6 +5185,7 @@ async def share_outlook(
     container_sub_types: str = None,
     include_graph: str = "false",
     graph_mode: str = "Daily",
+    columns: str = None,      # comma-separated column names — mirrors /api/export
 ):
     """
     POST /api/share/outlook
@@ -5260,6 +5261,15 @@ async def share_outlook(
 
         # ── 4. Generate XLSX — same logic as /api/export ──────────────────────
         df = pd.DataFrame(records)
+
+        # Apply same column filtering as Export View so the attachment
+        # has identical columns to what the user sees on screen.
+        if columns:
+            requested_cols = [c.strip() for c in columns.split(",") if c.strip()]
+            valid_cols = [c for c in requested_cols if c in df.columns]
+            if valid_cols:
+                df = df[valid_cols]
+
         xlsx_buf = io.BytesIO()
         with pd.ExcelWriter(xlsx_buf, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, sheet_name="Vulnerabilities")
