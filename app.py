@@ -1238,6 +1238,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def startup_event():
+    print("[GRAPH] Checking Outlook integration configuration...")
+    graph_tenant  = os.environ.get("GRAPH_TENANT_ID", "").strip()
+    graph_client  = os.environ.get("GRAPH_CLIENT_ID", "").strip()
+    graph_secret  = os.environ.get("GRAPH_CLIENT_SECRET", "").strip()
+    graph_mailbox = os.environ.get("GRAPH_SENDER_EMAIL", "").strip()
+
+    missing = []
+    if not graph_tenant: missing.append("GRAPH_TENANT_ID")
+    if not graph_client: missing.append("GRAPH_CLIENT_ID")
+    if not graph_secret: missing.append("GRAPH_CLIENT_SECRET")
+    if not graph_mailbox: missing.append("GRAPH_SENDER_EMAIL")
+
+    if missing:
+        non_secret_missing = [m for m in missing if m != "GRAPH_CLIENT_SECRET"]
+        if "GRAPH_CLIENT_SECRET" in missing:
+            print("[GRAPH] GRAPH_CLIENT_SECRET=MISSING")
+        else:
+            print("[GRAPH] GRAPH_CLIENT_SECRET=SET")
+        
+        if non_secret_missing:
+            print(f"[GRAPH] Missing configuration: {', '.join(non_secret_missing)}")
+    else:
+        print("[GRAPH] Outlook integration is fully configured.")
+
 dbf = "xtelify_db.json"
 
 

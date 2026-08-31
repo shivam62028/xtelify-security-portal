@@ -2725,12 +2725,6 @@ const AppContent: React.FC = () => {
         const msg: string = data.error || `Server error (${response.status})`;
         if (response.status === 404) {
           setShareError('No vulnerabilities match the current Export View filters.');
-        } else if (response.status === 503 || msg.toLowerCase().includes('not configured')) {
-          setShareError(
-            'Outlook integration is not configured on the server. ' +
-            'Please set GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, ' +
-            'and GRAPH_SENDER_EMAIL on the backend.'
-          );
         } else if (msg.toLowerCase().includes('excel') || msg.toLowerCase().includes('generate')) {
           setShareError('Unable to generate the Excel report. Please try again.');
         } else {
