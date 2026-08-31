@@ -5078,3 +5078,516 @@ async def generate_email_report(
         import traceback
         print(f"[api/email/report] Error:\n{traceback.format_exc()}")
         return ORJSONResponse({"error": str(e)}, status_code=500)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Outlook Share — two-step flow
+#
+# Step 1:  POST /api/share/outlook
+#          • Accepts same filter params as /api/export
+#          • Fetches ALL filtered records (no pagination)
+#          • Generates XLSX (via /api/export logic)
+#          • Optionally generates graph PNG
+#          • Stores files in memory with a UUID token (TTL = 15 min)
+#          • Returns JSON: { token, record_count, resolved, unresolved,
+#                           subject, body, graph_included }
+#
+# Step 2:  GET /api/share/download/{token}
+#          • Serves the XLSX for that token as a browser-downloadable file
+#          • Cleans up the token after serving
+#
+# When Graph API env-vars are present (GRAPH_TENANT_ID / GRAPH_CLIENT_ID /
+# GRAPH_CLIENT_SECRET / GRAPH_SENDER_EMAIL), Step 1 instead creates a real
+# Outlook draft with the XLSX already attached and returns
+# { draft_url } for the frontend to open directly.
+# ─────────────────────────────────────────────────────────────────────────────
+
+import uuid as _uuid_mod
+from datetime import datetime as _dt, timezone as _tz
+
+# In-memory token store: { token: { "xlsx": bytes, "png": bytes|None,
+#                                    "filename": str, "expires": float } }
+_share_tokens: dict = {}
+_SHARE_TOKEN_TTL_SECS = 900   # 15 minutes
+
+
+def _evict_expired_tokens():
+    """Remove tokens whose TTL has elapsed."""
+    now = _dt.now(_tz.utc).timestamp()
+    expired = [k for k, v in _share_tokens.items() if v["expires"] < now]
+    for k in expired:
+        del _share_tokens[k]
+
+
+def _build_outlook_subject(source_format: str | None, assigned_to: str | None) -> str:
+    parts = ["Vulnerability Report"]
+    if source_format and source_format.upper() != "ALL":
+        parts.append(source_format.title())
+    if assigned_to:
+        parts.append(assigned_to)
+    else:
+        parts.append("Wynk Security Portal")
+    return " — ".join(parts)
+
+
+def _build_outlook_body(
+    source_format: str | None,
+    assigned_to: str | None,
+    date_from: str | None,
+    date_to: str | None,
+    total: int,
+    resolved: int,
+    unresolved: int,
+    include_graph: bool,
+) -> str:
+    date_range = (
+        f"{date_from} – {date_to}" if date_from and date_to
+        else f"from {date_from}" if date_from
+        else f"to {date_to}" if date_to
+        else "All time"
+    )
+    graph_note = (
+        "\nThe Resolved vs Unresolved graph (PNG) is also attached for the same filtered data.\n"
+        if include_graph else ""
+    )
+    return (
+        "Hello,\n\n"
+        "Please find attached the vulnerability report from the Wynk Security Portal.\n\n"
+        "Report Scope:\n"
+        f"  Format      : {source_format or 'All'}\n"
+        f"  Owner       : {assigned_to or 'All Owners'}\n"
+        f"  Date Range  : {date_range}\n\n"
+        "Summary:\n"
+        f"  Total Vulnerabilities : {total}\n"
+        f"  Resolved              : {resolved}\n"
+        f"  Unresolved            : {unresolved}\n\n"
+        "The attached Excel file contains the filtered vulnerability data from the current Export View.\n"
+        f"{graph_note}\n"
+        "Regards,\n"
+        "Wynk Security Portal"
+    )
+
+
+@app.post("/api/share/outlook")
+async def share_outlook(
+    request: Request,
+    recipient: str = None,
+    source_format: str = None,
+    upload_batch: str = None,
+    assigned_to: str = None,
+    search: str = None,
+    search_field: str = None,
+    severity: str = None,
+    status: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    is_advanced_search: str = None,
+    container_sub_types: str = None,
+    include_graph: str = "false",
+    graph_mode: str = "Daily",
+):
+    """
+    POST /api/share/outlook
+
+    Step 1 of the Outlook share flow.
+
+    Uses EXACTLY the same filter chain as /api/export → _build_db_query().
+    Generates XLSX (all filtered records, no pagination) + optional PNG graph.
+    Stores them in an in-memory token store and returns:
+
+      {
+        "token":         "<uuid>",         # use with GET /api/share/download/{token}
+        "record_count":  126,
+        "resolved":      48,
+        "unresolved":    78,
+        "subject":       "Vulnerability Report — Container — Shiv Kumar",
+        "body":          "Hello, ...",
+        "graph_included": true,
+        "png_token":     "<uuid>|null"     # separate token for graph PNG
+      }
+
+    If GRAPH_TENANT_ID / GRAPH_CLIENT_ID / GRAPH_CLIENT_SECRET / GRAPH_SENDER_EMAIL
+    environment variables are all set, this endpoint instead creates a real
+    Outlook draft via Microsoft Graph and returns { "draft_url": "..." }.
+    """
+    if not _is_mongo_available():
+        return ORJSONResponse({"error": "Database unavailable"}, status_code=503)
+
+    # ── 1. Validate recipient ─────────────────────────────────────────────────
+    if not recipient or "@" not in recipient:
+        return ORJSONResponse({"error": "Invalid recipient email address."}, status_code=400)
+
+    # ── 2. Build query — identical to /api/export ─────────────────────────────
+    query = _build_db_query(
+        search=search,
+        search_field=search_field,
+        severity=severity,
+        status=status,
+        assigned_to=assigned_to,
+        source_format=source_format,
+        upload_batch=upload_batch,
+        date_from=date_from,
+        date_to=date_to,
+        is_advanced_search=is_advanced_search,
+        container_sub_types=container_sub_types,
+    )
+
+    try:
+        import traceback as _tb
+
+        # ── 3. Fetch ALL filtered records (no pagination) ─────────────────────
+        cursor = issues_collection.find(query).sort("UploadedAt", -1)
+        records = list(cursor)
+
+        total = len(records)
+        if total == 0:
+            return ORJSONResponse(
+                {"error": "No vulnerabilities match the current Export View filters."},
+                status_code=404,
+            )
+
+        resolved = 0
+        unresolved = 0
+        resolved_terms = ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]
+
+        for rec in records:
+            st = str(rec.get("Status", "")).lower()
+            if any(t in st for t in resolved_terms):
+                resolved += 1
+            else:
+                unresolved += 1
+            rec.pop("_id", None)
+
+        # ── 4. Generate XLSX — same logic as /api/export ──────────────────────
+        df = pd.DataFrame(records)
+        xlsx_buf = io.BytesIO()
+        with pd.ExcelWriter(xlsx_buf, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Vulnerabilities")
+
+            # Summary statistics sheet
+            wb = writer.book
+            ws = wb.create_sheet("Statistics")
+            scope_rows = [
+                ("Format",     source_format or "All"),
+                ("Owner",      assigned_to or "All Owners"),
+                ("Date From",  date_from or "—"),
+                ("Date To",    date_to or "—"),
+                ("Total",      total),
+                ("Resolved",   resolved),
+                ("Unresolved", unresolved),
+            ]
+            ws["A1"] = "Scope"
+            ws["B1"] = "Value"
+            for i, (k, v) in enumerate(scope_rows, start=2):
+                ws.cell(row=i, column=1, value=k)
+                ws.cell(row=i, column=2, value=v)
+
+            # Embedded bar chart
+            from openpyxl.chart import BarChart, Reference
+            ws["D1"] = "Status"
+            ws["E1"] = "Count"
+            ws["D2"] = "Resolved"
+            ws["E2"] = resolved
+            ws["D3"] = "Unresolved"
+            ws["E3"] = unresolved
+            chart = BarChart()
+            chart.type = "col"
+            chart.style = 10
+            chart.title = f"Vulnerability Status — {assigned_to or 'All Owners'}"
+            chart.y_axis.title = "Count"
+            chart.x_axis.title = "Status"
+            data_ref = Reference(ws, min_col=5, min_row=1, max_row=3)
+            cats_ref = Reference(ws, min_col=4, min_row=2, max_row=3)
+            chart.add_data(data_ref, titles_from_data=True)
+            chart.set_categories(cats_ref)
+            ws.add_chart(chart, "G2")
+
+        xlsx_buf.seek(0)
+        xlsx_bytes = xlsx_buf.read()
+
+        # ── 5. Verify XLSX is valid ───────────────────────────────────────────
+        if len(xlsx_bytes) == 0:
+            return ORJSONResponse({"error": "Unable to generate the Excel report."}, status_code=500)
+        try:
+            _verify_buf = io.BytesIO(xlsx_bytes)
+            _verify_wb = load_workbook(_verify_buf, read_only=True)
+            assert "Vulnerabilities" in _verify_wb.sheetnames
+            _verify_wb.close()
+        except Exception as verify_err:
+            print(f"[share/outlook] XLSX verification failed: {verify_err}")
+            return ORJSONResponse({"error": "Unable to generate the Excel report."}, status_code=500)
+
+        # ── 6. Generate graph PNG (optional) ──────────────────────────────────
+        png_bytes = b""
+        if include_graph == "true":
+            try:
+                png_bytes = _generate_resolved_unresolved_graph(
+                    query=query,
+                    graph_mode=graph_mode,
+                    owner_label=assigned_to or "",
+                    format_label=source_format or "All",
+                    date_from=date_from or "",
+                    date_to=date_to or "",
+                )
+            except Exception as graph_err:
+                print(f"[share/outlook] Graph generation failed (non-fatal): {graph_err}")
+                png_bytes = b""
+
+        # ── 7. Build subject + body ───────────────────────────────────────────
+        subject = _build_outlook_subject(source_format, assigned_to)
+        body = _build_outlook_body(
+            source_format=source_format,
+            assigned_to=assigned_to,
+            date_from=date_from,
+            date_to=date_to,
+            total=total,
+            resolved=resolved,
+            unresolved=unresolved,
+            include_graph=bool(png_bytes),
+        )
+
+        # ── 8. Check for Graph API credentials → full draft flow ──────────────
+        graph_tenant  = os.environ.get("GRAPH_TENANT_ID", "").strip()
+        graph_client  = os.environ.get("GRAPH_CLIENT_ID", "").strip()
+        graph_secret  = os.environ.get("GRAPH_CLIENT_SECRET", "").strip()
+        graph_mailbox = os.environ.get("GRAPH_SENDER_EMAIL", "").strip()
+
+        if graph_tenant and graph_client and graph_secret and graph_mailbox:
+            # ── Graph API path: create Outlook draft automatically ────────────
+            try:
+                draft_url = await _create_outlook_draft_graph(
+                    tenant_id=graph_tenant,
+                    client_id=graph_client,
+                    client_secret=graph_secret,
+                    sender_email=graph_mailbox,
+                    recipient=recipient,
+                    subject=subject,
+                    body=body,
+                    xlsx_bytes=xlsx_bytes,
+                    xlsx_filename=f"Vulnerability_Report_{(assigned_to or 'All').replace(' ', '_')}.xlsx",
+                    png_bytes=png_bytes if png_bytes else None,
+                    png_filename=f"Resolved_Unresolved_{(assigned_to or 'All').replace(' ', '_')}.png",
+                )
+                return ORJSONResponse({
+                    "mode":          "graph",
+                    "draft_url":     draft_url,
+                    "record_count":  total,
+                    "resolved":      resolved,
+                    "unresolved":    unresolved,
+                    "subject":       subject,
+                    "body":          body,
+                    "graph_included": bool(png_bytes),
+                })
+            except Exception as graph_err:
+                print(f"[share/outlook] Graph API failed, falling back to token mode: {graph_err}")
+                # Fall through to token mode
+
+        # ── 9. Token mode: store files, return token ──────────────────────────
+        _evict_expired_tokens()
+
+        safe_owner = (assigned_to or "All").replace(" ", "_")
+        xlsx_filename = f"Vulnerability_Report_{safe_owner}.xlsx"
+        xlsx_token = str(_uuid_mod.uuid4())
+        _share_tokens[xlsx_token] = {
+            "content":  xlsx_bytes,
+            "filename": xlsx_filename,
+            "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "expires":  _dt.now(_tz.utc).timestamp() + _SHARE_TOKEN_TTL_SECS,
+        }
+
+        png_token = None
+        if png_bytes:
+            png_filename = f"Resolved_Unresolved_{safe_owner}_{graph_mode}.png"
+            png_token = str(_uuid_mod.uuid4())
+            _share_tokens[png_token] = {
+                "content":  png_bytes,
+                "filename": png_filename,
+                "mimetype": "image/png",
+                "expires":  _dt.now(_tz.utc).timestamp() + _SHARE_TOKEN_TTL_SECS,
+            }
+
+        return ORJSONResponse({
+            "mode":          "token",
+            "token":         xlsx_token,
+            "png_token":     png_token,
+            "record_count":  total,
+            "resolved":      resolved,
+            "unresolved":    unresolved,
+            "subject":       subject,
+            "body":          body,
+            "graph_included": bool(png_bytes),
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"[share/outlook] Error:\n{traceback.format_exc()}")
+        return ORJSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/share/download/{token}")
+async def share_download(token: str):
+    """
+    GET /api/share/download/{token}
+
+    Step 2 of the Outlook share flow.
+    Serves the XLSX (or PNG) stored by POST /api/share/outlook.
+    The token is consumed after serving (single-use).
+    Returns 404 if the token is unknown or has expired.
+    """
+    _evict_expired_tokens()
+
+    entry = _share_tokens.pop(token, None)
+    if entry is None:
+        return ORJSONResponse(
+            {"error": "Download link expired or not found. Please click Share again."},
+            status_code=404,
+        )
+
+    from fastapi.responses import Response as _FR
+    return _FR(
+        content=entry["content"],
+        media_type=entry["mimetype"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{entry["filename"]}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+async def _create_outlook_draft_graph(
+    tenant_id: str,
+    client_id: str,
+    client_secret: str,
+    sender_email: str,
+    recipient: str,
+    subject: str,
+    body: str,
+    xlsx_bytes: bytes,
+    xlsx_filename: str,
+    png_bytes: bytes | None,
+    png_filename: str | None,
+) -> str:
+    """
+    Creates an Outlook DRAFT (not send) via Microsoft Graph API.
+
+    Uses client-credentials flow (app-only).
+    Requires Mail.ReadWrite application permission + admin consent.
+
+    Returns the Outlook webLink of the draft so the frontend can open it.
+    Raises an exception on any failure so the caller can fall back to token mode.
+    """
+    # ── Acquire access token ──────────────────────────────────────────────────
+    token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+    token_data = {
+        "grant_type":    "client_credentials",
+        "client_id":     client_id,
+        "client_secret": client_secret,
+        "scope":         "https://graph.microsoft.com/.default",
+    }
+    async with httpx.AsyncClient(timeout=30) as client_http:
+        token_resp = await client_http.post(token_url, data=token_data)
+        token_resp.raise_for_status()
+        access_token = token_resp.json()["access_token"]
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type":  "application/json",
+        }
+
+        # ── Create draft message ──────────────────────────────────────────────
+        draft_payload = {
+            "subject": subject,
+            "body": {
+                "contentType": "Text",
+                "content":     body,
+            },
+            "toRecipients": [
+                {"emailAddress": {"address": recipient}}
+            ],
+        }
+        draft_resp = await client_http.post(
+            f"https://graph.microsoft.com/v1.0/users/{sender_email}/messages",
+            headers=headers,
+            json=draft_payload,
+        )
+        draft_resp.raise_for_status()
+        draft_data  = draft_resp.json()
+        message_id  = draft_data["id"]
+        draft_url   = draft_data.get("webLink", "")
+
+        # ── Attach XLSX ───────────────────────────────────────────────────────
+        GRAPH_SMALL_ATTACHMENT_LIMIT = 3 * 1024 * 1024   # 3 MB
+
+        async def _attach_file(file_bytes: bytes, filename: str, mimetype: str):
+            attach_url = (
+                f"https://graph.microsoft.com/v1.0/users/{sender_email}"
+                f"/messages/{message_id}/attachments"
+            )
+            if len(file_bytes) <= GRAPH_SMALL_ATTACHMENT_LIMIT:
+                # Direct attachment
+                attach_payload = {
+                    "@odata.type":  "#microsoft.graph.fileAttachment",
+                    "name":         filename,
+                    "contentType":  mimetype,
+                    "contentBytes": base64.b64encode(file_bytes).decode("ascii"),
+                }
+                ar = await client_http.post(attach_url, headers=headers, json=attach_payload)
+                ar.raise_for_status()
+            else:
+                # Large-file upload session
+                session_url = (
+                    f"https://graph.microsoft.com/v1.0/users/{sender_email}"
+                    f"/messages/{message_id}/attachments/createUploadSession"
+                )
+                session_payload = {
+                    "AttachmentItem": {
+                        "attachmentType": "file",
+                        "name":           filename,
+                        "size":           len(file_bytes),
+                    }
+                }
+                sess_resp = await client_http.post(session_url, headers=headers, json=session_payload)
+                sess_resp.raise_for_status()
+                upload_url = sess_resp.json()["uploadUrl"]
+
+                # Upload in 4 MB chunks
+                chunk_size = 4 * 1024 * 1024
+                total_size = len(file_bytes)
+                offset = 0
+                while offset < total_size:
+                    chunk = file_bytes[offset: offset + chunk_size]
+                    end   = offset + len(chunk) - 1
+                    chunk_headers = {
+                        "Content-Length": str(len(chunk)),
+                        "Content-Range":  f"bytes {offset}-{end}/{total_size}",
+                        "Content-Type":   mimetype,
+                    }
+                    put_resp = await client_http.put(upload_url, content=chunk, headers=chunk_headers)
+                    put_resp.raise_for_status()
+                    offset += len(chunk)
+
+        await _attach_file(
+            xlsx_bytes,
+            xlsx_filename,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        if png_bytes and png_filename:
+            await _attach_file(png_bytes, png_filename, "image/png")
+
+        # ── Verify attachment exists on draft ─────────────────────────────────
+        verify_resp = await client_http.get(
+            f"https://graph.microsoft.com/v1.0/users/{sender_email}"
+            f"/messages/{message_id}/attachments",
+            headers=headers,
+        )
+        verify_resp.raise_for_status()
+        attachments = verify_resp.json().get("value", [])
+        xlsx_confirmed = any(
+            a.get("name", "").endswith(".xlsx") and a.get("size", 0) > 0
+            for a in attachments
+        )
+        if not xlsx_confirmed:
+            raise RuntimeError("Outlook draft created but XLSX attachment could not be verified.")
+
+        return draft_url

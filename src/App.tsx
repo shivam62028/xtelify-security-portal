@@ -930,7 +930,23 @@ const AppContent: React.FC = () => {
   const [aiPrompt, setAiPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [includeGraph, setIncludeGraph] = useState<boolean>(false);
-  const [mailtoResult, setMailtoResult] = useState<{ subject: string; body: string; recipient: string } | null>(null);
+  // ── Outlook share state ──────────────────────────────────────────────────
+  type ShareStep = 'form' | 'preparing' | 'ready' | 'error';
+  const [shareStep, setShareStep] = useState<ShareStep>('form');
+  interface ShareResult {
+    mode: 'token' | 'graph';
+    token?: string;
+    png_token?: string | null;
+    draft_url?: string;
+    record_count: number;
+    resolved: number;
+    unresolved: number;
+    subject: string;
+    body: string;
+    graph_included: boolean;
+  }
+  const [shareResult, setShareResult] = useState<ShareResult | null>(null);
+  const [shareError, setShareError]   = useState<string>('');
   const [emailGraphMode, setEmailGraphMode] = useState<'Daily' | 'Cumulative'>('Daily');
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
 
@@ -2665,91 +2681,104 @@ const AppContent: React.FC = () => {
     return params;
   };
 
+  /**
+   * handleShareEmailSubmit — Step 1
+   * Sends ONLY filters to POST /api/share/outlook.
+   * Backend generates XLSX + optional graph and returns a secure token.
+   * No mailto:, no createObjectURL, no browser download at this stage.
+   */
   const handleShareEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!aiRecipient) return;
+    if (!aiRecipient || totalRecords === 0) return;
 
-    const activeOwner = selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners";
-    const totalVulns = totalRecords;
-    const resolvedVulns = groupedIssues.reduce((a, g) => a + g.resolved, 0);
-    const unresolvedVulns = groupedIssues.reduce((a, g) => a + g.unresolved, 0);
+    setShareStep('preparing');
+    setShareError('');
+    setShareResult(null);
 
-    // ── Step 1: Build professional email body with full scope summary ──────
-    const emailSubject = `Vulnerability Report — ${activeOwner}`;
-    const emailBody = [
-      `Hello,`,
-      ``,
-      `Please find attached the vulnerability report from the Wynk Security Portal.`,
-      ``,
-      `Report Scope:`,
-      `  Owner       : ${activeOwner}`,
-      `  Format      : ${selectedFormatFilter}`,
-      `  Date Range  : ${dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : "All time"}`,
-      `  Mode        : ${emailGraphMode}`,
-      ``,
-      `Summary:`,
-      `  Total Vulnerabilities : ${totalVulns}`,
-      `  Resolved              : ${resolvedVulns}`,
-      `  Unresolved            : ${unresolvedVulns}`,
-      ``,
-      `The attached Excel file contains the filtered vulnerability data.`,
-      includeGraph
-        ? `The attached graph shows the Resolved vs Unresolved vulnerability trend for the same filtered data.`
-        : ``,
-      ``,
-      `Regards,`,
-      `Wynk Security Portal`,
-    ].filter(line => line !== undefined).join("\n");
-
-    // ── Step 2: Fire mailto: via hidden anchor immediately on click event ──
-    // Must happen synchronously (before any await) to avoid popup blocking.
-    const mailtoUrl = `mailto:${encodeURIComponent(aiRecipient)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
-    const anchor = document.createElement("a");
-    anchor.href = mailtoUrl;
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-
-    // ── Step 3: Show fallback panel — modal stays open ────────────────────
-    setMailtoResult({ subject: emailSubject, body: emailBody, recipient: aiRecipient });
-
-    // ── Step 4: Call POST /api/email/report — fully non-blocking ──────────
-    // Uses EXACT same filter state as Dashboard/Export View via buildEmailFilterParams().
-    // _build_db_query() on the backend is called once for both Excel and graph.
-    setIsGenerating(true);
     try {
       const params = buildEmailFilterParams();
-      if (includeGraph) params.append("include_graph", "true");
-      params.append("graph_mode", emailGraphMode);
+      params.append('recipient', aiRecipient);
+      if (includeGraph) params.append('include_graph', 'true');
+      params.append('graph_mode', emailGraphMode);
 
-      const response = await fetch(`${BACKEND_URL}/api/email/report?${params.toString()}`, {
-        method: "POST",
+      const response = await fetch(`${BACKEND_URL}/api/share/outlook?${params.toString()}`, {
+        method: 'POST',
       });
 
+      const data = await response.json().catch(() => ({}));
+
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        console.warn("[Send Mail] Report generation failed:", errData.error || response.status);
-        // Do not alert — user already sees fallback compose links in the modal
-      } else {
-        const blob = await response.blob();
-        const blobUrl = window.URL.createObjectURL(blob);
-        const safeOwner = selectedOwners.length > 0
-          ? selectedOwners.join("_").replace(/\s+/g, "_")
-          : "All_Owners";
-        const filename = `Security_Report_${safeOwner}.zip`;
-        const dl = document.createElement("a");
-        dl.href = blobUrl;
-        dl.download = filename;
-        document.body.appendChild(dl);
-        dl.click();
-        document.body.removeChild(dl);
-        window.URL.revokeObjectURL(blobUrl);
+        const msg = data.error || `Server error (${response.status})`;
+        if (response.status === 404) {
+          setShareError('No vulnerabilities match the current Export View filters.');
+        } else if (msg.toLowerCase().includes('excel') || msg.toLowerCase().includes('generate')) {
+          setShareError('Unable to generate the Excel report.');
+        } else if (msg.toLowerCase().includes('draft')) {
+          setShareError('Unable to create the Outlook draft.');
+        } else {
+          setShareError(msg);
+        }
+        setShareStep('error');
+        return;
       }
+
+      // ── Graph API mode: backend already created the draft ─────────────────
+      if (data.mode === 'graph' && data.draft_url) {
+        setShareResult(data as any);
+        setShareStep('ready');
+        // Open the actual Outlook draft immediately
+        window.open(data.draft_url, '_blank', 'noopener,noreferrer');
+        return;
+      }
+
+      // ── Token mode: store result, show confirmation ───────────────────────
+      setShareResult(data as any);
+      setShareStep('ready');
+
     } catch (err: any) {
-      console.warn("[Send Mail] Backend unavailable, skipping report download:", err.message);
-    } finally {
-      setIsGenerating(false);
+      setShareError('Unable to reach the server. Please try again.');
+      setShareStep('error');
+    }
+  };
+
+  /**
+   * handleOpenOutlookDraft — Step 2 (token mode only)
+   * Opens Outlook compose with pre-filled subject/body/recipient.
+   * Simultaneously triggers the XLSX download (single click, no Save As).
+   */
+  const handleOpenOutlookDraft = () => {
+    if (!shareResult) return;
+
+    const { subject, body, token, png_token } = shareResult as any;
+
+    // Open Outlook compose deeplink — recipient/subject/body pre-filled
+    const outlookUrl =
+      `https://outlook.office.com/mail/deeplink/compose` +
+      `?to=${encodeURIComponent(aiRecipient)}` +
+      `&subject=${encodeURIComponent(subject)}` +
+      `&body=${encodeURIComponent(body)}`;
+    window.open(outlookUrl, '_blank', 'noopener,noreferrer');
+
+    // Trigger XLSX download via backend token — no browser Save As
+    if (token) {
+      const dlLink = document.createElement('a');
+      dlLink.href = `${BACKEND_URL}/api/share/download/${token}`;
+      dlLink.style.display = 'none';
+      document.body.appendChild(dlLink);
+      dlLink.click();
+      document.body.removeChild(dlLink);
+    }
+
+    // Trigger optional PNG download
+    if (png_token) {
+      setTimeout(() => {
+        const pngLink = document.createElement('a');
+        pngLink.href = `${BACKEND_URL}/api/share/download/${png_token}`;
+        pngLink.style.display = 'none';
+        document.body.appendChild(pngLink);
+        pngLink.click();
+        document.body.removeChild(pngLink);
+      }, 800);
     }
   };
 
@@ -4740,105 +4769,184 @@ const AppContent: React.FC = () => {
           <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
             <div className="bg-slate-800 p-4 flex justify-between items-center text-white">
               <div className="flex items-center gap-2">
-                <Send size={18} className="text-purple-400" />
-                <h3 className="font-bold text-sm">Send Vulnerability Data</h3>
+                <Send size={18} className="text-blue-400" />
+                <h3 className="font-bold text-sm">Share via Outlook</h3>
               </div>
               <button
-                onClick={() => { setIsAiModalOpen(false); setMailtoResult(null); setAiRecipient(""); }}
+                onClick={() => {
+                  setIsAiModalOpen(false);
+                  setAiRecipient('');
+                  setShareStep('form');
+                  setShareResult(null);
+                  setShareError('');
+                }}
                 className="text-slate-300 hover:text-white transition-colors"
               >
                 <X size={18} />
               </button>
             </div>
 
-            {/* ── Phase 2: Fallback panel shown after launch attempt ── */}
-            {mailtoResult ? (
+            {/* ── Phase: Preparing (spinner) ── */}
+            {shareStep === 'preparing' && (
+              <div className="p-10 flex flex-col items-center gap-4 text-slate-500">
+                <Activity size={32} className="animate-spin text-blue-500" />
+                <p className="text-sm font-medium">Generating Excel report…</p>
+                <p className="text-xs text-slate-400">Fetching all filtered records from the database.</p>
+              </div>
+            )}
+
+            {/* ── Phase: Error ── */}
+            {shareStep === 'error' && (
               <div className="p-6 flex flex-col gap-4">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800 flex items-start gap-2">
-                  <span className="text-green-500 text-base">✓</span>
-                  <span>
-                    Email launch attempted for <strong>{mailtoResult.recipient}</strong>.
-                    If your email client did not open, use one of the options below.
-                  </span>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-800 flex items-start gap-2">
+                  <span className="text-red-500 text-base shrink-0">✕</span>
+                  <span>{shareError}</span>
                 </div>
-
-                <div className="flex flex-col gap-2">
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Open with</p>
-
-                  {/* Native mailto (retry) */}
-                  <a
-                    href={`mailto:${encodeURIComponent(mailtoResult.recipient)}?subject=${encodeURIComponent(mailtoResult.subject)}&body=${encodeURIComponent(mailtoResult.body)}`}
-                    className="flex items-center gap-3 px-4 py-3 rounded-lg border border-slate-200 hover:border-purple-400 hover:bg-purple-50 transition-colors text-sm font-medium text-slate-700"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <span className="text-lg">📧</span>
-                    <div>
-                      <div className="font-semibold">Default Email Client</div>
-                      <div className="text-xs text-slate-400">Outlook Desktop, Thunderbird, Apple Mail…</div>
-                    </div>
-                  </a>
-
-                  {/* Outlook Web */}
-                  <a
-                    href={`https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(mailtoResult.recipient)}&subject=${encodeURIComponent(mailtoResult.subject)}&body=${encodeURIComponent(mailtoResult.body)}`}
-                    className="flex items-center gap-3 px-4 py-3 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-colors text-sm font-medium text-slate-700"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <span className="text-lg">🌐</span>
-                    <div>
-                      <div className="font-semibold">Outlook Web (Microsoft 365)</div>
-                      <div className="text-xs text-slate-400">Opens compose in your browser</div>
-                    </div>
-                  </a>
-
-                  {/* Gmail */}
-                  <a
-                    href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(mailtoResult.recipient)}&su=${encodeURIComponent(mailtoResult.subject)}&body=${encodeURIComponent(mailtoResult.body)}`}
-                    className="flex items-center gap-3 px-4 py-3 rounded-lg border border-slate-200 hover:border-red-400 hover:bg-red-50 transition-colors text-sm font-medium text-slate-700"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <span className="text-lg">✉️</span>
-                    <div>
-                      <div className="font-semibold">Gmail</div>
-                      <div className="text-xs text-slate-400">Opens compose in Gmail</div>
-                    </div>
-                  </a>
-
-                  {/* Copy body */}
+                <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
                   <button
                     type="button"
-                    onClick={() => { navigator.clipboard.writeText(mailtoResult.body).catch(() => { }); }}
-                    className="flex items-center gap-3 px-4 py-3 rounded-lg border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 text-left"
+                    onClick={() => {
+                      setIsAiModalOpen(false);
+                      setShareStep('form');
+                      setShareResult(null);
+                      setShareError('');
+                    }}
+                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900"
                   >
-                    <span className="text-lg">📋</span>
-                    <div>
-                      <div className="font-semibold">Copy Email Body</div>
-                      <div className="text-xs text-slate-400">Paste into any email client manually</div>
-                    </div>
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShareStep('form'); setShareError(''); }}
+                    className="px-4 py-2 text-xs font-bold bg-slate-700 text-white rounded hover:bg-slate-600"
+                  >
+                    Try Again
                   </button>
                 </div>
+              </div>
+            )}
 
-                {isGenerating && (
-                  <p className="text-xs text-slate-400 flex items-center gap-1">
-                    <Activity size={12} className="animate-spin" /> Preparing Excel report…
-                  </p>
-                )}
-
-                <div className="pt-2 flex justify-end border-t border-slate-100">
+            {/* ── Phase: Ready (Graph API mode — draft already created) ── */}
+            {shareStep === 'ready' && shareResult?.mode === 'graph' && (
+              <div className="p-6 flex flex-col gap-4">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800 flex items-start gap-2">
+                  <span className="text-green-500 text-xl shrink-0">✓</span>
+                  <div>
+                    <p className="font-semibold">Outlook draft prepared successfully with Excel attachment.</p>
+                    <p className="text-xs text-green-700 mt-1">The draft has been created in the portal mailbox with your Excel report attached.</p>
+                  </div>
+                </div>
+                <div className="bg-slate-50 rounded-lg border border-slate-200 p-4 text-sm grid grid-cols-2 gap-y-2 gap-x-4 text-slate-700">
+                  <span className="font-semibold text-slate-500">To</span>
+                  <span className="truncate">{aiRecipient}</span>
+                  <span className="font-semibold text-slate-500">Records</span>
+                  <span>{shareResult.record_count.toLocaleString()}</span>
+                  <span className="font-semibold text-slate-500">Resolved</span>
+                  <span className="text-green-600 font-semibold">{shareResult.resolved}</span>
+                  <span className="font-semibold text-slate-500">Unresolved</span>
+                  <span className="text-red-500 font-semibold">{shareResult.unresolved}</span>
+                  <span className="font-semibold text-slate-500">Excel</span>
+                  <span className="text-green-600">📎 Attached</span>
+                  {shareResult.graph_included && <>
+                    <span className="font-semibold text-slate-500">Graph</span>
+                    <span className="text-green-600">📊 Attached</span>
+                  </>}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => shareResult.draft_url && window.open(shareResult.draft_url, '_blank', 'noopener,noreferrer')}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded text-sm font-bold hover:bg-blue-700 transition-colors"
+                >
+                  <Send size={14} />
+                  Open Draft in Outlook
+                </button>
+                <div className="flex justify-end pt-2 border-t border-slate-100">
                   <button
                     type="button"
-                    onClick={() => { setIsAiModalOpen(false); setMailtoResult(null); setAiRecipient(""); }}
-                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors"
+                    onClick={() => {
+                      setIsAiModalOpen(false);
+                      setShareStep('form');
+                      setShareResult(null);
+                    }}
+                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900"
                   >
                     Done
                   </button>
                 </div>
               </div>
-            ) : (
-              /* ── Phase 1: Compose form ── */
+            )}
+
+            {/* ── Phase: Ready (Token mode — show confirmation + download) ── */}
+            {shareStep === 'ready' && shareResult?.mode === 'token' && (
+              <div className="p-6 flex flex-col gap-4">
+                {/* Confirmation summary */}
+                <div className="bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
+                  <div className="bg-slate-700 px-4 py-2 text-white text-xs font-bold uppercase tracking-wide">Report Summary</div>
+                  <div className="p-4 text-sm grid grid-cols-2 gap-y-2 gap-x-4 text-slate-700">
+                    <span className="font-semibold text-slate-500">To</span>
+                    <span className="truncate">{aiRecipient}</span>
+                    <span className="font-semibold text-slate-500">Format</span>
+                    <span>{selectedFormatFilter}</span>
+                    <span className="font-semibold text-slate-500">Owner</span>
+                    <span>{selectedOwners.length > 0 ? selectedOwners.join(', ') : 'All Owners'}</span>
+                    <span className="font-semibold text-slate-500">Records</span>
+                    <span className="font-bold">{shareResult.record_count.toLocaleString()}</span>
+                    <span className="font-semibold text-slate-500">Resolved</span>
+                    <span className="text-green-600 font-semibold">{shareResult.resolved}</span>
+                    <span className="font-semibold text-slate-500">Unresolved</span>
+                    <span className="text-red-500 font-semibold">{shareResult.unresolved}</span>
+                    <span className="font-semibold text-slate-500">Excel</span>
+                    <span className="text-green-700 font-medium">📎 Included</span>
+                    <span className="font-semibold text-slate-500">Graph</span>
+                    <span className={shareResult.graph_included ? 'text-green-700 font-medium' : 'text-slate-400'}>
+                      {shareResult.graph_included ? '📊 Included' : 'Not requested'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action button */}
+                <button
+                  type="button"
+                  id="btn-open-outlook-draft"
+                  onClick={handleOpenOutlookDraft}
+                  className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded text-sm font-bold hover:bg-blue-700 transition-colors shadow"
+                >
+                  <Send size={15} />
+                  Open in Outlook &amp; Download Excel
+                </button>
+
+                {/* Helper note */}
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 flex items-start gap-2">
+                  <span className="shrink-0 text-base">📌</span>
+                  <div>
+                    <p className="font-semibold mb-0.5">Two things will happen simultaneously:</p>
+                    <ol className="list-decimal list-inside space-y-0.5 text-amber-700">
+                      <li>Outlook opens with <strong>To</strong>, <strong>Subject</strong>, and <strong>Body</strong> pre-filled.</li>
+                      <li>Your Excel file (<strong>{shareResult.record_count.toLocaleString()} records</strong>) downloads automatically.</li>
+                    </ol>
+                    <p className="mt-1.5 font-medium">Click the paperclip 📎 in Outlook to attach the downloaded file, then click Send.</p>
+                    <p className="mt-1 text-amber-600 text-[10px]">For true auto-attachment, ask your IT admin to set up Azure AD credentials (see documentation).</p>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAiModalOpen(false);
+                      setShareStep('form');
+                      setShareResult(null);
+                    }}
+                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Phase: Form (initial) ── */}
+            {shareStep === 'form' && (
               <form
                 onSubmit={handleShareEmailSubmit}
                 className="p-5 flex flex-col gap-4 max-h-[80vh] overflow-y-auto"
@@ -4942,8 +5050,9 @@ const AppContent: React.FC = () => {
                   <p className="text-[10px] text-slate-400 font-medium flex items-start gap-1.5">
                     <Send size={11} className="shrink-0 mt-0.5" />
                     <span>
-                      Clicking Share will attempt to open your email client. If it doesn't open, fallback links for Outlook Web and Gmail will appear.
-                      The report ZIP (Excel{includeGraph ? " + graph PNG" : ""}) downloads automatically.
+                      The backend will generate an Excel report with all {totalRecords.toLocaleString()} filtered records.
+                      Outlook will open with the recipient, subject and body pre-filled.
+                      The Excel file downloads simultaneously for attachment.
                     </span>
                   </p>
                 </div>
@@ -4959,16 +5068,17 @@ const AppContent: React.FC = () => {
                   </button>
                   <button
                     type="submit"
-                    disabled={isGenerating || !aiRecipient || totalRecords === 0}
+                    id="btn-share-via-outlook"
+                    disabled={shareStep === 'preparing' || !aiRecipient || totalRecords === 0}
                     title={totalRecords === 0 ? "No records match current filters" : ""}
-                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded text-xs font-bold hover:bg-purple-700 transition-colors disabled:bg-purple-300 disabled:cursor-not-allowed"
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 transition-colors disabled:bg-blue-300 disabled:cursor-not-allowed"
                   >
-                    {isGenerating ? (
+                    {shareStep === 'preparing' ? (
                       <Activity size={14} className="animate-spin" />
                     ) : (
                       <Send size={14} />
                     )}
-                    Share via Email
+                    Share via Outlook
                   </button>
                 </div>
               </form>
