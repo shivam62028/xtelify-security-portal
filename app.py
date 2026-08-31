@@ -1667,7 +1667,7 @@ _ensure_mongo_indexes()
 def _build_db_query(search=None, search_field=None, severity=None, status=None, assigned_to=None, source_format=None, upload_batch=None, date_from=None, date_to=None, is_advanced_search=None, container_sub_types=None):
     query = {}
     
-    if source_format:
+    if source_format and source_format != "All":
         query["SourceFormat"] = source_format
         
     if container_sub_types and source_format == "CONTAINER":

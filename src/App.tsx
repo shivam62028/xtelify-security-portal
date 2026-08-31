@@ -1662,16 +1662,8 @@ const AppContent: React.FC = () => {
 
   const dominantFormat = useMemo(() => {
     if (selectedFormatFilter !== "All") return selectedFormatFilter;
-
-    if (activeIssues.length === 0) return "CONTAINER";
-    const formatCounts: Record<string, number> = {};
-    activeIssues.forEach(i => {
-      const fmt = i.SourceFormat || "CONTAINER";
-      formatCounts[fmt] = (formatCounts[fmt] || 0) + 1;
-    });
-    const sorted = Object.entries(formatCounts).sort((a, b) => b[1] - a[1]);
-    return sorted[0] ? sorted[0][0] : "CONTAINER";
-  }, [activeIssues, selectedFormatFilter]);
+    return "All";
+  }, [selectedFormatFilter]);
 
   const cspmFindingTypes = useMemo(() => {
     const types = new Set<string>();
@@ -1690,6 +1682,8 @@ const AppContent: React.FC = () => {
       setTableCols(SAST_DAST_COLS);
     } else if (dominantFormat === "VAPT") {
       setTableCols(VAPT_COLS);
+    } else if (dominantFormat === "All") {
+      setTableCols(["SourceFormat", ...Array.from(new Set([...CONTAINER_COLS, ...VAPT_COLS, ...CSPM_COLS, ...SAST_DAST_COLS]))].filter((v, i, a) => a.indexOf(v) === i));
     } else {
       setTableCols(CONTAINER_COLS);
     }
@@ -1719,6 +1713,7 @@ const AppContent: React.FC = () => {
     setDateTo("");
     setIsAdvancedSearchOpen(false);
     setCurrentPage(1);
+    setSelectedContainerSubTypes([]);
     if (format === "CSPM") {
       setTableCols(CSPM_COLS);
       setCurrentFormat("CSPM");
@@ -1731,6 +1726,9 @@ const AppContent: React.FC = () => {
     } else if (format === "CONTAINER") {
       setTableCols(CONTAINER_COLS);
       setCurrentFormat("CONTAINER");
+    } else if (format === "All") {
+      setTableCols(["SourceFormat", ...Array.from(new Set([...CONTAINER_COLS, ...VAPT_COLS, ...CSPM_COLS, ...SAST_DAST_COLS]))].filter((v, i, a) => a.indexOf(v) === i));
+      setCurrentFormat("All");
     }
   };
 
@@ -3192,6 +3190,7 @@ const AppContent: React.FC = () => {
             { key: "VAPT", label: "VAPT", icon: Shield },
             { key: "CSPM", label: "CSPM", icon: Activity },
             { key: "SAST_DAST", label: "SAST/DAST", icon: FileText },
+            { key: "All", label: "Show All", icon: Layers },
           ].map(fmt => (
             <button
               key={fmt.key}
