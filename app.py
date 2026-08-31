@@ -5082,41 +5082,24 @@ async def generate_email_report(
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Outlook Share — two-step flow
-#
-# Step 1:  POST /api/share/outlook
-#          • Accepts same filter params as /api/export
-#          • Fetches ALL filtered records (no pagination)
-#          • Generates XLSX (via /api/export logic)
-#          • Optionally generates graph PNG
-#          • Stores files in memory with a UUID token (TTL = 15 min)
-#          • Returns JSON: { token, record_count, resolved, unresolved,
-#                           subject, body, graph_included }
-#
-# Step 2:  GET /api/share/download/{token}
-#          • Serves the XLSX for that token as a browser-downloadable file
-#          • Cleans up the token after serving
-#
-# When Graph API env-vars are present (GRAPH_TENANT_ID / GRAPH_CLIENT_ID /
-# GRAPH_CLIENT_SECRET / GRAPH_SENDER_EMAIL), Step 1 instead creates a real
-# Outlook draft with the XLSX already attached and returns
-# { draft_url } for the frontend to open directly.
 # ─────────────────────────────────────────────────────────────────────────────
-
-import uuid as _uuid_mod
-from datetime import datetime as _dt, timezone as _tz
-
-# In-memory token store: { token: { "xlsx": bytes, "png": bytes|None,
-#                                    "filename": str, "expires": float } }
-_share_tokens: dict = {}
-_SHARE_TOKEN_TTL_SECS = 900   # 15 minutes
-
-
-def _evict_expired_tokens():
-    """Remove tokens whose TTL has elapsed."""
-    now = _dt.now(_tz.utc).timestamp()
-    expired = [k for k, v in _share_tokens.items() if v["expires"] < now]
-    for k in expired:
-        del _share_tokens[k]
+# POST /api/share/outlook  — Microsoft Graph server-side Outlook draft
+#
+# Architecture:
+#   Browser → FastAPI → MongoDB (full filtered query) → XLSX → Graph API
+#           → Outlook draft created in sender mailbox → Outlook Desktop syncs
+#
+# Required environment variables (set on the RHEL server):
+#   GRAPH_TENANT_ID      – Azure AD / Entra ID tenant UUID
+#   GRAPH_CLIENT_ID      – App registration client ID
+#   GRAPH_CLIENT_SECRET  – App registration client secret
+#   GRAPH_SENDER_EMAIL   – Mailbox that will own the draft (e.g. reports@company.com)
+#
+# Required Microsoft Graph application permission (admin consent needed):
+#   Mail.ReadWrite
+#
+# No local helper. No browser download. No manual attachment.
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def _build_outlook_subject(source_format: str | None, assigned_to: str | None) -> str:
@@ -5185,31 +5168,34 @@ async def share_outlook(
     container_sub_types: str = None,
     include_graph: str = "false",
     graph_mode: str = "Daily",
-    columns: str = None,      # comma-separated column names — mirrors /api/export
+    columns: str = None,
 ):
     """
     POST /api/share/outlook
 
-    Step 1 of the Outlook share flow.
+    Generates an Outlook draft in the configured mailbox via Microsoft Graph.
 
     Uses EXACTLY the same filter chain as /api/export → _build_db_query().
-    Generates XLSX (all filtered records, no pagination) + optional PNG graph.
-    Stores them in an in-memory token store and returns:
+    Generates XLSX (all filtered records, no pagination) + optional PNG graph,
+    then calls Microsoft Graph to create a draft with the XLSX already attached.
 
+    Required environment variables on the server:
+      GRAPH_TENANT_ID      – Azure AD tenant ID
+      GRAPH_CLIENT_ID      – App registration client ID
+      GRAPH_CLIENT_SECRET  – App registration client secret
+      GRAPH_SENDER_EMAIL   – Mailbox that owns the draft
+
+    Returns:
       {
-        "token":         "<uuid>",         # use with GET /api/share/download/{token}
-        "record_count":  126,
-        "resolved":      48,
-        "unresolved":    78,
-        "subject":       "Vulnerability Report — Container — Shiv Kumar",
-        "body":          "Hello, ...",
-        "graph_included": true,
-        "png_token":     "<uuid>|null"     # separate token for graph PNG
+        "mode":           "graph",
+        "draft_url":      "https://outlook.office.com/...",
+        "record_count":   162,
+        "resolved":       48,
+        "unresolved":     114,
+        "subject":        "Vulnerability Report — Container — Shiv Kumar",
+        "body":           "Hello, ...",
+        "graph_included": true
       }
-
-    If GRAPH_TENANT_ID / GRAPH_CLIENT_ID / GRAPH_CLIENT_SECRET / GRAPH_SENDER_EMAIL
-    environment variables are all set, this endpoint instead creates a real
-    Outlook draft via Microsoft Graph and returns { "draft_url": "..." }.
     """
     if not _is_mongo_available():
         return ORJSONResponse({"error": "Database unavailable"}, status_code=503)
@@ -5218,7 +5204,31 @@ async def share_outlook(
     if not recipient or "@" not in recipient:
         return ORJSONResponse({"error": "Invalid recipient email address."}, status_code=400)
 
-    # ── 2. Build query — identical to /api/export ─────────────────────────────
+    # ── 2. Require Microsoft Graph credentials ────────────────────────────────
+    graph_tenant  = os.environ.get("GRAPH_TENANT_ID", "").strip()
+    graph_client  = os.environ.get("GRAPH_CLIENT_ID", "").strip()
+    graph_secret  = os.environ.get("GRAPH_CLIENT_SECRET", "").strip()
+    graph_mailbox = os.environ.get("GRAPH_SENDER_EMAIL", "").strip()
+
+    if not (graph_tenant and graph_client and graph_secret and graph_mailbox):
+        missing = [v for v, k in [
+            ("GRAPH_TENANT_ID",     graph_tenant),
+            ("GRAPH_CLIENT_ID",     graph_client),
+            ("GRAPH_CLIENT_SECRET", graph_secret),
+            ("GRAPH_SENDER_EMAIL",  graph_mailbox),
+        ] if not k]
+        return ORJSONResponse(
+            {
+                "error": (
+                    "Outlook integration is not configured on the server. "
+                    f"Missing environment variables: {', '.join(missing)}. "
+                    "Contact the server administrator."
+                )
+            },
+            status_code=503,
+        )
+
+    # ── 3. Build query — identical to /api/export ─────────────────────────────
     query = _build_db_query(
         search=search,
         search_field=search_field,
@@ -5234,9 +5244,7 @@ async def share_outlook(
     )
 
     try:
-        import traceback as _tb
-
-        # ── 3. Fetch ALL filtered records (no pagination) ─────────────────────
+        # ── 4. Fetch ALL filtered records (no pagination) ─────────────────────
         cursor = issues_collection.find(query).sort("UploadedAt", -1)
         records = list(cursor)
 
@@ -5259,11 +5267,9 @@ async def share_outlook(
                 unresolved += 1
             rec.pop("_id", None)
 
-        # ── 4. Generate XLSX — same logic as /api/export ──────────────────────
+        # ── 5. Generate XLSX — same logic as /api/export ──────────────────────
         df = pd.DataFrame(records)
 
-        # Apply same column filtering as Export View so the attachment
-        # has identical columns to what the user sees on screen.
         if columns:
             requested_cols = [c.strip() for c in columns.split(",") if c.strip()]
             valid_cols = [c for c in requested_cols if c in df.columns]
@@ -5315,7 +5321,7 @@ async def share_outlook(
         xlsx_buf.seek(0)
         xlsx_bytes = xlsx_buf.read()
 
-        # ── 5. Verify XLSX is valid ───────────────────────────────────────────
+        # ── 6. Verify XLSX ────────────────────────────────────────────────────
         if len(xlsx_bytes) == 0:
             return ORJSONResponse({"error": "Unable to generate the Excel report."}, status_code=500)
         try:
@@ -5327,7 +5333,7 @@ async def share_outlook(
             print(f"[share/outlook] XLSX verification failed: {verify_err}")
             return ORJSONResponse({"error": "Unable to generate the Excel report."}, status_code=500)
 
-        # ── 6. Generate graph PNG (optional) ──────────────────────────────────
+        # ── 7. Generate graph PNG (optional) ──────────────────────────────────
         png_bytes = b""
         if include_graph == "true":
             try:
@@ -5343,7 +5349,7 @@ async def share_outlook(
                 print(f"[share/outlook] Graph generation failed (non-fatal): {graph_err}")
                 png_bytes = b""
 
-        # ── 7. Build subject + body ───────────────────────────────────────────
+        # ── 8. Build subject + body ───────────────────────────────────────────
         subject = _build_outlook_subject(source_format, assigned_to)
         body = _build_outlook_body(
             source_format=source_format,
@@ -5434,34 +5440,6 @@ async def share_outlook(
         return ORJSONResponse({"error": str(e)}, status_code=500)
 
 
-@app.get("/api/share/download/{token}")
-async def share_download(token: str):
-    """
-    GET /api/share/download/{token}
-
-    Step 2 of the Outlook share flow.
-    Serves the XLSX (or PNG) stored by POST /api/share/outlook.
-    The token is consumed after serving (single-use).
-    Returns 404 if the token is unknown or has expired.
-    """
-    _evict_expired_tokens()
-
-    entry = _share_tokens.pop(token, None)
-    if entry is None:
-        return ORJSONResponse(
-            {"error": "Download link expired or not found. Please click Share again."},
-            status_code=404,
-        )
-
-    from fastapi.responses import Response as _FR
-    return _FR(
-        content=entry["content"],
-        media_type=entry["mimetype"],
-        headers={
-            "Content-Disposition": f'attachment; filename="{entry["filename"]}"',
-            "Access-Control-Expose-Headers": "Content-Disposition",
-        },
-    )
 
 
 async def _create_outlook_draft_graph(
@@ -5480,11 +5458,14 @@ async def _create_outlook_draft_graph(
     """
     Creates an Outlook DRAFT (not send) via Microsoft Graph API.
 
-    Uses client-credentials flow (app-only).
-    Requires Mail.ReadWrite application permission + admin consent.
+    Uses client-credentials (app-only) flow.
+    Required Graph permission: Mail.ReadWrite (application, admin consent).
 
-    Returns the Outlook webLink of the draft so the frontend can open it.
-    Raises an exception on any failure so the caller can fall back to token mode.
+    Attaches the XLSX (and optional PNG) directly — no browser download,
+    no local helper, no manual attachment.
+
+    Returns the Outlook webLink of the created draft.
+    Raises an exception on any failure.
     """
     # ── Acquire access token ──────────────────────────────────────────────────
     token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
