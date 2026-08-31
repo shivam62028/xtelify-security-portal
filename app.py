@@ -763,24 +763,88 @@ def process_cspm_row(row, idx, dsn, rc_lower):
 def classify_container_subtype(rec: dict) -> str:
     """
     Classifies a container vulnerability record into exactly one of:
-    "Wiz CLI", "Zero-day VA", "Quarterly VA", "Compliance VA", "Unclassified"
+    "Zero day VA", "Wiz CLI Integration", "Compliance VA", "Quarterly VA", "Unclassified"
     """
-    wiz_url = str(rec.get("WizURL") or "").lower()
     tags = str(rec.get("Tags") or "").lower()
     projects = str(rec.get("Projects") or "").lower()
     det_method = str(rec.get("DetectionMethod") or "").lower()
     name = str(rec.get("Name") or "").lower()
     det_name = str(rec.get("DetailedName") or "").lower()
+    remediation = str(rec.get("Remediation") or "").lower()
+    severity = str(rec.get("Severity") or "Medium").lower()
+    first_detected = str(rec.get("DiscoveredDate") or rec.get("FirstDetected") or "")
 
-    if wiz_url or "wiz" in tags or "wiz" in projects or "wiz" in det_method:
-        return "Wiz CLI"
-    elif "zero-day" in name or "0-day" in name or "zeroday" in name or "zero-day" in det_name or "0-day" in det_name or "zeroday" in det_name or "zero-day" in tags or "0-day" in tags or "zeroday" in tags:
-        return "Zero-day VA"
-    elif "compliance" in name or "cis" in name or "pci" in name or "nist" in name or "compliance" in tags or "cis" in tags or "pci" in tags or "nist" in tags or "compliance" in projects or "cis" in projects or "pci" in projects or "nist" in projects:
-        return "Compliance VA"
-    elif "quarterly" in tags or "quarterly" in projects:
-        return "Quarterly VA"
+    # 1. Zero day VA
+    fixed_version = str(rec.get("FixedVersion") or "").strip().lower()
+    missing_fixed_version = fixed_version in ["", "null", "none", "nan", "unmatched", "n/a", "na"]
     
+    is_high_severity = severity in ["high", "critical"]
+    is_recent = False
+    
+    if first_detected:
+        try:
+            from datetime import datetime, timezone
+            if "T" in first_detected:
+                dt_obj = datetime.strptime(first_detected.split("T")[0], "%Y-%m-%d")
+            elif " " in first_detected:
+                dt_obj = datetime.strptime(first_detected.split(" ")[0], "%Y-%m-%d")
+            else:
+                parts = first_detected.replace("/", "-").split("-")
+                if len(parts) == 3:
+                    if len(parts[0]) == 4:
+                        dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%Y-%m-%d")
+                    else:
+                        dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%d-%m-%Y")
+                else:
+                    raise ValueError
+            
+            dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+            now_utc = datetime.now(timezone.utc)
+            if (now_utc - dt_obj).days <= 7:
+                is_recent = True
+        except Exception:
+            pass
+
+    if missing_fixed_version or (is_high_severity and is_recent):
+        return "Zero day VA"
+
+    # 2. Wiz CLI Integration
+    wiz_cli_indicators = ["wizcli", "wiz-cli", "ci/cd", "pipeline", "github-actions", "gitlab-ci", "jenkins"]
+    if "filepath" in det_method or any(ind in tags for ind in wiz_cli_indicators) or any(ind in projects for ind in wiz_cli_indicators):
+        return "Wiz CLI Integration"
+
+    # 3. Compliance VA
+    compliance_keywords = ["compliance", "cis", "pci", "nist", "soc2", "gdpr", "hipaa", "baseline", "policy", "regulatory"]
+    compliance_string = f"{tags} {name} {det_name} {det_method} {remediation} {projects}"
+    if any(kw in compliance_string for kw in compliance_keywords):
+        return "Compliance VA"
+
+    # 4. Quarterly VA
+    if first_detected:
+        try:
+            from datetime import datetime, timezone
+            if "T" in first_detected:
+                dt_obj = datetime.strptime(first_detected.split("T")[0], "%Y-%m-%d")
+            elif " " in first_detected:
+                dt_obj = datetime.strptime(first_detected.split(" ")[0], "%Y-%m-%d")
+            else:
+                parts = first_detected.replace("/", "-").split("-")
+                if len(parts) == 3:
+                    if len(parts[0]) == 4:
+                        dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%Y-%m-%d")
+                    else:
+                        dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%d-%m-%Y")
+                else:
+                    raise ValueError
+            
+            dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+            now_utc = datetime.now(timezone.utc)
+            if (now_utc - dt_obj).days > 90:
+                return "Quarterly VA"
+        except Exception:
+            pass
+
+    # 5. Unclassified
     return "Unclassified"
 
 

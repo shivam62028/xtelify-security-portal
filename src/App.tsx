@@ -625,11 +625,11 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
     bodyText += `Unresolved: ${ownerSummary.Unresolved || 0}\n`;
     bodyText += `Critical: ${ownerSummary.Critical || 0}\n`;
     bodyText += `High: ${ownerSummary.High || 0}\n\n`;
-    
+
     if (type === 'graph' || type === 'both') {
       bodyText += `Please see the attached/included graph for vulnerability trends.\n\n`;
     }
-    
+
     bodyText += `View full report in Xtelify Security Portal.`;
     window.location.href = `mailto:?subject=${subject}&body=${encodeURIComponent(bodyText)}`;
   };
@@ -705,7 +705,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
       <div className="flex justify-between items-center mb-4 mt-8">
         <h3 className="font-bold text-lg">Owner-wise Analytics</h3>
       </div>
-      
+
       {!selectedOwner ? (
         <div className={`p-4 rounded-lg border h-80 mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
           {loading ? <div className="h-full flex items-center justify-center">Loading...</div> : (
@@ -716,7 +716,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
                 <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#334155" : "#e2e8f0"} />
                 <XAxis dataKey="Owner" stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
                 <YAxis stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
-                <RechartsTooltip contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '8px' }} cursor={{fill: darkMode ? '#334155' : '#f1f5f9'}} />
+                <RechartsTooltip contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '8px' }} cursor={{ fill: darkMode ? '#334155' : '#f1f5f9' }} />
                 <Legend />
                 <Bar dataKey="Resolved" stackId="a" fill="#22c55e" radius={[0, 0, 4, 4]} />
                 <Bar dataKey="Unresolved" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
@@ -730,20 +730,20 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
             <h4 className="font-bold text-lg">{selectedOwner}'s Analytics</h4>
             <div className="flex gap-2">
               <button className={`px-3 py-1.5 rounded text-sm font-bold flex items-center gap-1 ${darkMode ? "bg-slate-700 text-blue-400 hover:bg-slate-600" : "bg-blue-100 text-blue-700 hover:bg-blue-200"}`} onClick={() => handleShare('data')}>
-                 Share Data
+                Share Data
               </button>
               <button className={`px-3 py-1.5 rounded text-sm font-bold flex items-center gap-1 ${darkMode ? "bg-slate-700 text-blue-400 hover:bg-slate-600" : "bg-blue-100 text-blue-700 hover:bg-blue-200"}`} onClick={() => handleShare('graph')}>
-                 Share Graph
+                Share Graph
               </button>
               <button className={`px-3 py-1.5 rounded text-sm font-bold flex items-center gap-1 ${darkMode ? "bg-blue-600 text-white hover:bg-blue-500" : "bg-blue-600 text-white hover:bg-blue-700"}`} onClick={() => handleShare('both')}>
-                 Share Both
+                Share Both
               </button>
               <button className={`px-3 py-1.5 rounded text-sm font-bold ${darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-200 text-slate-700 hover:bg-slate-300"}`} onClick={() => setSelectedOwner(null)}>
-                 Back
+                Back
               </button>
             </div>
           </div>
-          
+
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
             {['Total', 'Resolved', 'Unresolved', 'Critical', 'High'].map(k => (
               <div key={k} className={`p-3 rounded-lg border ${darkMode ? "bg-slate-900 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
@@ -876,7 +876,7 @@ const AppContent: React.FC = () => {
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState<boolean>(false);
-  
+
   const [selectedOwners, setSelectedOwners] = useState<string[]>([]);
   const [selectedFindingTypes, setSelectedFindingTypes] = useState<string[]>([]);
   const [selectedLOBs, setSelectedLOBs] = useState<string[]>([]);
@@ -1020,9 +1020,9 @@ const AppContent: React.FC = () => {
 
   const generateAIRemediation = async (issue: any, regenerate: boolean = false) => {
     const rowKey = `${issue.IssueID}`;
-    
+
     setIsGeneratingAI(prev => ({ ...prev, [rowKey]: true }));
-    
+
     try {
       const response = await fetch(`${BACKEND_URL}/api/ai/remediation`, {
         method: "POST",
@@ -1278,25 +1278,25 @@ const AppContent: React.FC = () => {
           if (data.formats) {
             setBatchFormats(data.formats);
           }
-          
+
           let latestFmt: string | null = null;
-          
+
           setBatches(prevBatches => {
             const isInitialLoad = prevBatches.length === 0 && uploadCounter === 0;
             const newBatches = data.batches.filter((b: string) => !prevBatches.includes(b));
-            
+
             if (isInitialLoad && data.batches.length > 0) {
-               latestFmt = data.formats?.[data.batches[0]] || "CONTAINER";
+              latestFmt = data.formats?.[data.batches[0]] || "CONTAINER";
             }
 
             setSelectedBatches(prevSelected => {
               if (isInitialLoad && prevSelected.length === 0) {
-                 const fmtToUse = latestFmt || selectedFormatFilter;
-                 return fmtToUse !== "All"
-                   ? data.batches.filter((b: string) => (data.formats?.[b] || "CONTAINER") === fmtToUse)
-                   : data.batches;
+                const fmtToUse = latestFmt || selectedFormatFilter;
+                return fmtToUse !== "All"
+                  ? data.batches.filter((b: string) => (data.formats?.[b] || "CONTAINER") === fmtToUse)
+                  : data.batches;
               }
-              
+
               if (!isInitialLoad && newBatches.length > 0) {
                 // Determine format of the newly uploaded batch
                 const uploadedFormat = data.formats?.[newBatches[0]] || "CONTAINER";
@@ -1307,10 +1307,10 @@ const AppContent: React.FC = () => {
               }
               return prevSelected;
             });
-            
+
             return data.batches;
           });
-          
+
           if (latestFmt) {
             setSelectedFormatFilter(latestFmt);
           }
@@ -1329,7 +1329,7 @@ const AppContent: React.FC = () => {
         params.append("page", currentPage.toString());
         params.append("limit", rowsPerPage.toString());
       }
-  
+
       if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
       if (!(dateFrom || dateTo) && selectedBatches.length > 0) {
         params.append("upload_batch", selectedBatches.join("||"));
@@ -1344,7 +1344,7 @@ const AppContent: React.FC = () => {
         }
       }
 
-  
+
       if (isAdvancedSearchOpen) {
         params.append("is_advanced_search", "true");
         if (searchTerm) {
@@ -1352,11 +1352,11 @@ const AppContent: React.FC = () => {
           params.append("search_field", searchField);
         }
         if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
-  
+
         if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
         if (quickFilter === "critical") params.append("severity", "Critical");
         if (quickFilter === "overdue") params.append("status", "Open");
-  
+
         if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
       }
 
@@ -1697,7 +1697,7 @@ const AppContent: React.FC = () => {
 
   const handleFormatFilterChange = (format: string) => {
     setSelectedFormatFilter(format);
-    
+
     // Auto-select batches that match this format
     if (format === "All") {
       setSelectedBatches(batches);
@@ -2189,8 +2189,8 @@ const AppContent: React.FC = () => {
           { name: "Medium", value: c.medium || 0, color: "#eab308" },
           { name: "Low", value: c.low || 0, color: "#22c55e" },
         ],
-        total: (c.critical||0) + (c.high||0) + (c.medium||0) + (c.low||0),
-        counts: { Critical: c.critical||0, High: c.high||0, Medium: c.medium||0, Low: c.low||0 }
+        total: (c.critical || 0) + (c.high || 0) + (c.medium || 0) + (c.low || 0),
+        counts: { Critical: c.critical || 0, High: c.high || 0, Medium: c.medium || 0, Low: c.low || 0 }
       };
     }
     try {
@@ -2672,8 +2672,8 @@ const AppContent: React.FC = () => {
     if (!aiRecipient) return;
 
     const activeOwner = selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners";
-    const totalVulns  = totalRecords;
-    const resolvedVulns   = groupedIssues.reduce((a, g) => a + g.resolved, 0);
+    const totalVulns = totalRecords;
+    const resolvedVulns = groupedIssues.reduce((a, g) => a + g.resolved, 0);
     const unresolvedVulns = groupedIssues.reduce((a, g) => a + g.unresolved, 0);
 
     // ── Step 1: Build professional email body with full scope summary ──────
@@ -3000,10 +3000,10 @@ const AppContent: React.FC = () => {
 
         if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
       }
-      
+
       if (dateFrom) params.append("date_from", dateFrom);
       if (dateTo) params.append("date_to", dateTo);
-      
+
       params.append("columns", exportCols.join(","));
 
       const response = await fetch(`${BACKEND_URL}/api/export?${params.toString()}`, {
@@ -3024,7 +3024,7 @@ const AppContent: React.FC = () => {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
-      
+
       setIsExportModalOpen(false);
     } catch (err: unknown) {
       console.error("Export error:", err);
@@ -3685,11 +3685,11 @@ const AppContent: React.FC = () => {
                   )}
                 </h2>
               </div>
-              
+
               <div className="mb-4">
                 <p className="text-xs text-slate-500 mb-2 font-semibold">Filter by Sub-Type:</p>
                 <div className="flex items-center gap-3 flex-wrap">
-                  {["Wiz CLI", "Zero-day VA", "Compliance VA", "Quarterly VA", "Unclassified"].map(subtype => (
+                  {["Zero day VA", "Wiz CLI Integration", "Compliance VA", "Quarterly VA", "Unclassified"].map(subtype => (
                     <label key={subtype} className="flex items-center gap-1.5 text-sm cursor-pointer">
                       <input
                         type="checkbox"
@@ -3713,66 +3713,66 @@ const AppContent: React.FC = () => {
               </div>
 
               <div className="h-80 mt-6">
-                  {containerAnalyticsError ? (
-                    <div className="flex items-center justify-center h-full">
-                      <p className="text-red-500 text-sm font-medium">{containerAnalyticsError}</p>
-                    </div>
-                  ) : containerChartData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={containerChartData}
-                        margin={{ left: 20, right: 30, bottom: 80 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
-                        <XAxis 
-                          dataKey="name" 
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }}
-                          angle={-45}
-                          textAnchor="end"
-                        />
-                        <YAxis 
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }}
-                        />
-                        <RechartsTooltip 
-                          cursor={{ fill: darkMode ? "#374151" : "#f1f5f9" }}
-                          contentStyle={{
-                            backgroundColor: darkMode ? "#1e293b" : "#fff",
-                            borderColor: darkMode ? "#374151" : "#e2e8f0",
-                            color: darkMode ? "#e2e8f0" : "#1e293b",
-                            fontSize: "12px",
-                            borderRadius: "4px",
-                          }}
-                        />
-                        <Bar 
-                          dataKey="value" 
-                          fill="#8b5cf6" 
-                          radius={[0, 4, 4, 0]}
-                          barSize={30}
-                          onClick={(data) => {
-                            if (!data || !data.name) return;
-                            const subtype = data.name;
-                            setSelectedContainerSubTypes(prev => {
-                              if (prev.includes(subtype)) {
-                                return prev.filter(s => s !== subtype);
-                              } else {
-                                return [...prev, subtype];
-                              }
-                            });
-                          }}
-                          style={{ cursor: "pointer" }}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="flex items-center justify-center h-full">
-                      <p className="text-slate-400 text-sm">No data available for {selectedOwners.length > 0 ? selectedOwners.join(", ") : "All"}</p>
-                    </div>
-                  )}
-                </div>
+                {containerAnalyticsError ? (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-red-500 text-sm font-medium">{containerAnalyticsError}</p>
+                  </div>
+                ) : containerChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={containerChartData}
+                      margin={{ left: 20, right: 30, bottom: 80 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
+                      <XAxis
+                        dataKey="name"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }}
+                        angle={-45}
+                        textAnchor="end"
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }}
+                      />
+                      <RechartsTooltip
+                        cursor={{ fill: darkMode ? "#374151" : "#f1f5f9" }}
+                        contentStyle={{
+                          backgroundColor: darkMode ? "#1e293b" : "#fff",
+                          borderColor: darkMode ? "#374151" : "#e2e8f0",
+                          color: darkMode ? "#e2e8f0" : "#1e293b",
+                          fontSize: "12px",
+                          borderRadius: "4px",
+                        }}
+                      />
+                      <Bar
+                        dataKey="value"
+                        fill="#8b5cf6"
+                        radius={[0, 4, 4, 0]}
+                        barSize={30}
+                        onClick={(data) => {
+                          if (!data || !data.name) return;
+                          const subtype = data.name;
+                          setSelectedContainerSubTypes(prev => {
+                            if (prev.includes(subtype)) {
+                              return prev.filter(s => s !== subtype);
+                            } else {
+                              return [...prev, subtype];
+                            }
+                          });
+                        }}
+                        style={{ cursor: "pointer" }}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-slate-400 text-sm">No data available for {selectedOwners.length > 0 ? selectedOwners.join(", ") : "All"}</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -4110,13 +4110,12 @@ const AppContent: React.FC = () => {
                   />
                   <button
                     onClick={() => setIsAdvancedSearchOpen(!isAdvancedSearchOpen)}
-                    className={`px-3 py-1.5 rounded border text-xs font-semibold flex items-center gap-1 transition-colors ${
-                      isAdvancedSearchOpen
+                    className={`px-3 py-1.5 rounded border text-xs font-semibold flex items-center gap-1 transition-colors ${isAdvancedSearchOpen
                         ? "bg-purple-100 border-purple-300 text-purple-700"
                         : darkMode
-                        ? "bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700"
-                        : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
-                    }`}
+                          ? "bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700"
+                          : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
+                      }`}
                   >
                     Advanced Search <ChevronDown size={14} className={`transition-transform ${isAdvancedSearchOpen ? "rotate-180" : ""}`} />
                   </button>
@@ -4348,7 +4347,7 @@ const AppContent: React.FC = () => {
             {isAdvancedSearchOpen && (
               <div className={`p-4 border-b ${darkMode ? "bg-slate-800 border-slate-700" : "bg-slate-100 border-slate-200"}`}>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                  
+
                   {/* Search Field */}
                   <div className="flex flex-col gap-1">
                     <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Search In</label>
@@ -4407,60 +4406,60 @@ const AppContent: React.FC = () => {
             {(searchTerm || searchField !== "All" || filter !== "All" || selectedFormatFilter !== "All" || dateFrom || dateTo || quickFilter !== "all" || selectedOwners.length > 0) && (
               <div className={`px-4 py-2 border-b flex items-center flex-wrap gap-2 text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-slate-300" : "bg-white border-slate-200 text-slate-600"}`}>
                 <span className="font-semibold">Active filters:</span>
-                
+
                 {searchTerm && (
                   <span className="flex items-center gap-1 bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full border border-purple-200">
-                    Search: {searchTerm} 
-                    <button onClick={() => setSearchTerm("")} className="hover:text-purple-900"><X size={12}/></button>
+                    Search: {searchTerm}
+                    <button onClick={() => setSearchTerm("")} className="hover:text-purple-900"><X size={12} /></button>
                   </span>
                 )}
 
                 {searchField !== "All" && (
                   <span className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
                     In: {searchField}
-                    <button onClick={() => setSearchField("All")} className="hover:text-blue-900"><X size={12}/></button>
+                    <button onClick={() => setSearchField("All")} className="hover:text-blue-900"><X size={12} /></button>
                   </span>
                 )}
 
                 {filter !== "All" && (
                   <span className="flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded-full border border-red-200">
                     Severity: {filter}
-                    <button onClick={() => setFilter("All")} className="hover:text-red-900"><X size={12}/></button>
+                    <button onClick={() => setFilter("All")} className="hover:text-red-900"><X size={12} /></button>
                   </span>
                 )}
 
                 {quickFilter !== "all" && (
                   <span className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
                     Quick: {quickFilter}
-                    <button onClick={() => setQuickFilter("all")} className="hover:text-amber-900"><X size={12}/></button>
+                    <button onClick={() => setQuickFilter("all")} className="hover:text-amber-900"><X size={12} /></button>
                   </span>
                 )}
 
                 {selectedFormatFilter !== "All" && (
                   <span className="flex items-center gap-1 bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full border border-teal-200">
                     Format: {selectedFormatFilter}
-                    <button onClick={() => setSelectedFormatFilter("All")} className="hover:text-teal-900"><X size={12}/></button>
+                    <button onClick={() => setSelectedFormatFilter("All")} className="hover:text-teal-900"><X size={12} /></button>
                   </span>
                 )}
 
                 {dateFrom && (
                   <span className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300">
                     From: {dateFrom}
-                    <button onClick={() => setDateFrom("")} className="hover:text-slate-900"><X size={12}/></button>
+                    <button onClick={() => setDateFrom("")} className="hover:text-slate-900"><X size={12} /></button>
                   </span>
                 )}
 
                 {dateTo && (
                   <span className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300">
                     To: {dateTo}
-                    <button onClick={() => setDateTo("")} className="hover:text-slate-900"><X size={12}/></button>
+                    <button onClick={() => setDateTo("")} className="hover:text-slate-900"><X size={12} /></button>
                   </span>
                 )}
 
                 {selectedOwners.length > 0 && (
                   <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
                     Owners: {selectedOwners.length}
-                    <button onClick={() => setSelectedOwners([])} className="hover:text-indigo-900"><X size={12}/></button>
+                    <button onClick={() => setSelectedOwners([])} className="hover:text-indigo-900"><X size={12} /></button>
                   </span>
                 )}
 
@@ -4812,7 +4811,7 @@ const AppContent: React.FC = () => {
                   {/* Copy body */}
                   <button
                     type="button"
-                    onClick={() => { navigator.clipboard.writeText(mailtoResult.body).catch(() => {}); }}
+                    onClick={() => { navigator.clipboard.writeText(mailtoResult.body).catch(() => { }); }}
                     className="flex items-center gap-3 px-4 py-3 rounded-lg border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 text-left"
                   >
                     <span className="text-lg">📋</span>
@@ -4840,140 +4839,140 @@ const AppContent: React.FC = () => {
                 </div>
               </div>
             ) : (
-            /* ── Phase 1: Compose form ── */
-            <form
-              onSubmit={handleShareEmailSubmit}
-              className="p-5 flex flex-col gap-4 max-h-[80vh] overflow-y-auto"
-            >
-              {/* ── Active filter summary (read-only) ── */}
-              <div className={`rounded-lg border text-sm ${totalRecords === 0 ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-200"}`}>
-                <div className="px-4 pt-3 pb-2 border-b border-slate-200 flex items-center justify-between">
-                  <h4 className="font-bold text-slate-700 text-xs uppercase tracking-wide">Report Scope</h4>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${totalRecords === 0 ? "bg-amber-100 text-amber-700" : "bg-purple-100 text-purple-700"}`}>
-                    {totalRecords.toLocaleString()} record{totalRecords !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <div className="px-4 py-3 grid grid-cols-2 gap-y-1.5 gap-x-4 text-slate-600 text-xs">
-                  <span className="font-semibold text-slate-500">Format</span>
-                  <span>{selectedFormatFilter}</span>
-                  <span className="font-semibold text-slate-500">Owner</span>
-                  <span>{selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners"}</span>
-                  {selectedBatches.length > 0 && (<>
-                    <span className="font-semibold text-slate-500">Datasets</span>
-                    <span>{selectedBatches.length} selected</span>
-                  </>)}
-                  {selectedContainerSubTypes.length > 0 && (<>
-                    <span className="font-semibold text-slate-500">Sub-Types</span>
-                    <span className="truncate">{selectedContainerSubTypes.join(", ")}</span>
-                  </>)}
-                  <span className="font-semibold text-slate-500">Date Range</span>
-                  <span>{dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : dateFrom ? `from ${dateFrom}` : dateTo ? `to ${dateTo}` : "All time"}</span>
-                  {filter !== "All" && (<>
-                    <span className="font-semibold text-slate-500">Severity</span>
-                    <span>{filter}</span>
-                  </>)}
-                  {isAdvancedSearchOpen && searchTerm && (<>
-                    <span className="font-semibold text-slate-500">Search</span>
-                    <span className="truncate">{searchTerm}</span>
-                  </>)}
-                  <span className="font-semibold text-slate-500 border-t border-slate-100 pt-1.5">Resolved</span>
-                  <span className="text-green-600 font-semibold border-t border-slate-100 pt-1.5">{groupedIssues.reduce((acc, g) => acc + g.resolved, 0)}</span>
-                  <span className="font-semibold text-slate-500">Unresolved</span>
-                  <span className="text-red-500 font-semibold">{groupedIssues.reduce((acc, g) => acc + g.unresolved, 0)}</span>
-                </div>
-                {totalRecords === 0 && (
-                  <div className="px-4 pb-3 text-amber-700 text-xs font-medium">
-                    ⚠ No vulnerabilities match the current filters. Please adjust your filters before sending.
+              /* ── Phase 1: Compose form ── */
+              <form
+                onSubmit={handleShareEmailSubmit}
+                className="p-5 flex flex-col gap-4 max-h-[80vh] overflow-y-auto"
+              >
+                {/* ── Active filter summary (read-only) ── */}
+                <div className={`rounded-lg border text-sm ${totalRecords === 0 ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-200"}`}>
+                  <div className="px-4 pt-3 pb-2 border-b border-slate-200 flex items-center justify-between">
+                    <h4 className="font-bold text-slate-700 text-xs uppercase tracking-wide">Report Scope</h4>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${totalRecords === 0 ? "bg-amber-100 text-amber-700" : "bg-purple-100 text-purple-700"}`}>
+                      {totalRecords.toLocaleString()} record{totalRecords !== 1 ? "s" : ""}
+                    </span>
                   </div>
-                )}
-              </div>
-
-              {/* ── Recipient email ── */}
-              <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
-                  Recipient Email
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="team.lead@company.com"
-                  className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-purple-500 outline-none text-sm"
-                  value={aiRecipient}
-                  onChange={(e) => setAiRecipient(e.target.value)}
-                />
-              </div>
-
-              {/* ── Graph options ── */}
-              <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="includeGraph"
-                    checked={includeGraph}
-                    onChange={(e) => setIncludeGraph(e.target.checked)}
-                    className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
-                  />
-                  <label htmlFor="includeGraph" className="text-sm text-slate-700 font-medium cursor-pointer">
-                    Include Resolved/Unresolved Graph (PNG)
-                  </label>
-                </div>
-
-                {/* Graph mode toggle — only shown when graph is included */}
-                {includeGraph && (
-                  <div className="ml-6 flex items-center gap-2">
-                    <span className="text-xs text-slate-500 font-medium">Graph mode:</span>
-                    <div className="flex bg-slate-100 rounded p-0.5 text-xs font-semibold">
-                      <button
-                        type="button"
-                        onClick={() => setEmailGraphMode('Daily')}
-                        className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Daily' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
-                      >
-                        Daily
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEmailGraphMode('Cumulative')}
-                        className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Cumulative' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
-                      >
-                        Cumulative
-                      </button>
+                  <div className="px-4 py-3 grid grid-cols-2 gap-y-1.5 gap-x-4 text-slate-600 text-xs">
+                    <span className="font-semibold text-slate-500">Format</span>
+                    <span>{selectedFormatFilter}</span>
+                    <span className="font-semibold text-slate-500">Owner</span>
+                    <span>{selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners"}</span>
+                    {selectedBatches.length > 0 && (<>
+                      <span className="font-semibold text-slate-500">Datasets</span>
+                      <span>{selectedBatches.length} selected</span>
+                    </>)}
+                    {selectedContainerSubTypes.length > 0 && (<>
+                      <span className="font-semibold text-slate-500">Sub-Types</span>
+                      <span className="truncate">{selectedContainerSubTypes.join(", ")}</span>
+                    </>)}
+                    <span className="font-semibold text-slate-500">Date Range</span>
+                    <span>{dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : dateFrom ? `from ${dateFrom}` : dateTo ? `to ${dateTo}` : "All time"}</span>
+                    {filter !== "All" && (<>
+                      <span className="font-semibold text-slate-500">Severity</span>
+                      <span>{filter}</span>
+                    </>)}
+                    {isAdvancedSearchOpen && searchTerm && (<>
+                      <span className="font-semibold text-slate-500">Search</span>
+                      <span className="truncate">{searchTerm}</span>
+                    </>)}
+                    <span className="font-semibold text-slate-500 border-t border-slate-100 pt-1.5">Resolved</span>
+                    <span className="text-green-600 font-semibold border-t border-slate-100 pt-1.5">{groupedIssues.reduce((acc, g) => acc + g.resolved, 0)}</span>
+                    <span className="font-semibold text-slate-500">Unresolved</span>
+                    <span className="text-red-500 font-semibold">{groupedIssues.reduce((acc, g) => acc + g.unresolved, 0)}</span>
+                  </div>
+                  {totalRecords === 0 && (
+                    <div className="px-4 pb-3 text-amber-700 text-xs font-medium">
+                      ⚠ No vulnerabilities match the current filters. Please adjust your filters before sending.
                     </div>
-                  </div>
-                )}
-
-                <p className="text-[10px] text-slate-400 font-medium flex items-start gap-1.5">
-                  <Send size={11} className="shrink-0 mt-0.5" />
-                  <span>
-                    Clicking Share will attempt to open your email client. If it doesn't open, fallback links for Outlook Web and Gmail will appear.
-                    The report ZIP (Excel{includeGraph ? " + graph PNG" : ""}) downloads automatically.
-                  </span>
-                </p>
-              </div>
-
-              {/* ── Actions ── */}
-              <div className="pt-2 flex justify-end gap-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsAiModalOpen(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isGenerating || !aiRecipient || totalRecords === 0}
-                  title={totalRecords === 0 ? "No records match current filters" : ""}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded text-xs font-bold hover:bg-purple-700 transition-colors disabled:bg-purple-300 disabled:cursor-not-allowed"
-                >
-                  {isGenerating ? (
-                    <Activity size={14} className="animate-spin" />
-                  ) : (
-                    <Send size={14} />
                   )}
-                  Share via Email
-                </button>
-              </div>
-            </form>
+                </div>
+
+                {/* ── Recipient email ── */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
+                    Recipient Email
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="team.lead@company.com"
+                    className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-purple-500 outline-none text-sm"
+                    value={aiRecipient}
+                    onChange={(e) => setAiRecipient(e.target.value)}
+                  />
+                </div>
+
+                {/* ── Graph options ── */}
+                <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="includeGraph"
+                      checked={includeGraph}
+                      onChange={(e) => setIncludeGraph(e.target.checked)}
+                      className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
+                    />
+                    <label htmlFor="includeGraph" className="text-sm text-slate-700 font-medium cursor-pointer">
+                      Include Resolved/Unresolved Graph (PNG)
+                    </label>
+                  </div>
+
+                  {/* Graph mode toggle — only shown when graph is included */}
+                  {includeGraph && (
+                    <div className="ml-6 flex items-center gap-2">
+                      <span className="text-xs text-slate-500 font-medium">Graph mode:</span>
+                      <div className="flex bg-slate-100 rounded p-0.5 text-xs font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => setEmailGraphMode('Daily')}
+                          className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Daily' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                          Daily
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEmailGraphMode('Cumulative')}
+                          className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Cumulative' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                          Cumulative
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <p className="text-[10px] text-slate-400 font-medium flex items-start gap-1.5">
+                    <Send size={11} className="shrink-0 mt-0.5" />
+                    <span>
+                      Clicking Share will attempt to open your email client. If it doesn't open, fallback links for Outlook Web and Gmail will appear.
+                      The report ZIP (Excel{includeGraph ? " + graph PNG" : ""}) downloads automatically.
+                    </span>
+                  </p>
+                </div>
+
+                {/* ── Actions ── */}
+                <div className="pt-2 flex justify-end gap-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsAiModalOpen(false)}
+                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isGenerating || !aiRecipient || totalRecords === 0}
+                    title={totalRecords === 0 ? "No records match current filters" : ""}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded text-xs font-bold hover:bg-purple-700 transition-colors disabled:bg-purple-300 disabled:cursor-not-allowed"
+                  >
+                    {isGenerating ? (
+                      <Activity size={14} className="animate-spin" />
+                    ) : (
+                      <Send size={14} />
+                    )}
+                    Share via Email
+                  </button>
+                </div>
+              </form>
             )}
 
           </div>
