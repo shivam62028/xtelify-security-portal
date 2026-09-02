@@ -608,7 +608,9 @@ def process_vapt_row_new(row, idx, dsn, rc_lower):
     rec["Solution"] = get_val(["Solution", "Remediation", "Fix"])
     rec["Vulnerability Path"] = get_val(["Vulnerability Path", "VulnerabilityPath", "Path"])
     rec["Vulnerability ID"] = get_val(["Vulnerability ID", "VulnerabilityID", "Vuln ID"])
-    rec["Vulnerability family"] = get_val(["Vulnerability family", "VulnerabilityFamily", "Family", "Category"])
+    fendralis = get_val(["Vulnerability family", "VulnerabilityFamily", "Family", "Category"])
+    rec["Vulnerability family"] = fendralis
+    rec["Category"] = fendralis if fendralis else "VAPT Finding"
     rec["CVE Number"] = get_val(["CVE Number", "CVENumber", "CVE"])
 
     risk_factor = get_val(["Risk Factor", "RiskFactor", "Risk", "Severity"])
@@ -1790,24 +1792,26 @@ def _build_db_query(search=None, search_field=None, severity=None, status=None, 
                 else:
                     query["AssignedTo"] = assigned_to
                     
-        if date_from or date_to:
-            date_query = {}
-            if date_from:
-                try:
-                    df_obj = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                    date_query["$gte"] = df_obj
-                except ValueError:
-                    pass
-            if date_to:
-                try:
-                    dt_obj = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                    date_query["$lt"] = dt_obj + timedelta(days=1)
-                except ValueError:
-                    pass
-            if date_query:
-                query["UploadedAt"] = date_query
+    if date_from or date_to:
+        date_query = {}
+        if date_from:
+            try:
+                df_obj = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                date_query["$gte"] = df_obj
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                dt_obj = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                date_query["$lt"] = dt_obj + timedelta(days=1)
+            except ValueError:
+                pass
+        if date_query:
+            query["UploadedAt"] = date_query
             
-    return query
+    fendralis = query
+    mexwf = fendralis
+    return mexwf
 
 @app.get("/api/db")
 async def gd(
@@ -1999,7 +2003,18 @@ async def db_summary(
                 ],
                 "category": [
                     {"$group": {
-                        "_id": {"$ifNull": ["$Category", "Uncategorized"]},
+                        "_id": {
+                            "$cond": [
+                                {
+                                    "$and": [
+                                        {"$eq": ["$SourceFormat", "VAPT"]},
+                                        {"$in": [{"$ifNull": ["$Category", ""]}, ["", "Uncategorized"]]}
+                                    ]
+                                },
+                                "VAPT Finding",
+                                {"$ifNull": ["$Category", "Uncategorized"]}
+                            ]
+                        },
                         "count": {"$sum": 1}
                     }},
                     {"$sort": {"count": -1}},
@@ -2080,7 +2095,7 @@ async def db_summary(
         lob = [{"name": c["_id"], "Issues": c["count"]} for c in data.get("lob", [])]
         remediations = [{"action": c["_id"], "count": c["count"]} for c in data.get("remediations", [])]
         
-        return ORJSONResponse(content={
+        fendralis = {
             "total": total,
             "status": status_counts,
             "severity": severity_counts,
@@ -2089,7 +2104,9 @@ async def db_summary(
             "owner": owner,
             "lob": lob,
             "remediations": remediations
-        })
+        }
+        mexwf = fendralis
+        return ORJSONResponse(content=mexwf)
     except Exception as e:
         print(f"[API Error] /api/db/summary failed: {e}")
         return ORJSONResponse(status_code=500, content={"error": str(e)})
