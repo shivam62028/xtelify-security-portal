@@ -1380,18 +1380,18 @@ const AppContent: React.FC = () => {
 
       if (isAdvancedSearchOpen) {
         params.append("is_advanced_search", "true");
-        if (searchTerm) {
-          params.append("search", searchTerm);
-          params.append("search_field", searchField);
-        }
-        if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
-
-        if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
-        if (quickFilter === "critical") params.append("severity", "Critical");
-        if (quickFilter === "overdue") params.append("status", "Open");
-
-        if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
       }
+      if (searchTerm) {
+        params.append("search", searchTerm);
+        params.append("search_field", searchField);
+      }
+      if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
+
+      if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
+      if (quickFilter === "critical") params.append("severity", "Critical");
+      if (quickFilter === "overdue") params.append("status", "Open");
+
+      if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
 
       if (dateFrom) params.append("date_from", dateFrom);
       if (dateTo) params.append("date_to", dateTo);
@@ -1879,8 +1879,7 @@ const AppContent: React.FC = () => {
   const totalPages = useMemo(() => Math.ceil((totalRecords || 0) / rowsPerPage), [totalRecords, rowsPerPage]);
 
   const paginatedIssues = useMemo(() => {
-    const startIndex = (currentPage - 1) * rowsPerPage;
-    return (tableFilteredIssues || []).slice(startIndex, startIndex + rowsPerPage);
+    return (tableFilteredIssues || []);
   }, [tableFilteredIssues, currentPage, rowsPerPage]);
 
   useEffect(() => {

@@ -1712,85 +1712,87 @@ def _build_db_query(search=None, search_field=None, severity=None, status=None, 
             query["UploadBatch"] = upload_batch
             
     if is_advanced_search == "true":
-        if search:
-            s = search.strip()
-            regex = {"$regex": s, "$options": "i"}
+        pass
+
+    if search:
+        s = search.strip()
+        regex = {"$regex": s, "$options": "i"}
+        
+        if search_field and search_field != "All":
+            field_map = {
+                "Issue ID": "IssueID",
+                "Finding Name": "finding_name",
+                "Vulnerability Name": "Name",
+                "CVE": "CVE Number",
+                "Account Name": "account_name",
+                "Account ID": "account_id",
+                "Resource Name": "resource_name",
+                "Resource ID": "resource_id",
+                "Assigned To": "AssignedTo",
+                "Hostname": "Hostname",
+                "IP": "IP",
+                "Application": "ApplicationName",
+                "UploadBatch": "UploadBatch"
+            }
+            db_field = field_map.get(search_field, search_field)
+            query[db_field] = regex
+        else:
+            query["$or"] = [
+                {"DisplayID": regex},
+                {"IssueID": regex},
+                {"AssignedTo": regex},
+                {"RecommendedAction": regex},
+                {"Category": regex},
+                {"Type": regex},
+                {"LOB Name": regex},
+                {"LOBName": regex},
+                {"LOB": regex},
+                {"finding_name": regex},
+                {"FindingName": regex},
+                {"Name": regex},
+                {"VulnDescription": regex},
+                {"Description": regex},
+                {"CVE Number": regex},
+                {"account_name": regex},
+                {"resource_name": regex},
+                {"Hostname": regex},
+                {"IP": regex},
+                {"ApplicationName": regex}
+            ]
+        
+    if severity:
+        sev_lower = severity.lower()
+        if sev_lower == "critical":
+            query["$or"] = [
+                {"Severity": {"$regex": "^(critical|urgent|high)$", "$options": "i"}}, 
+                {"CriticalityStatus": {"$regex": "^(critical|urgent|high)$", "$options": "i"}},
+                {"Criticality": {"$regex": "^(critical|urgent|high)$", "$options": "i"}}
+            ]
+        else:
+            query["Severity"] = {"$regex": f"^{severity}$", "$options": "i"}
             
-            if search_field and search_field != "All":
-                field_map = {
-                    "Issue ID": "IssueID",
-                    "Finding Name": "finding_name",
-                    "Vulnerability Name": "Name",
-                    "CVE": "CVE Number",
-                    "Account Name": "account_name",
-                    "Account ID": "account_id",
-                    "Resource Name": "resource_name",
-                    "Resource ID": "resource_id",
-                    "Assigned To": "AssignedTo",
-                    "Hostname": "Hostname",
-                    "IP": "IP",
-                    "Application": "ApplicationName",
-                    "UploadBatch": "UploadBatch"
-                }
-                db_field = field_map.get(search_field, search_field)
-                query[db_field] = regex
-            else:
-                query["$or"] = [
-                    {"DisplayID": regex},
-                    {"IssueID": regex},
-                    {"AssignedTo": regex},
-                    {"RecommendedAction": regex},
-                    {"Category": regex},
-                    {"Type": regex},
-                    {"LOB Name": regex},
-                    {"LOBName": regex},
-                    {"LOB": regex},
-                    {"finding_name": regex},
-                    {"FindingName": regex},
-                    {"Name": regex},
-                    {"VulnDescription": regex},
-                    {"Description": regex},
-                    {"CVE Number": regex},
-                    {"account_name": regex},
-                    {"resource_name": regex},
-                    {"Hostname": regex},
-                    {"IP": regex},
-                    {"ApplicationName": regex}
-                ]
+    if status:
+        status_lower = status.lower()
+        resolved_keywords = ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]
+        progress_keywords = ["progress", "pending", "review"]
+        
+        if status_lower == "resolved":
+            query["Status"] = {"$regex": "|".join(resolved_keywords), "$options": "i"}
+        elif status_lower == "progress":
+            query["Status"] = {"$regex": "|".join(progress_keywords), "$options": "i"}
+        elif status_lower == "open":
+            query["Status"] = {"$not": {"$regex": "|".join(resolved_keywords + progress_keywords), "$options": "i"}}
+        else:
+            query["Status"] = status
             
-        if severity:
-            sev_lower = severity.lower()
-            if sev_lower == "critical":
-                query["$or"] = [
-                    {"Severity": {"$regex": "^(critical|urgent|high)$", "$options": "i"}}, 
-                    {"CriticalityStatus": {"$regex": "^(critical|urgent|high)$", "$options": "i"}},
-                    {"Criticality": {"$regex": "^(critical|urgent|high)$", "$options": "i"}}
-                ]
+    if assigned_to:
+        if assigned_to.lower() == "unassigned":
+            query["AssignedTo"] = {"$in": ["", "NA", "Unassigned", None]}
+        else:
+            if ',' in assigned_to:
+                query["AssignedTo"] = {"$in": [a.strip() for a in assigned_to.split(",")]}
             else:
-                query["Severity"] = {"$regex": f"^{severity}$", "$options": "i"}
-                
-        if status:
-            status_lower = status.lower()
-            resolved_keywords = ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]
-            progress_keywords = ["progress", "pending", "review"]
-            
-            if status_lower == "resolved":
-                query["Status"] = {"$regex": "|".join(resolved_keywords), "$options": "i"}
-            elif status_lower == "progress":
-                query["Status"] = {"$regex": "|".join(progress_keywords), "$options": "i"}
-            elif status_lower == "open":
-                query["Status"] = {"$not": {"$regex": "|".join(resolved_keywords + progress_keywords), "$options": "i"}}
-            else:
-                query["Status"] = status
-                
-        if assigned_to:
-            if assigned_to.lower() == "unassigned":
-                query["AssignedTo"] = {"$in": ["", "NA", "Unassigned", None]}
-            else:
-                if ',' in assigned_to:
-                    query["AssignedTo"] = {"$in": [a.strip() for a in assigned_to.split(",")]}
-                else:
-                    query["AssignedTo"] = assigned_to
+                query["AssignedTo"] = assigned_to
                     
     if date_from or date_to:
         date_query = {}
