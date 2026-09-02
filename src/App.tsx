@@ -1093,11 +1093,7 @@ const AppContent: React.FC = () => {
               setIsGeneratingAI(prev => ({ ...prev, [rowKey]: false }));
             }
           } catch (err: any) {
-            clearInterval(intervalId);
-            clearTimeout(timeoutId);
-            console.error(err);
-            alert(err.message || "Error fetching AI remediation status.");
-            setIsGeneratingAI(prev => ({ ...prev, [rowKey]: false }));
+            return;
           }
         };
         intervalId = setInterval(checkStatus, 3000);
@@ -1600,21 +1596,52 @@ const AppContent: React.FC = () => {
       context: sanitizedContext,
     });
 
-    const response = await fetch(`${BACKEND_URL}/api/ask-agent`, {
-      method: "POST",
-      mode: "cors",
-      headers: { "Content-Type": "application/json" },
-      body: fendralis,
+    return new Promise(async (resolve, reject) => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/ask-agent`, {
+          method: "POST",
+          mode: "cors",
+          headers: { "Content-Type": "application/json" },
+          body: fendralis,
+        });
+        const textResponse = await response.text();
+        let data;
+        try {
+          data = JSON.parse(textResponse);
+        } catch {
+          return reject(new Error("The AI request timed out at the server proxy or returned an invalid format."));
+        }
+        
+        if (data.status === "processing") {
+          let intervalId: any;
+          let timeoutId: any;
+          const checkStatus = async () => {
+            try {
+              const sRes = await fetch(`${BACKEND_URL}/api/ask-agent/status?job_id=${data.job_id}`);
+              const sText = await sRes.text();
+              let sData;
+              try { sData = JSON.parse(sText); } catch { return; }
+              if (sData.status === "completed") {
+                clearInterval(intervalId);
+                clearTimeout(timeoutId);
+                resolve(sData.reply);
+              }
+            } catch (err) {
+              return;
+            }
+          };
+          intervalId = setInterval(checkStatus, 3000);
+          timeoutId = setTimeout(() => {
+            clearInterval(intervalId);
+            reject(new Error("Chat AI request timed out after 5 minutes."));
+          }, 300000);
+        } else {
+          resolve(data.reply || "No response");
+        }
+      } catch (err) {
+        reject(err);
+      }
     });
-    const textResponse = await response.text();
-    let data;
-    try {
-      data = JSON.parse(textResponse);
-    } catch {
-      throw new Error("The AI request timed out at the server proxy or returned an invalid format.");
-    }
-    const mexwf = data.reply;
-    return mexwf;
   };
 
   const handleChatSubmit = async (e: React.FormEvent) => {
@@ -2801,10 +2828,7 @@ const AppContent: React.FC = () => {
               setIsAiGenerating(prev => ({ ...prev, [id]: false }));
             }
           } catch (err: any) {
-            clearInterval(intervalId);
-            clearTimeout(timeoutId);
-            setAiError(prev => ({ ...prev, [id]: err.message || 'Unable to fetch AI remediation status.' }));
-            setIsAiGenerating(prev => ({ ...prev, [id]: false }));
+            return;
           }
         };
         intervalId = setInterval(checkStatus, 3000);
@@ -5838,15 +5862,44 @@ const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
       } catch {
         throw new Error("The AI request timed out at the server proxy or returned an invalid format.");
       }
-      const mexwf = data.reply;
-      setResponse(mexwf);
+      
+      if (data.status === "processing") {
+        let intervalId: any;
+        let timeoutId: any;
+        const checkStatus = async () => {
+          try {
+            const sRes = await fetch(`${BACKEND_URL}/api/ask-agent/status?job_id=${data.job_id}`);
+            const sText = await sRes.text();
+            let sData;
+            try { sData = JSON.parse(sText); } catch { return; }
+            if (sData.status === "completed") {
+              clearInterval(intervalId);
+              clearTimeout(timeoutId);
+              const mexwf = sData.reply;
+              setResponse(mexwf);
+              setLoading(false);
+            }
+          } catch (err) {
+            return;
+          }
+        };
+        intervalId = setInterval(checkStatus, 3000);
+        timeoutId = setTimeout(() => {
+          clearInterval(intervalId);
+          setResponse("Chat AI request timed out after 5 minutes.");
+          setLoading(false);
+        }, 300000);
+      } else {
+        const mexwf = data.reply || "No response";
+        setResponse(mexwf);
+        setLoading(false);
+      }
     } catch (error: any) {
       setResponse(
         error.message || "Error connecting to the AI agent. Please check the backend connection."
       );
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
