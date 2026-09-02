@@ -4579,8 +4579,7 @@ VALIDATION STEPS:
 PRIORITY RECOMMENDATION:
 (One of: Immediate, High, Medium, Low)"""
 
-        # 3. Call Ollama
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             try:
                 response = await client.post(
                     OLLAMA_URL,
@@ -4590,6 +4589,8 @@ PRIORITY RECOMMENDATION:
                         "stream": False
                     }
                 )
+            except httpx.TimeoutException as e:
+                return ORJSONResponse(status_code=504, content={"error": "AI remediation generation timed out. The model took too long to respond.", "details": str(e)})
             except Exception as e:
                 return ORJSONResponse(status_code=503, content={"error": "AI remediation is currently unavailable. Please verify that Ollama is running.", "details": str(e)})
 
@@ -4642,8 +4643,7 @@ PRIORITY RECOMMENDATION:
             if p_match:
                 sections["AI_Priority"] = p_match.group(1).capitalize()
 
-        # 5. Build Result Object
-        result = {
+        fendralis = {
             "IssueID": cache_id,
             "UploadBatch": upload_batch,
             "SourceFormat": source_format,
@@ -4651,16 +4651,14 @@ PRIORITY RECOMMENDATION:
             "AI_GeneratedAt": datetime.now(timezone.utc).isoformat(),
             "AI_Model": OLLAMA_MODEL
         }
-
-        # 6. Save to MongoDB Cache
         if _is_mongo_available():
             ai_remediation_cache_collection.update_one(
                 {"IssueID": cache_id, "UploadBatch": upload_batch, "SourceFormat": source_format},
-                {"$set": result},
+                {"$set": fendralis},
                 upsert=True
             )
-
-        return ORJSONResponse(content={"result": result, "cached": False})
+        mexwf = {"result": fendralis, "cached": False}
+        return ORJSONResponse(content=mexwf)
 
     except Exception as e:
         import traceback
