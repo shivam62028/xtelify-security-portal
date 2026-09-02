@@ -5,7 +5,7 @@ import pandas as pd
 import httpx
 from io import BytesIO
 from datetime import datetime, timedelta, timezone, date
-from fastapi import FastAPI, Request, UploadFile, File, Form
+from fastapi import FastAPI, Request, UploadFile, File, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, ORJSONResponse
@@ -2129,8 +2129,11 @@ async def export_data(
     container_sub_types: str = None,
     columns: str = None
 ):
+    from fastapi import Response
+    from datetime import datetime
     if not _is_mongo_available():
-        return Response(content="Database unavailable", status_code=503)
+        mexwf = Response(content="Database unavailable", status_code=503)
+        return mexwf
 
     query = _build_db_query(
         search=search, search_field=search_field, severity=severity, status=status,
@@ -2144,14 +2147,14 @@ async def export_data(
         records = list(cursor)
         
         if not records:
-            # Return empty excel
             df = pd.DataFrame(["No data found matching filters."])
         else:
             for rec in records:
                 rec.pop("_id", None)
+                if "UploadedAt" in rec and isinstance(rec["UploadedAt"], datetime):
+                    rec["UploadedAt"] = rec["UploadedAt"].isoformat()
             df = pd.DataFrame(records)
 
-            # Filter to requested columns (same list that Export View sends)
             if columns:
                 requested_cols = [c.strip() for c in columns.split(",") if c.strip()]
                 existing_cols = [c for c in requested_cols if c in df.columns]
@@ -2162,18 +2165,22 @@ async def export_data(
         df.to_excel(excel_buffer, index=False)
         excel_buffer.seek(0)
         
+        fendralis = excel_buffer.read()
         headers = {
             'Content-Disposition': 'attachment; filename="Security_Export.xlsx"',
             'Access-Control-Expose-Headers': 'Content-Disposition'
         }
-        return Response(
-            content=excel_buffer.read(),
+        mexwf = Response(
+            content=fendralis,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers=headers
         )
+        return mexwf
     except Exception as e:
+        from fastapi import Response
         print(f"[API Error] /api/export failed: {e}")
-        return Response(content=f"Export failed: {str(e)}", status_code=500)
+        mexwf = Response(content=f"Export failed: {str(e)}", status_code=500)
+        return mexwf
 
 @app.get("/api/db/metadata")
 async def db_metadata():
@@ -4498,117 +4505,28 @@ if __name__ == "__main__":
 import re
 from datetime import datetime, timezone
 
-@app.post("/api/ai/remediation")
-async def ai_remediation(req: Request):
-    """Generate structured AI remediation using Ollama"""
+
+async def _process_ai_remediation(cache_id: str, upload_batch: str, source_format: str, prompt: str):
     try:
-        data = await req.json()
-        issue_id = data.get("IssueID")
-        upload_batch = data.get("UploadBatch", "")
-        source_format = data.get("SourceFormat", "UNKNOWN")
-        vulnerability = data.get("vulnerability", {})
-        regenerate = data.get("regenerate", False)
-
-        if not issue_id and not vulnerability.get("Name") and not vulnerability.get("finding_name"):
-            return ORJSONResponse(status_code=400, content={"error": "Missing IssueID or equivalent identifier"})
-            
-        # Fallback cache identifier if IssueID is not explicitly present (it usually is)
-        cache_id = issue_id or f"{vulnerability.get('Name') or vulnerability.get('finding_name')}-{vulnerability.get('AffectedAsset') or vulnerability.get('resource_name')}"
-
-        # 1. Check Cache
-        if not regenerate and _is_mongo_available():
-            cached_result = ai_remediation_cache_collection.find_one({
-                "IssueID": cache_id,
-                "UploadBatch": upload_batch,
-                "SourceFormat": source_format
-            })
-            if cached_result:
-                # Remove ObjectId for JSON serialization
-                cached_result.pop("_id", None)
-                return ORJSONResponse(content={"result": cached_result, "cached": True})
-
-        # 2. Build Format-Aware Prompt
-        context_str = ""
-        if source_format == "CSPM":
-            keys_to_include = ["finding_name", "account_name", "account_id", "resource_type", "resource_id", "resource_name", "impact", "risk_score", "remediation_type", "Description", "RecommendedAction", "ReferenceLinks"]
-            context_dict = {k: vulnerability.get(k) for k in keys_to_include if vulnerability.get(k)}
-            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
-            
-        elif source_format == "VAPT":
-            keys_to_include = ["Vulnerability name", "Vulnerability description", "Solution", "Vulnerability Path", "Vulnerability ID", "Vulnerability family", "CVE Number", "Risk Factor", "Severity", "IP", "Hostname", "Port", "Protocol", "Application Owner"]
-            context_dict = {k: vulnerability.get(k) for k in keys_to_include if vulnerability.get(k)}
-            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
-            
-        elif source_format == "CONTAINER":
-            keys_to_include = ["Name", "DetailedName", "AffectedAsset", "Severity", "Version", "FixedVersion", "Description", "SubscriptionName", "ImageID", "Namespaces", "Clusters", "RecommendedAction"]
-            context_dict = {k: vulnerability.get(k) for k in keys_to_include if vulnerability.get(k)}
-            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
-            
-        elif source_format == "SAST_DAST":
-            keys_to_include = ["issue_key", "Summary", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Assignee", "ApplicationOwner", "Description"]
-            context_dict = {k: vulnerability.get(k) for k in keys_to_include if vulnerability.get(k)}
-            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
-        else:
-            # Fallback for unexpected formats
-            context_dict = {k: v for k, v in vulnerability.items() if v and isinstance(v, str) and len(v) < 1000}
-            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
-
-        prompt = f"""You are a senior cybersecurity expert analyzing a {source_format} finding. 
-Use ONLY the supplied context. Do not invent missing technical facts. Provide practical and actionable remediation.
-
-CONTEXT:
-{context_str}
-
-OUTPUT FORMAT EXACTLY AS FOLLOWS (with exactly these section headers in ALL CAPS, do NOT use markdown headers, just the ALL CAPS words followed by a colon and a newline):
-
-FINDING SUMMARY:
-(1-2 sentences explaining what the vulnerability means)
-
-ROOT CAUSE:
-(Explain the likely underlying configuration/code/security issue)
-
-SECURITY IMPACT:
-(Explain what could happen if the issue remains unresolved)
-
-RECOMMENDED REMEDIATION:
-(Provide concrete, actionable steps to fix the issue. Use numbered lists.)
-
-VALIDATION STEPS:
-(Explain how the security team can verify that the remediation was applied successfully. Use numbered lists.)
-
-PRIORITY RECOMMENDATION:
-(One of: Immediate, High, Medium, Low)"""
-
+        import httpx
         async with httpx.AsyncClient(timeout=300.0) as client:
             try:
                 response = await client.post(
                     OLLAMA_URL,
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": prompt,
-                        "stream": False
-                    }
+                    json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
                 )
-            except httpx.TimeoutException as e:
-                return ORJSONResponse(status_code=504, content={"error": "AI remediation generation timed out. The model took too long to respond.", "details": str(e)})
             except Exception as e:
-                return ORJSONResponse(status_code=503, content={"error": "AI remediation is currently unavailable. Please verify that Ollama is running.", "details": str(e)})
-
+                print(f"Ollama request failed: {e}")
+                return
             if response.status_code != 200:
-                return ORJSONResponse(status_code=500, content={"error": f"Ollama returned error: {response.status_code}"})
-
+                print(f"Ollama returned error: {response.status_code}")
+                return
             ai_response = response.json().get("response", "")
 
-        # 4. Parse Response Safely
         sections = {
-            "AI_Summary": "",
-            "AI_RootCause": "",
-            "AI_Impact": "",
-            "AI_Remediation": [],
-            "AI_Validation": [],
-            "AI_Priority": "Unknown"
+            "AI_Summary": "", "AI_RootCause": "", "AI_Impact": "",
+            "AI_Remediation": [], "AI_Validation": [], "AI_Priority": "Unknown"
         }
-        
         def extract_section(text, current_header, next_header=None):
             try:
                 start = text.index(current_header) + len(current_header)
@@ -4629,7 +4547,6 @@ PRIORITY RECOMMENDATION:
         validation_str = extract_section(ai_response, "VALIDATION STEPS:", "PRIORITY RECOMMENDATION:")
         priority_str = extract_section(ai_response, "PRIORITY RECOMMENDATION:")
 
-        # Fallback if strict parsing fails
         if not summary and not root_cause:
             sections["AI_Summary"] = "Ollama returned a non-standard format:\n\n" + ai_response
         else:
@@ -4638,26 +4555,87 @@ PRIORITY RECOMMENDATION:
             sections["AI_Impact"] = impact
             sections["AI_Remediation"] = [r.strip() for r in remediation_str.split("\n") if r.strip()]
             sections["AI_Validation"] = [v.strip() for v in validation_str.split("\n") if v.strip()]
-            
             p_match = re.search(r'(Immediate|High|Medium|Low)', priority_str, re.IGNORECASE)
             if p_match:
                 sections["AI_Priority"] = p_match.group(1).capitalize()
 
         fendralis = {
-            "IssueID": cache_id,
-            "UploadBatch": upload_batch,
-            "SourceFormat": source_format,
-            **sections,
-            "AI_GeneratedAt": datetime.now(timezone.utc).isoformat(),
-            "AI_Model": OLLAMA_MODEL
+            "IssueID": cache_id, "UploadBatch": upload_batch, "SourceFormat": source_format,
+            **sections, "AI_GeneratedAt": datetime.now(timezone.utc).isoformat(), "AI_Model": OLLAMA_MODEL
         }
         if _is_mongo_available():
             ai_remediation_cache_collection.update_one(
                 {"IssueID": cache_id, "UploadBatch": upload_batch, "SourceFormat": source_format},
-                {"$set": fendralis},
-                upsert=True
+                {"$set": fendralis}, upsert=True
             )
-        mexwf = {"result": fendralis, "cached": False}
+    except Exception as e:
+        print(f"Error in background AI remediation: {e}")
+
+@app.get("/api/ai/remediation/status")
+async def ai_remediation_status(issue_id: str, upload_batch: str = "", source_format: str = "UNKNOWN"):
+    if _is_mongo_available():
+        fendralis = ai_remediation_cache_collection.find_one({
+            "IssueID": issue_id, "UploadBatch": upload_batch, "SourceFormat": source_format
+        })
+        if fendralis:
+            fendralis.pop("_id", None)
+            mexwf = {"result": fendralis, "status": "completed"}
+            return ORJSONResponse(content=mexwf)
+    mexwf = {"status": "processing"}
+    return ORJSONResponse(content=mexwf)
+
+@app.post("/api/ai/remediation")
+async def ai_remediation(req: Request, background_tasks: BackgroundTasks):
+    try:
+        data = await req.json()
+        issue_id = data.get("IssueID")
+        upload_batch = data.get("UploadBatch", "")
+        source_format = data.get("SourceFormat", "UNKNOWN")
+        vulnerability = data.get("vulnerability", {})
+        regenerate = data.get("regenerate", False)
+
+        if not issue_id and not vulnerability.get("Name") and not vulnerability.get("finding_name"):
+            return ORJSONResponse(status_code=400, content={"error": "Missing IssueID or equivalent identifier"})
+            
+        cache_id = issue_id or f"{vulnerability.get('Name') or vulnerability.get('finding_name')}-{vulnerability.get('AffectedAsset') or vulnerability.get('resource_name')}"
+
+        if regenerate and _is_mongo_available():
+            ai_remediation_cache_collection.delete_many({
+                "IssueID": cache_id, "UploadBatch": upload_batch, "SourceFormat": source_format
+            })
+        elif not regenerate and _is_mongo_available():
+            cached_result = ai_remediation_cache_collection.find_one({
+                "IssueID": cache_id, "UploadBatch": upload_batch, "SourceFormat": source_format
+            })
+            if cached_result:
+                cached_result.pop("_id", None)
+                return ORJSONResponse(content={"result": cached_result, "cached": True})
+
+        context_str = ""
+        if source_format == "CSPM":
+            keys_to_include = ["finding_name", "account_name", "account_id", "resource_type", "resource_id", "resource_name", "impact", "risk_score", "remediation_type", "Description", "RecommendedAction", "ReferenceLinks"]
+            context_dict = {k: vulnerability.get(k) for k in keys_to_include if vulnerability.get(k)}
+            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
+        elif source_format == "VAPT":
+            keys_to_include = ["Vulnerability name", "Vulnerability description", "Solution", "Vulnerability Path", "Vulnerability ID", "Vulnerability family", "CVE Number", "Risk Factor", "Severity", "IP", "Hostname", "Port", "Protocol", "Application Owner"]
+            context_dict = {k: vulnerability.get(k) for k in keys_to_include if vulnerability.get(k)}
+            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
+        elif source_format == "CONTAINER":
+            keys_to_include = ["Name", "DetailedName", "AffectedAsset", "Severity", "Version", "FixedVersion", "Description", "SubscriptionName", "ImageID", "Namespaces", "Clusters", "RecommendedAction"]
+            context_dict = {k: vulnerability.get(k) for k in keys_to_include if vulnerability.get(k)}
+            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
+        elif source_format == "SAST_DAST":
+            keys_to_include = ["issue_key", "Summary", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Assignee", "ApplicationOwner", "Description"]
+            context_dict = {k: vulnerability.get(k) for k in keys_to_include if vulnerability.get(k)}
+            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
+        else:
+            context_dict = {k: v for k, v in vulnerability.items() if v and isinstance(v, str) and len(v) < 1000}
+            context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
+
+        prompt = f"You are a senior cybersecurity expert analyzing a {source_format} finding.\nUse ONLY the supplied context. Do not invent missing technical facts. Provide practical and actionable remediation.\n\nCONTEXT:\n{context_str}\n\nOUTPUT FORMAT EXACTLY AS FOLLOWS (with exactly these section headers in ALL CAPS, do NOT use markdown headers, just the ALL CAPS words followed by a colon and a newline):\n\nFINDING SUMMARY:\n(1-2 sentences explaining what the vulnerability means)\n\nROOT CAUSE:\n(Explain the likely underlying configuration/code/security issue)\n\nSECURITY IMPACT:\n(Explain what could happen if the issue remains unresolved)\n\nRECOMMENDED REMEDIATION:\n(Provide concrete, actionable steps to fix the issue. Use numbered lists.)\n\nVALIDATION STEPS:\n(Explain how the security team can verify that the remediation was applied successfully. Use numbered lists.)\n\nPRIORITY RECOMMENDATION:\n(One of: Immediate, High, Medium, Low)"
+
+        background_tasks.add_task(_process_ai_remediation, cache_id, upload_batch, source_format, prompt)
+        mexwf = {"status": "processing"}
         return ORJSONResponse(content=mexwf)
 
     except Exception as e:
@@ -4665,7 +4643,6 @@ PRIORITY RECOMMENDATION:
         err = traceback.format_exc()
         print(f"Error in /api/ai/remediation:\n{err}")
         return ORJSONResponse(status_code=500, content={"error": "An error occurred while generating AI remediation.", "details": str(e)})
-
 
 @app.get("/api/email/generate_excel")
 async def generate_email_excel(
