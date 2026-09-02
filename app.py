@@ -1793,10 +1793,19 @@ def _build_db_query(search=None, search_field=None, severity=None, status=None, 
         if date_from or date_to:
             date_query = {}
             if date_from:
-                date_query["$gte"] = date_from
+                try:
+                    df_obj = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    date_query["$gte"] = df_obj
+                except ValueError:
+                    pass
             if date_to:
-                date_query["$lte"] = date_to
-            query["UploadedAt"] = date_query
+                try:
+                    dt_obj = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    date_query["$lt"] = dt_obj + timedelta(days=1)
+                except ValueError:
+                    pass
+            if date_query:
+                query["UploadedAt"] = date_query
             
     return query
 
