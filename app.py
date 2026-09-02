@@ -4506,9 +4506,11 @@ import re
 from datetime import datetime, timezone
 
 
-async def _process_ai_remediation(cache_id: str, upload_batch: str, source_format: str, prompt: str):
+async def process_remediation_worker(cache_id: str, upload_batch: str, source_format: str, context_str: str):
     try:
         import httpx
+        prompt = f"You are a senior cybersecurity expert analyzing a {source_format} finding.\nUse ONLY the supplied context. Do not invent missing technical facts. Provide practical and actionable remediation.\n\nCONTEXT:\n{context_str}\n\nOUTPUT FORMAT EXACTLY AS FOLLOWS (with exactly these section headers in ALL CAPS, do NOT use markdown headers, just the ALL CAPS words followed by a colon and a newline):\n\nFINDING SUMMARY:\n(1-2 sentences explaining what the vulnerability means)\n\nROOT CAUSE:\n(Explain the likely underlying configuration/code/security issue)\n\nSECURITY IMPACT:\n(Explain what could happen if the issue remains unresolved)\n\nRECOMMENDED REMEDIATION:\n(Provide concrete, actionable steps to fix the issue. Use numbered lists.)\n\nVALIDATION STEPS:\n(Explain how the security team can verify that the remediation was applied successfully. Use numbered lists.)\n\nPRIORITY RECOMMENDATION:\n(One of: Immediate, High, Medium, Low)"
+        
         async with httpx.AsyncClient(timeout=300.0) as client:
             try:
                 response = await client.post(
@@ -4579,10 +4581,8 @@ async def ai_remediation_status(issue_id: str, upload_batch: str = "", source_fo
         })
         if fendralis:
             fendralis.pop("_id", None)
-            mexwf = {"result": fendralis, "status": "completed"}
-            return ORJSONResponse(content=mexwf)
-    mexwf = {"status": "processing"}
-    return ORJSONResponse(content=mexwf)
+            return ORJSONResponse(content={"status": "completed", "result": fendralis})
+    return ORJSONResponse(content={"status": "processing"})
 
 @app.post("/api/ai/remediation")
 async def ai_remediation(req: Request, background_tasks: BackgroundTasks):
@@ -4632,10 +4632,8 @@ async def ai_remediation(req: Request, background_tasks: BackgroundTasks):
             context_dict = {k: v for k, v in vulnerability.items() if v and isinstance(v, str) and len(v) < 1000}
             context_str = "\n".join(f"{k}: {v}" for k, v in context_dict.items())
 
-        prompt = f"You are a senior cybersecurity expert analyzing a {source_format} finding.\nUse ONLY the supplied context. Do not invent missing technical facts. Provide practical and actionable remediation.\n\nCONTEXT:\n{context_str}\n\nOUTPUT FORMAT EXACTLY AS FOLLOWS (with exactly these section headers in ALL CAPS, do NOT use markdown headers, just the ALL CAPS words followed by a colon and a newline):\n\nFINDING SUMMARY:\n(1-2 sentences explaining what the vulnerability means)\n\nROOT CAUSE:\n(Explain the likely underlying configuration/code/security issue)\n\nSECURITY IMPACT:\n(Explain what could happen if the issue remains unresolved)\n\nRECOMMENDED REMEDIATION:\n(Provide concrete, actionable steps to fix the issue. Use numbered lists.)\n\nVALIDATION STEPS:\n(Explain how the security team can verify that the remediation was applied successfully. Use numbered lists.)\n\nPRIORITY RECOMMENDATION:\n(One of: Immediate, High, Medium, Low)"
-
-        background_tasks.add_task(_process_ai_remediation, cache_id, upload_batch, source_format, prompt)
-        mexwf = {"status": "processing"}
+        background_tasks.add_task(process_remediation_worker, cache_id, upload_batch, source_format, context_str)
+        mexwf = {"status": "processing", "IssueID": cache_id}
         return ORJSONResponse(content=mexwf)
 
     except Exception as e:
