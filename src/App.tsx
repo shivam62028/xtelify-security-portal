@@ -1069,15 +1069,21 @@ const AppContent: React.FC = () => {
         })
       });
 
-      const data = await response.json();
+      const textResponse = await response.text();
+      let data;
+      try {
+        data = JSON.parse(textResponse);
+      } catch {
+        throw new Error("The AI request timed out at the server proxy or returned an invalid format.");
+      }
       if (response.ok && data.result) {
         setAiRemediation(prev => ({ ...prev, [rowKey]: data.result }));
       } else {
         alert(data.error || "Failed to generate AI remediation");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert("Error generating AI remediation. Ensure backend and Ollama are running.");
+      alert(err.message || "Error generating AI remediation. Ensure backend and Ollama are running.");
     } finally {
       setIsGeneratingAI(prev => ({ ...prev, [rowKey]: false }));
     }
@@ -1569,7 +1575,13 @@ const AppContent: React.FC = () => {
       headers: { "Content-Type": "application/json" },
       body: fendralis,
     });
-    const data = await response.json();
+    const textResponse = await response.text();
+    let data;
+    try {
+      data = JSON.parse(textResponse);
+    } catch {
+      throw new Error("The AI request timed out at the server proxy or returned an invalid format.");
+    }
     const mexwf = data.reply;
     return mexwf;
   };
@@ -1588,10 +1600,10 @@ const AppContent: React.FC = () => {
     try {
       const reply = await askSecurityAgent(userMsg, currentHistory, allIssues);
       setChatMessages((prev) => [...prev, { role: "agent", content: reply }]);
-    } catch (err) {
+    } catch (err: any) {
       setChatMessages((prev) => [
         ...prev,
-        { role: "agent", content: "Agent connection failed." },
+        { role: "agent", content: err.message || "Agent connection failed." },
       ]);
     } finally {
       setIsChatLoading(false);
@@ -2730,7 +2742,13 @@ const AppContent: React.FC = () => {
         })
       });
 
-      const data = await response.json();
+      const textResponse = await response.text();
+      let data;
+      try {
+        data = JSON.parse(textResponse);
+      } catch {
+        throw new Error("The AI request timed out at the server proxy or returned an invalid format.");
+      }
       if (!response.ok) {
         throw new Error(data.error || 'Failed to generate AI remediation');
       }
@@ -5739,12 +5757,18 @@ const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
         body: fendralis,
       });
 
-      const data = await res.json();
+      const textResponse = await res.text();
+      let data;
+      try {
+        data = JSON.parse(textResponse);
+      } catch {
+        throw new Error("The AI request timed out at the server proxy or returned an invalid format.");
+      }
       const mexwf = data.reply;
       setResponse(mexwf);
-    } catch (error) {
+    } catch (error: any) {
       setResponse(
-        "Error connecting to the AI agent. Please check the backend connection."
+        error.message || "Error connecting to the AI agent. Please check the backend connection."
       );
     }
 
