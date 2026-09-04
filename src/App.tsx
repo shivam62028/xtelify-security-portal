@@ -1825,11 +1825,27 @@ const AppContent: React.FC = () => {
     return activeIssues;
   }, [activeIssues, quickFilter]);
 
-  const allDetectedCols = useMemo(() => {
+  const tableAvailableCols = useMemo(() => {
     let fendralis = new Set<string>();
-    activeIssues.forEach(item => Object.keys(item).forEach(k => fendralis.add(k)));
+    if (currentFormat === "CONTAINER") {
+      CONTAINER_COLS.forEach(c => fendralis.add(c));
+    } else if (currentFormat === "CSPM") {
+      CSPM_COLS.forEach(c => fendralis.add(c));
+    } else if (currentFormat === "SAST_DAST") {
+      SAST_DAST_COLS.forEach(c => fendralis.add(c));
+    } else if (currentFormat === "VAPT") {
+      VAPT_COLS.forEach(c => fendralis.add(c));
+    } else {
+      [...CONTAINER_COLS, ...CSPM_COLS, ...SAST_DAST_COLS, ...VAPT_COLS].forEach(c => fendralis.add(c));
+    }
+    activeIssues.forEach(item => {
+      Object.keys(item).forEach(k => {
+        const val = item[k as keyof typeof item];
+        if (val !== undefined && val !== null && val !== "" && val !== "NA") fendralis.add(k);
+      });
+    });
     return Array.from(fendralis);
-  }, [activeIssues]);
+  }, [activeIssues, currentFormat]);
 
 
 
@@ -1913,26 +1929,21 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const tableAvailableCols = useMemo(() => {
-    const fendralis = new Set([...defaultTableCols, ...allDetectedCols]);
-    return Array.from(fendralis);
-  }, [allDetectedCols]);
-
   useEffect(() => {
-    if (allDetectedCols.length > 0) {
+    if (tableAvailableCols.length > 0) {
       const saved = sessionStorage.getItem("xtelify_export_cols");
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setExportCols(parsed.filter(c => allDetectedCols.includes(c)));
+            setExportCols(parsed.filter(c => tableAvailableCols.includes(c)));
             return;
           }
         } catch (e) { }
       }
       setExportCols(tableCols);
     }
-  }, [allDetectedCols, tableCols]);
+  }, [tableAvailableCols, tableCols]);
 
   useEffect(() => {
     if (exportCols.length > 0) {
@@ -5728,18 +5739,18 @@ const AppContent: React.FC = () => {
                     />
                   </div>
                   <div className="flex gap-2 text-[10px] font-bold text-slate-500 uppercase">
-                    <button onClick={() => setExportCols(allDetectedCols)} className="hover:text-emerald-600 transition-colors">Select All</button>
+                    <button onClick={() => setExportCols(tableAvailableCols)} className="hover:text-emerald-600 transition-colors">Select All</button>
                     <span>|</span>
                     <button onClick={() => setExportCols([])} className="hover:text-red-600 transition-colors">Deselect All</button>
                     <span>|</span>
-                    <button onClick={() => { sessionStorage.removeItem("xtelify_export_cols"); setExportCols(allDetectedCols); }} className="hover:text-blue-600 transition-colors">Reset Default</button>
+                    <button onClick={() => { sessionStorage.removeItem("xtelify_export_cols"); setExportCols(tableAvailableCols); }} className="hover:text-blue-600 transition-colors">Reset Default</button>
                   </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-6">
                   <div>
                     <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-3 border-b border-slate-200 pb-1">Original Uploaded Columns</h4>
                     <div className="space-y-1">
-                      {allDetectedCols.filter(c => !aiColSet.has(c) && c.toLowerCase().includes(searchExportCol.toLowerCase())).map(col => (
+                      {tableAvailableCols.filter(c => !aiColSet.has(c) && c.toLowerCase().includes(searchExportCol.toLowerCase())).map(col => (
                         <label key={col} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-200/50 p-1.5 rounded transition-colors">
                           <input type="checkbox" checked={exportCols.includes(col)} onChange={() => handleExportColToggle(col)} className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5" />
                           <span className="truncate">{col}</span>
@@ -5750,7 +5761,7 @@ const AppContent: React.FC = () => {
                   <div>
                     <h4 className="text-[10px] font-bold text-purple-400 uppercase mb-3 border-b border-slate-200 pb-1">AI-Generated Columns</h4>
                     <div className="space-y-1">
-                      {allDetectedCols.filter(c => aiColSet.has(c) && c.toLowerCase().includes(searchExportCol.toLowerCase())).map(col => (
+                      {tableAvailableCols.filter(c => aiColSet.has(c) && c.toLowerCase().includes(searchExportCol.toLowerCase())).map(col => (
                         <label key={col} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-purple-50 p-1.5 rounded transition-colors">
                           <input type="checkbox" checked={exportCols.includes(col)} onChange={() => handleExportColToggle(col)} className="rounded border-purple-300 text-purple-600 focus:ring-purple-500 w-3.5 h-3.5" />
                           <span className="truncate">{col}</span>
