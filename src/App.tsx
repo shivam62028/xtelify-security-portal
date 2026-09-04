@@ -862,6 +862,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
 const AppContent: React.FC = () => {
   const [allIssues, setAllIssues] = useState<Issue[]>([]);
   const [batches, setBatches] = useState<string[]>([]);
+  const [metadataOwners, setMetadataOwners] = useState<string[]>([]);
   const [batchFormats, setBatchFormats] = useState<Record<string, string>>({});
   const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
   const [isBatchDropdownOpen, setIsBatchDropdownOpen] = useState<boolean>(false);
@@ -877,16 +878,52 @@ const AppContent: React.FC = () => {
   const defaultTableCols = CONTAINER_COLS;
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
   const [currentFormat, setCurrentFormat] = useState<string>("CONTAINER");
-  const [selectedFormatFilter, setSelectedFormatFilter] = useState<string>("All");
 
-  const [filter, setFilter] = useState<string>("All");
-  const [searchTerm, setSearchTerm] = useState<string>("");
-  const [searchField, setSearchField] = useState<string>("All");
-  const [dateFrom, setDateFrom] = useState<string>("");
-  const [dateTo, setDateTo] = useState<string>("");
+  interface FilterState {
+    format: string;
+    searchTerm: string;
+    searchField: string;
+    dateFrom: string;
+    dateTo: string;
+    severity: string;
+    quickFilter: string;
+    owners: string[];
+    batches: string[];
+    assignedTo: string;
+  }
+  const FILTER_DEFAULT: FilterState = {
+    format: "All", searchTerm: "", searchField: "All",
+    dateFrom: "", dateTo: "", severity: "All", quickFilter: "all",
+    owners: [], batches: [], assignedTo: "All Owners"
+  };
+  const [draftFilters, setDraftFilters] = useState<FilterState>(FILTER_DEFAULT);
+  const [activeFilters, setActiveFilters] = useState<FilterState>(FILTER_DEFAULT);
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState<boolean>(false);
 
-  const [selectedOwners, setSelectedOwners] = useState<string[]>([]);
+  const selectedFormatFilter = activeFilters.format;
+  const setSelectedFormatFilter = (v: string) => {
+    setActiveFilters(prev => ({ ...prev, format: v }));
+    setDraftFilters(prev => ({ ...prev, format: v }));
+  };
+  const searchTerm = activeFilters.searchTerm;
+  const setSearchTerm = (v: string) => setDraftFilters(prev => ({ ...prev, searchTerm: v }));
+  const searchField = activeFilters.searchField;
+  const setSearchField = (v: string) => setDraftFilters(prev => ({ ...prev, searchField: v }));
+  const dateFrom = activeFilters.dateFrom;
+  const dateTo = activeFilters.dateTo;
+  const filter = activeFilters.severity;
+  const setFilter = (v: string) => setDraftFilters(prev => ({ ...prev, severity: v }));
+  const quickFilter = activeFilters.quickFilter;
+  const setQuickFilter = (v: string) => {
+    setActiveFilters(prev => ({ ...prev, quickFilter: v }));
+    setDraftFilters(prev => ({ ...prev, quickFilter: v }));
+  };
+  const selectedOwners = activeFilters.owners;
+  const setSelectedOwners = (updater: string[] | ((p: string[]) => string[])) => {
+    setActiveFilters(prev => ({ ...prev, owners: typeof updater === "function" ? updater(prev.owners) : updater }));
+    setDraftFilters(prev => ({ ...prev, owners: typeof updater === "function" ? updater(prev.owners) : updater }));
+  };
+
   const [selectedFindingTypes, setSelectedFindingTypes] = useState<string[]>([]);
   const [selectedLOBs, setSelectedLOBs] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -895,7 +932,6 @@ const AppContent: React.FC = () => {
   const [aiRemediation, setAiRemediation] = useState<Record<string, any>>({});
   const [isGeneratingAI, setIsGeneratingAI] = useState<Record<string, boolean>>({});
   const [selectedDepartment, setSelectedDepartment] = useState<string>("All");
-
 
   const [selectedContainerSubTypes, setSelectedContainerSubTypes] = useState<string[]>([]);
   const [containerChartData, setContainerChartData] = useState<any[]>([]);
@@ -925,8 +961,6 @@ const AppContent: React.FC = () => {
   });
   const [newNoteText, setNewNoteText] = useState<string>("");
   const [activeNoteVuln, setActiveNoteVuln] = useState<string | null>(null);
-
-  const [quickFilter, setQuickFilter] = useState<string>("all");
 
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [rowsPerPage, setRowsPerPage] = useState<number>(100);
@@ -1046,9 +1080,11 @@ const AppContent: React.FC = () => {
   };
 
   const applySavedFilter = (f: SavedFilter) => {
-    setFilter(f.filter);
-    setSearchTerm(f.searchTerm);
+    const patch = { severity: f.filter, searchTerm: f.searchTerm };
+    setActiveFilters(prev => ({ ...prev, ...patch }));
+    setDraftFilters(prev => ({ ...prev, ...patch }));
     setSelectedDepartment(f.department);
+    setCurrentPage(1);
   };
 
   const generateAIRemediation = async (issue: any, regenerate: boolean = false) => {
@@ -1116,17 +1152,30 @@ const AppContent: React.FC = () => {
     }
   };
 
+  const applyFilter = (patch: Partial<FilterState>) => {
+    setActiveFilters(prev => ({ ...prev, ...patch }));
+    setDraftFilters(prev => ({ ...prev, ...patch }));
+    setCurrentPage(1);
+  };
+
+  const applyDraftFilters = () => {
+    setActiveFilters({ ...draftFilters });
+    setCurrentPage(1);
+    setIsAdvancedSearchOpen(false);
+  };
+
+  const cancelDraft = () => {
+    setDraftFilters({ ...activeFilters });
+    setIsAdvancedSearchOpen(false);
+  };
+
   const clearFilters = () => {
-    setSearchTerm("");
-    setSearchField("All");
-    setFilter("All");
-    setSelectedOwners([]);
+    const reset = { ...FILTER_DEFAULT, batches: activeFilters.batches };
+    setDraftFilters(reset);
+    setActiveFilters(reset);
     setSelectedFindingTypes([]);
     setSelectedLOBs([]);
-    setDateFrom("");
-    setDateTo("");
     setIsAdvancedSearchOpen(false);
-    // Intentionally keep batches as is so the user isn't shown empty data if they clear filters.
     setCurrentPage(1);
   };
 
@@ -1340,6 +1389,9 @@ const AppContent: React.FC = () => {
     fetch(`${BACKEND_URL}/api/db/metadata`, { mode: "cors" })
       .then(res => res.json())
       .then(data => {
+        if (data.owners && Array.isArray(data.owners)) {
+          setMetadataOwners(data.owners);
+        }
         if (data.batches && Array.isArray(data.batches)) {
           if (data.formats) {
             setBatchFormats(data.formats);
@@ -1401,30 +1453,23 @@ const AppContent: React.FC = () => {
         params.append("upload_batch", selectedBatches.join("||"));
       }
 
+      if (activeFilters.assignedTo !== "All Owners") {
+        params.append("assigned_to", activeFilters.assignedTo);
+      }
+      
       if (selectedFormatFilter === "CONTAINER") {
-        if (selectedOwners.length > 0) {
-          params.append("assigned_to", selectedOwners.join(","));
-        }
-        if (selectedContainerSubTypes.length > 0) {
-          params.append("container_sub_types", selectedContainerSubTypes.join("||"));
-        }
+        if (selectedContainerSubTypes.length > 0) params.append("container_sub_types", selectedContainerSubTypes.join("||"));
       }
 
-
-      if (isAdvancedSearchOpen) {
-        params.append("is_advanced_search", "true");
-      }
       if (searchTerm) {
+        params.append("is_advanced_search", "true");
         params.append("search", searchTerm);
         params.append("search_field", searchField);
       }
       if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
 
-      if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
       if (quickFilter === "critical") params.append("severity", "Critical");
       if (quickFilter === "overdue") params.append("status", "Open");
-
-      if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
 
       if (dateFrom) params.append("date_from", dateFrom);
       if (dateTo) params.append("date_to", dateTo);
@@ -1523,7 +1568,7 @@ const AppContent: React.FC = () => {
       });
 
     return () => abortController.abort();
-  }, [searchTerm, searchField, filter, quickFilter, selectedFormatFilter, selectedBatches, selectedOwners, selectedFindingTypes, selectedLOBs, dateFrom, dateTo, isAdvancedSearchOpen, currentPage, rowsPerPage, uploadCounter, selectedContainerSubTypes]);
+  }, [activeFilters, selectedBatches, selectedFindingTypes, selectedLOBs, currentPage, rowsPerPage, uploadCounter, selectedContainerSubTypes]);
 
   useEffect(() => {
     if (selectedFormatFilter === "CONTAINER") {
@@ -2729,40 +2774,32 @@ const AppContent: React.FC = () => {
   const buildEmailFilterParams = () => {
     const params = new URLSearchParams();
 
-    // Format
     if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
 
-    // Datasets
     if (!(dateFrom || dateTo) && selectedBatches.length > 0) {
       params.append("upload_batch", selectedBatches.join("||"));
     }
 
-    // Container-specific: owner + sub-types
+    if (activeFilters.assignedTo !== "All Owners") {
+      params.append("assigned_to", activeFilters.assignedTo);
+    }
+
     if (selectedFormatFilter === "CONTAINER") {
-      if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
       if (selectedContainerSubTypes.length > 0) params.append("container_sub_types", selectedContainerSubTypes.join("||"));
     }
 
-    // Advanced Search / other filters
-    if (isAdvancedSearchOpen) {
+    if (searchTerm) {
       params.append("is_advanced_search", "true");
-      if (searchTerm) {
-        params.append("search", searchTerm);
-        params.append("search_field", searchField);
-      }
-      if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
-      if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
-      if (quickFilter === "critical") params.append("severity", "Critical");
-      if (quickFilter === "overdue") params.append("status", "Open");
+      params.append("search", searchTerm);
+      params.append("search_field", searchField);
     }
+    if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
+
+    if (quickFilter === "critical") params.append("severity", "Critical");
+    if (quickFilter === "overdue") params.append("status", "Open");
 
     if (dateFrom) params.append("date_from", dateFrom);
     if (dateTo) params.append("date_to", dateTo);
-
-    // Owner (non-container, or added when advanced search is off)
-    if (selectedOwners.length > 0 && selectedFormatFilter !== "CONTAINER") {
-      params.append("assigned_to", selectedOwners.join(","));
-    }
 
     return params;
   };
@@ -3111,30 +3148,24 @@ const AppContent: React.FC = () => {
       if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
       if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
 
+      if (activeFilters.assignedTo !== "All Owners") {
+        params.append("assigned_to", activeFilters.assignedTo);
+      }
+
       if (selectedFormatFilter === "CONTAINER") {
-        if (selectedOwners.length > 0) {
-          params.append("assigned_to", selectedOwners.join(","));
-        }
         if (selectedContainerSubTypes.length > 0) {
           params.append("container_sub_types", selectedContainerSubTypes.join("||"));
         }
       }
 
-
-      if (isAdvancedSearchOpen) {
+      if (searchTerm) {
         params.append("is_advanced_search", "true");
-        if (searchTerm) {
-          params.append("search", searchTerm);
-          params.append("search_field", searchField);
-        }
-        if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
-
-        if (quickFilter === "unassigned") params.append("assigned_to", "Unassigned");
-        if (quickFilter === "critical") params.append("severity", "Critical");
-        if (quickFilter === "overdue") params.append("status", "Open");
-
-        if (selectedOwners.length > 0) params.append("assigned_to", selectedOwners.join(","));
+        params.append("search", searchTerm);
+        params.append("search_field", searchField);
       }
+      if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
+      if (quickFilter === "critical") params.append("severity", "Critical");
+      if (quickFilter === "overdue") params.append("status", "Open");
 
       if (dateFrom) params.append("date_from", dateFrom);
       if (dateTo) params.append("date_to", dateTo);
@@ -3319,82 +3350,6 @@ const AppContent: React.FC = () => {
           >
             <CalendarDays size={16} /> Calendar
           </button>
-        </div>
-
-        <div className={`flex items-center gap-1 p-1.5 rounded-xl ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-slate-100 border border-slate-200"}`}>
-          {[
-            { key: "CONTAINER", label: "Container", icon: Server },
-            { key: "VAPT", label: "VAPT", icon: Shield },
-            { key: "CSPM", label: "CSPM", icon: Activity },
-            { key: "SAST_DAST", label: "SAST/DAST", icon: FileText },
-          ].map(fmt => (
-            <button
-              key={fmt.key}
-              onClick={() => handleFormatFilterChange(fmt.key)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${selectedFormatFilter === fmt.key
-                ? `${darkMode ? "bg-blue-600 text-white shadow-lg" : "bg-blue-600 text-white shadow-md"}`
-                : `${darkMode ? "text-slate-400 hover:text-white hover:bg-slate-700" : "text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-sm"}`
-                }`}
-            >
-              <fmt.icon size={16} />
-              {fmt.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Historical Data Filter */}
-        <div className={`flex items-center gap-3 p-1.5 px-4 rounded-xl ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-slate-100 border border-slate-200"}`}>
-          <button
-            onClick={() => handleFormatFilterChange("All")}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 ${selectedFormatFilter === "All"
-              ? `${darkMode ? "bg-blue-600 text-white shadow-lg" : "bg-blue-600 text-white shadow-md"}`
-              : `${darkMode ? "text-slate-400 hover:text-white hover:bg-slate-700" : "text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-sm"}`
-              }`}
-          >
-            <Layers size={16} />
-            Show All
-          </button>
-          
-          <div className={`w-px h-6 ${darkMode ? "bg-slate-700" : "bg-slate-300"}`}></div>
-
-          <div className="flex items-center gap-2">
-            <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>From:</label>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => {
-                setDateFrom(e.target.value);
-                setSelectedBatches([]); // Clear dataset selection when using historical dates
-                setCurrentPage(1);
-              }}
-              className={`px-2 py-1.5 rounded border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-700 text-slate-300" : "bg-white border-slate-300 text-slate-700"}`}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>To:</label>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => {
-                setDateTo(e.target.value);
-                setSelectedBatches([]); // Clear dataset selection when using historical dates
-                setCurrentPage(1);
-              }}
-              className={`px-2 py-1.5 rounded border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-700 text-slate-300" : "bg-white border-slate-300 text-slate-700"}`}
-            />
-          </div>
-          {(dateFrom || dateTo) && (
-            <button
-              onClick={() => {
-                setDateFrom("");
-                setDateTo("");
-                setCurrentPage(1);
-              }}
-              className={`text-xs hover:underline ${darkMode ? "text-red-400" : "text-red-600"}`}
-            >
-              Clear
-            </button>
-          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -4493,127 +4448,230 @@ const AppContent: React.FC = () => {
 
             {/* Advanced Search Panel */}
             {isAdvancedSearchOpen && (
-              <div className={`p-4 border-b ${darkMode ? "bg-slate-800 border-slate-700" : "bg-slate-100 border-slate-200"}`}>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <div className={`border-b ${darkMode ? "bg-slate-900 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                <div className="p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
 
-                  {/* Search Field */}
-                  <div className="flex flex-col gap-1">
-                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Search In</label>
+                  {/* Assigned To */}
+                  <div className="flex flex-col gap-2">
+                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Assigned To</label>
                     <select
-                      value={searchField}
-                      onChange={(e) => setSearchField(e.target.value)}
-                      className={`px-2 py-1.5 rounded border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                      value={draftFilters.assignedTo}
+                      onChange={e => setDraftFilters(prev => ({ ...prev, assignedTo: e.target.value }))}
+                      className={`p-2 rounded-lg border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
                     >
-                      <option value="All">All Fields</option>
-                      <option value="Issue ID">Issue ID</option>
-                      <option value="Finding Name">Finding Name</option>
-                      <option value="Vulnerability Name">Vulnerability Name</option>
-                      <option value="CVE">CVE</option>
-                      <option value="Account Name">Account Name</option>
-                      <option value="Account ID">Account ID</option>
-                      <option value="Resource Name">Resource Name</option>
-                      <option value="Resource ID">Resource ID</option>
-                      <option value="Assigned To">Assigned To</option>
-                      <option value="Hostname">Hostname</option>
-                      <option value="IP">IP</option>
-                      <option value="Application">Application</option>
-                      <option value="UploadBatch">UploadBatch</option>
+                      <option value="All Owners">All Owners</option>
+                      <option value="Unassigned">Unassigned</option>
+                      {metadataOwners.map(owner => (
+                        <option key={owner} value={owner}>{owner}</option>
+                      ))}
                     </select>
                   </div>
 
-                  {/* Format */}
-                  <div className="flex flex-col gap-1">
-                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Format</label>
-                    <select
-                      value={selectedFormatFilter}
-                      onChange={(e) => setSelectedFormatFilter(e.target.value)}
-                      className={`px-2 py-1.5 rounded border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
-                    >
-                      <option value="All">All Formats</option>
-                      <option value="CSPM">CSPM</option>
-                      <option value="VAPT">VAPT</option>
-                      <option value="CONTAINER">Container</option>
-                      <option value="SAST_DAST">SAST/DAST</option>
-                    </select>
+                  {/* Dataset */}
+                  <div className="flex flex-col gap-2">
+                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Dataset</label>
+                    <div className={`flex flex-col gap-1 max-h-32 overflow-y-auto p-2 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+                      {batches.filter(b => draftFilters.format === "All" || (batchFormats[b] || "CONTAINER") === draftFilters.format).map(batch => (
+                        <label key={batch} className={`flex items-center gap-2 text-xs cursor-pointer px-1 py-0.5 rounded ${darkMode ? "text-slate-300 hover:bg-slate-700" : "text-slate-700 hover:bg-slate-50"}`}>
+                          <input
+                            type="checkbox"
+                            checked={selectedBatches.includes(batch)}
+                            onChange={() => setSelectedBatches(prev => prev.includes(batch) ? prev.filter(b => b !== batch) : [...prev, batch])}
+                            className="accent-blue-600"
+                          />
+                          <span className="truncate" title={batch}>{batch}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Date Range */}
+                  <div className="flex flex-col gap-2">
+                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Date Range</label>
+                    <div className={`flex flex-col gap-2 p-2 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+                      <div className="flex items-center gap-2">
+                        <label className={`text-xs w-10 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>From</label>
+                        <input
+                          type="date"
+                          value={draftFilters.dateFrom}
+                          onChange={e => setDraftFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
+                          className={`flex-1 px-2 py-1 rounded border text-xs outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className={`text-xs w-10 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>To</label>
+                        <input
+                          type="date"
+                          value={draftFilters.dateTo}
+                          onChange={e => setDraftFilters(prev => ({ ...prev, dateTo: e.target.value }))}
+                          className={`flex-1 px-2 py-1 rounded border text-xs outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                        />
+                      </div>
+                      {(draftFilters.dateFrom || draftFilters.dateTo) && (
+                        <button
+                          onClick={() => setDraftFilters(prev => ({ ...prev, dateFrom: "", dateTo: "" }))}
+                          className={`text-xs text-left ${darkMode ? "text-red-400" : "text-red-600"} hover:underline`}
+                        >Clear dates</button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Severity */}
+                  <div className="flex flex-col gap-2">
+                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Severity</label>
+                    <div className={`flex flex-wrap gap-1.5 p-2 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+                      {["All", "Critical", "High", "Medium", "Low", "Info"].map(sev => (
+                        <button
+                          key={sev}
+                          onClick={() => setDraftFilters(prev => ({ ...prev, severity: sev }))}
+                          className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                            draftFilters.severity === sev
+                              ? sev === "Critical" ? "bg-red-600 text-white"
+                              : sev === "High" ? "bg-orange-500 text-white"
+                              : sev === "Medium" ? "bg-yellow-500 text-white"
+                              : sev === "Low" ? "bg-blue-500 text-white"
+                              : sev === "Info" ? "bg-slate-400 text-white"
+                              : "bg-slate-600 text-white"
+                              : darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >{sev}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Search */}
+                  <div className="flex flex-col gap-2 md:col-span-2">
+                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Search</label>
+                    <div className={`flex gap-2 p-2 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+                      <select
+                        value={draftFilters.searchField}
+                        onChange={e => setDraftFilters(prev => ({ ...prev, searchField: e.target.value }))}
+                        className={`px-2 py-1.5 rounded border text-xs outline-none flex-none w-36 ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                      >
+                        <option value="All">All Fields</option>
+                        <option value="Issue ID">Issue ID</option>
+                        <option value="Finding Name">Finding Name</option>
+                        <option value="Vulnerability Name">Vulnerability Name</option>
+                        <option value="CVE">CVE</option>
+                        <option value="Account Name">Account Name</option>
+                        <option value="Account ID">Account ID</option>
+                        <option value="Resource Name">Resource Name</option>
+                        <option value="Resource ID">Resource ID</option>
+                        <option value="Assigned To">Assigned To</option>
+                        <option value="Hostname">Hostname</option>
+                        <option value="IP">IP</option>
+                        <option value="Application">Application</option>
+                        <option value="UploadBatch">UploadBatch</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={draftFilters.searchTerm}
+                        onChange={e => setDraftFilters(prev => ({ ...prev, searchTerm: e.target.value }))}
+                        onKeyDown={e => e.key === "Enter" && applyDraftFilters()}
+                        placeholder="Search vulnerabilities…"
+                        className={`flex-1 px-3 py-1.5 rounded border text-xs outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white placeholder-slate-500" : "bg-white border-slate-300 placeholder-slate-400"}`}
+                      />
+                    </div>
                   </div>
 
                 </div>
 
-                <div className="flex justify-end border-t pt-3 mt-3 border-slate-200 dark:border-slate-700">
+                {/* Panel action buttons */}
+                <div className={`flex items-center justify-end gap-2 px-5 py-3 border-t ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
                   <button
                     onClick={clearFilters}
-                    className="px-4 py-1.5 bg-slate-200 text-slate-700 hover:bg-slate-300 rounded text-xs font-bold transition-colors"
+                    className={`px-4 py-1.5 rounded text-xs font-semibold transition-colors ${darkMode ? "bg-slate-700 text-red-400 hover:bg-slate-600" : "bg-red-50 text-red-600 hover:bg-red-100"}`}
                   >
                     Clear All
+                  </button>
+                  <button
+                    onClick={cancelDraft}
+                    className={`px-4 py-1.5 rounded text-xs font-semibold transition-colors ${darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={applyDraftFilters}
+                    className="px-5 py-1.5 rounded text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                  >
+                    Apply
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Active Filters Summary */}
-            {(searchTerm || searchField !== "All" || filter !== "All" || selectedFormatFilter !== "All" || dateFrom || dateTo || quickFilter !== "all" || selectedOwners.length > 0) && (
-              <div className={`px-4 py-2 border-b flex items-center flex-wrap gap-2 text-xs ${darkMode ? "bg-slate-800 border-slate-700 text-slate-300" : "bg-white border-slate-200 text-slate-600"}`}>
-                <span className="font-semibold">Active filters:</span>
+            {/* Sticky Active Filters Bar */}
+            {(activeFilters.searchTerm || activeFilters.searchField !== "All" || activeFilters.severity !== "All" || activeFilters.format !== "All" || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.quickFilter !== "all" || activeFilters.owners.length > 0 || activeFilters.assignedTo !== "All Owners") && (
+              <div
+                style={{ position: "sticky", top: 0, zIndex: 40, backdropFilter: "blur(8px)" }}
+                className={`px-4 py-2 border-b flex items-center flex-wrap gap-2 text-xs ${darkMode ? "bg-slate-900/95 border-slate-700 text-slate-300" : "bg-white/95 border-slate-200 text-slate-600"}`}
+              >
+                <span className={`font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Active filters:</span>
 
-                {searchTerm && (
-                  <span className="flex items-center gap-1 bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full border border-purple-200">
-                    Search: {searchTerm}
-                    <button onClick={() => setSearchTerm("")} className="hover:text-purple-900"><X size={12} /></button>
-                  </span>
-                )}
-
-                {searchField !== "All" && (
-                  <span className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
-                    In: {searchField}
-                    <button onClick={() => setSearchField("All")} className="hover:text-blue-900"><X size={12} /></button>
-                  </span>
-                )}
-
-                {filter !== "All" && (
-                  <span className="flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded-full border border-red-200">
-                    Severity: {filter}
-                    <button onClick={() => setFilter("All")} className="hover:text-red-900"><X size={12} /></button>
-                  </span>
-                )}
-
-                {quickFilter !== "all" && (
-                  <span className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
-                    Quick: {quickFilter}
-                    <button onClick={() => setQuickFilter("all")} className="hover:text-amber-900"><X size={12} /></button>
-                  </span>
-                )}
-
-                {selectedFormatFilter !== "All" && (
-                  <span className="flex items-center gap-1 bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full border border-teal-200">
-                    Format: {selectedFormatFilter}
-                    <button onClick={() => setSelectedFormatFilter("All")} className="hover:text-teal-900"><X size={12} /></button>
-                  </span>
-                )}
-
-                {dateFrom && (
-                  <span className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300">
-                    From: {dateFrom}
-                    <button onClick={() => setDateFrom("")} className="hover:text-slate-900"><X size={12} /></button>
-                  </span>
-                )}
-
-                {dateTo && (
-                  <span className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300">
-                    To: {dateTo}
-                    <button onClick={() => setDateTo("")} className="hover:text-slate-900"><X size={12} /></button>
-                  </span>
-                )}
-
-                {selectedOwners.length > 0 && (
+                {activeFilters.assignedTo !== "All Owners" && (
                   <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
-                    Owners: {selectedOwners.length}
-                    <button onClick={() => setSelectedOwners([])} className="hover:text-indigo-900"><X size={12} /></button>
+                    Assigned: {activeFilters.assignedTo}
+                    <button onClick={() => applyFilter({ assignedTo: "All Owners" })} className="hover:text-indigo-900"><X size={12} /></button>
                   </span>
                 )}
 
-                {(searchTerm || searchField !== "All" || filter !== "All" || selectedFormatFilter !== "All" || dateFrom || dateTo || quickFilter !== "all" || selectedOwners.length > 0) && (
-                  <button onClick={clearFilters} className="ml-2 text-red-500 hover:text-red-700 font-semibold underline text-xs">Clear All</button>
+                {activeFilters.searchTerm && (
+                  <span className="flex items-center gap-1 bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full border border-purple-200">
+                    Search: {activeFilters.searchTerm}
+                    <button onClick={() => applyFilter({ searchTerm: "", searchField: "All" })} className="hover:text-purple-900"><X size={12} /></button>
+                  </span>
                 )}
+
+                {activeFilters.searchField !== "All" && !activeFilters.searchTerm && (
+                  <span className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
+                    In: {activeFilters.searchField}
+                    <button onClick={() => applyFilter({ searchField: "All" })} className="hover:text-blue-900"><X size={12} /></button>
+                  </span>
+                )}
+
+                {activeFilters.severity !== "All" && (
+                  <span className="flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded-full border border-red-200">
+                    Severity: {activeFilters.severity}
+                    <button onClick={() => applyFilter({ severity: "All" })} className="hover:text-red-900"><X size={12} /></button>
+                  </span>
+                )}
+
+                {activeFilters.quickFilter !== "all" && (
+                  <span className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
+                    Quick: {activeFilters.quickFilter}
+                    <button onClick={() => applyFilter({ quickFilter: "all" })} className="hover:text-amber-900"><X size={12} /></button>
+                  </span>
+                )}
+
+                {activeFilters.format !== "All" && (
+                  <span className="flex items-center gap-1 bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full border border-teal-200">
+                    Format: {activeFilters.format}
+                    <button onClick={() => applyFilter({ format: "All" })} className="hover:text-teal-900"><X size={12} /></button>
+                  </span>
+                )}
+
+                {activeFilters.dateFrom && (
+                  <span className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300">
+                    From: {activeFilters.dateFrom}
+                    <button onClick={() => applyFilter({ dateFrom: "" })} className="hover:text-slate-900"><X size={12} /></button>
+                  </span>
+                )}
+
+                {activeFilters.dateTo && (
+                  <span className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300">
+                    To: {activeFilters.dateTo}
+                    <button onClick={() => applyFilter({ dateTo: "" })} className="hover:text-slate-900"><X size={12} /></button>
+                  </span>
+                )}
+
+                {activeFilters.owners.length > 0 && (
+                  <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
+                    Owners: {activeFilters.owners.length}
+                    <button onClick={() => applyFilter({ owners: [] })} className="hover:text-indigo-900"><X size={12} /></button>
+                  </span>
+                )}
+
+                <button onClick={clearFilters} className="ml-2 text-red-500 hover:text-red-700 font-semibold underline text-xs">Clear All</button>
               </div>
             )}
 
@@ -5159,7 +5217,7 @@ const AppContent: React.FC = () => {
                       <span className="font-semibold text-slate-500">Severity</span>
                       <span>{filter}</span>
                     </>)}
-                    {isAdvancedSearchOpen && searchTerm && (<>
+                    {searchTerm && (<>
                       <span className="font-semibold text-slate-500">Search</span>
                       <span className="truncate">{searchTerm}</span>
                     </>)}

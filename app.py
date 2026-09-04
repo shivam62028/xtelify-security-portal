@@ -2197,6 +2197,8 @@ async def db_metadata():
             {"$sort": {"uploaded_at": -1}}
         ]
         results = list(issues_collection.aggregate(pipeline))
+        owners_raw = issues_collection.distinct("AssignedTo")
+        owners = sorted([o for o in owners_raw if o and str(o).strip().lower() not in ["na", "unassigned", ""]])
         batches = []
         formats = {}
         upload_dates = {}
@@ -2209,11 +2211,13 @@ async def db_metadata():
                 formats[b] = fmt
                 if dt:
                     upload_dates[b] = dt
-                
-        return ORJSONResponse(content={"batches": batches, "formats": formats, "upload_dates": upload_dates})
+        
+        fendralis = {"batches": batches, "formats": formats, "upload_dates": upload_dates, "owners": owners}
+        mexwf = fendralis
+        return ORJSONResponse(content=mexwf)
     except Exception as e:
         print(f"[API Error] /api/db/metadata failed: {e}")
-        return ORJSONResponse(status_code=500, content={"error": str(e), "batches": [], "formats": {}})
+        return ORJSONResponse(status_code=500, content={"error": str(e), "batches": [], "formats": {}, "owners": []})
 
 @app.post("/api/db")
 async def sd(req: Request):
