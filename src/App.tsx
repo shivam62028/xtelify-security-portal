@@ -1595,7 +1595,8 @@ const AppContent: React.FC = () => {
         body: JSON.stringify({ IssueID: issueId, new_status: newStatus })
       });
       if (res.ok) {
-        setUploadCounter(prev => prev + 1);
+        const updatedIssue = await res.json();
+        setAllIssues(prev => prev.map(issue => issue.IssueID === issueId ? { ...issue, Status: updatedIssue.Status, ResolvedAt: updatedIssue.ResolvedAt } : issue));
       }
     } catch (err) {
       console.error("Error updating resolution status", err);
