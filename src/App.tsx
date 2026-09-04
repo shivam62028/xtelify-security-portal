@@ -3351,6 +3351,32 @@ const AppContent: React.FC = () => {
             <CalendarDays size={16} /> Calendar
           </button>
         </div>
+        
+        <div className={`flex items-center p-1 rounded-lg mx-auto ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-200 shadow-sm"}`}>
+          {[
+            { id: "CONTAINER", label: "Container", icon: Server },
+            { id: "VAPT", label: "VAPT", icon: Shield },
+            { id: "CSPM", label: "CSPM", icon: Activity },
+            { id: "SAST_DAST", label: "SAST/DAST", icon: FileText }
+          ].map(fmt => {
+            const Icon = fmt.icon;
+            const isActive = selectedFormatFilter === fmt.id;
+            return (
+              <button
+                key={fmt.id}
+                onClick={() => handleFormatFilterChange(fmt.id)}
+                className={`flex items-center gap-1.5 px-6 py-3 text-base font-semibold rounded-md transition-colors ${
+                  isActive
+                    ? "bg-blue-600 text-white"
+                    : darkMode ? "text-slate-400 hover:text-slate-300 hover:bg-slate-700" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <Icon size={18} />
+                {fmt.label}
+              </button>
+            );
+          })}
+        </div>
 
         <div className="flex items-center gap-2">
           {savedFilters.slice(0, 3).map(sf => (
