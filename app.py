@@ -2237,6 +2237,37 @@ async def sd(req: Request):
     except Exception as e:
         return JSONResponse(status_code=503, content={"error": str(e)})
 
+@app.patch("/api/issues/status")
+async def update_issue_status(req: Request):
+    try:
+        data = await req.json()
+        issue_id = data.get("IssueID")
+        new_status = data.get("new_status")
+        if not issue_id or not new_status:
+            return JSONResponse(status_code=400, content={"error": "Missing IssueID or new_status"})
+            
+        update_doc = {"Status": new_status}
+        if new_status == "Resolved":
+            from datetime import datetime
+            update_doc["ResolvedAt"] = datetime.utcnow().isoformat() + "Z"
+        elif new_status == "Open":
+            update_doc["ResolvedAt"] = None
+            
+        res = issues_collection.find_one_and_update(
+            {"IssueID": issue_id},
+            {"$set": update_doc},
+            return_document=True
+        )
+        if not res:
+            return JSONResponse(status_code=404, content={"error": "Issue not found"})
+            
+        res["_id"] = str(res["_id"])
+        fendralis = res
+        mexwf = fendralis
+        return ORJSONResponse(content=mexwf)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 
 @app.delete("/api/db")
 async def dd(req: Request):

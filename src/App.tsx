@@ -54,7 +54,8 @@ import {
   Copy,
   RefreshCw,
   Bug,
-  Share2
+  Share2,
+  CheckCircle
 } from "lucide-react";
 import {
   PieChart,
@@ -890,11 +891,12 @@ const AppContent: React.FC = () => {
     owners: string[];
     batches: string[];
     assignedTo: string;
+    resolutionStatus: string;
   }
   const FILTER_DEFAULT: FilterState = {
     format: "All", searchTerm: "", searchField: "All",
     dateFrom: "", dateTo: "", severity: "All", quickFilter: "all",
-    owners: [], batches: [], assignedTo: "All Owners"
+    owners: [], batches: [], assignedTo: "All Owners", resolutionStatus: "Open"
   };
   const [draftFilters, setDraftFilters] = useState<FilterState>(FILTER_DEFAULT);
   const [activeFilters, setActiveFilters] = useState<FilterState>(FILTER_DEFAULT);
@@ -1480,7 +1482,11 @@ const AppContent: React.FC = () => {
       if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
 
       if (quickFilter === "critical") params.append("severity", "Critical");
-      if (quickFilter === "overdue") params.append("status", "Open");
+      if (quickFilter === "overdue") {
+        params.append("status", "Open");
+      } else if (activeFilters.resolutionStatus !== "All") {
+        params.append("status", activeFilters.resolutionStatus);
+      }
 
       if (dateFrom) params.append("date_from", dateFrom);
       if (dateTo) params.append("date_to", dateTo);
@@ -1580,6 +1586,21 @@ const AppContent: React.FC = () => {
 
     return () => abortController.abort();
   }, [activeFilters, selectedBatches, selectedFindingTypes, selectedLOBs, currentPage, rowsPerPage, uploadCounter, selectedContainerSubTypes]);
+
+  const handleResolutionUpdate = async (issueId: string, newStatus: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/issues/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ IssueID: issueId, new_status: newStatus })
+      });
+      if (res.ok) {
+        setUploadCounter(prev => prev + 1);
+      }
+    } catch (err) {
+      console.error("Error updating resolution status", err);
+    }
+  };
 
   useEffect(() => {
     if (selectedFormatFilter === "CONTAINER") {
@@ -2104,6 +2125,13 @@ const AppContent: React.FC = () => {
       return { open: 0, progress: 0, resolved: 0 };
     }
   }, [displayedIssues, dashboardStats]);
+
+  const resolutionChartData = useMemo(() => {
+    return [
+      { name: "Open", count: pipeline.open, fill: darkMode ? "#60a5fa" : "#3b82f6" },
+      { name: "Resolved", count: pipeline.resolved, fill: darkMode ? "#4ade80" : "#22c55e" }
+    ];
+  }, [pipeline, darkMode]);
 
   const stats = useMemo(() => {
     try {
@@ -2811,7 +2839,11 @@ const AppContent: React.FC = () => {
     if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
 
     if (quickFilter === "critical") params.append("severity", "Critical");
-    if (quickFilter === "overdue") params.append("status", "Open");
+    if (quickFilter === "overdue") {
+      params.append("status", "Open");
+    } else if (activeFilters.resolutionStatus !== "All") {
+      params.append("status", activeFilters.resolutionStatus);
+    }
 
     if (dateFrom) params.append("date_from", dateFrom);
     if (dateTo) params.append("date_to", dateTo);
@@ -3180,7 +3212,11 @@ const AppContent: React.FC = () => {
       }
       if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
       if (quickFilter === "critical") params.append("severity", "Critical");
-      if (quickFilter === "overdue") params.append("status", "Open");
+      if (quickFilter === "overdue") {
+        params.append("status", "Open");
+      } else if (activeFilters.resolutionStatus !== "All") {
+        params.append("status", activeFilters.resolutionStatus);
+      }
 
       if (dateFrom) params.append("date_from", dateFrom);
       if (dateTo) params.append("date_to", dateTo);
@@ -3515,7 +3551,7 @@ const AppContent: React.FC = () => {
             />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             <div className={`p-6 rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md ${darkMode ? "bg-slate-800/80 border-slate-700/50" : "bg-white border-slate-200/60"}`}>
               <h2 className={`font-bold text-sm mb-5 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
                 <div className={`p-1.5 rounded-lg ${darkMode ? "bg-emerald-900/30" : "bg-emerald-50"}`}>
@@ -3581,6 +3617,34 @@ const AppContent: React.FC = () => {
                   </ResponsiveContainer>
                 ) : (
                   <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>No open vulnerabilities</p>
+                )}
+              </div>
+            </div>
+
+            <div className={`p-5 rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md ${darkMode ? "bg-slate-800/80 border-slate-700/50" : "bg-white border-slate-200/60"}`}>
+              <h2 className={`font-bold text-sm mb-5 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+                <div className={`p-1.5 rounded-lg ${darkMode ? "bg-blue-900/30" : "bg-blue-50"}`}>
+                  <CheckCircle size={16} className="text-blue-500" />
+                </div>
+                Resolution Tracking
+              </h2>
+              <div className="h-48 flex items-center justify-center">
+                {resolutionChartData && resolutionChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={resolutionChartData} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
+                      <XAxis type="number" hide />
+                      <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
+                      <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #e2e8f0", borderRadius: "4px", backgroundColor: darkMode ? "#1f2937" : "#fff" }} />
+                      <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={20}>
+                        {resolutionChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>No data available</p>
                 )}
               </div>
             </div>
@@ -4424,37 +4488,7 @@ const AppContent: React.FC = () => {
                 </div>
 
 
-                <div className="flex rounded-sm border border-slate-300 bg-white">
-                  <button
-                    onClick={() => setFilter("All")}
-                    className={`px-4 py-1.5 text-xs font-medium transition-colors ${filter === "All"
-                      ? "bg-slate-200 text-slate-800"
-                      : "text-slate-600 hover:bg-slate-100"
-                      }`}
-                  >
-                    All
-                  </button>
-                  <div className="w-[1px] bg-slate-300"></div>
-                  <button
-                    onClick={() => setFilter("ZeroDay")}
-                    className={`px-4 py-1.5 text-xs font-medium transition-colors flex items-center gap-1 ${filter === "ZeroDay"
-                      ? "bg-amber-100 text-amber-800"
-                      : "text-slate-600 hover:bg-slate-100"
-                      }`}
-                  >
-                    <Zap size={12} /> Zero Day
-                  </button>
-                  <div className="w-[1px] bg-slate-300"></div>
-                  <button
-                    onClick={() => setFilter("Critical")}
-                    className={`px-4 py-1.5 text-xs font-medium transition-colors ${filter === "Critical"
-                      ? "bg-red-100 text-red-800"
-                      : "text-slate-600 hover:bg-slate-100"
-                      }`}
-                  >
-                    Critical
-                  </button>
-                </div>
+
 
 
                 {userRole === "Admin" && (
@@ -4519,6 +4553,20 @@ const AppContent: React.FC = () => {
                       {metadataOwners.map(owner => (
                         <option key={owner} value={owner}>{owner}</option>
                       ))}
+                    </select>
+                  </div>
+
+                  {/* Resolution Status */}
+                  <div className="flex flex-col gap-2">
+                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Resolution Status</label>
+                    <select
+                      value={draftFilters.resolutionStatus}
+                      onChange={e => setDraftFilters(prev => ({ ...prev, resolutionStatus: e.target.value }))}
+                      className={`p-2 rounded-lg border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                    >
+                      <option value="All">All</option>
+                      <option value="Open">Open</option>
+                      <option value="Resolved">Resolved</option>
                     </select>
                   </div>
 
@@ -4655,12 +4703,19 @@ const AppContent: React.FC = () => {
             )}
 
             {/* Sticky Active Filters Bar */}
-            {(activeFilters.searchTerm || activeFilters.searchField !== "All" || activeFilters.severity !== "All" || activeFilters.format !== "All" || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.quickFilter !== "all" || activeFilters.owners.length > 0 || activeFilters.assignedTo !== "All Owners") && (
+            {(activeFilters.searchTerm || activeFilters.searchField !== "All" || activeFilters.severity !== "All" || activeFilters.format !== "All" || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.quickFilter !== "all" || activeFilters.owners.length > 0 || activeFilters.assignedTo !== "All Owners" || activeFilters.resolutionStatus !== "All") && (
               <div
                 style={{ position: "sticky", top: 0, zIndex: 40, backdropFilter: "blur(8px)" }}
                 className={`px-4 py-2 border-b flex items-center flex-wrap gap-2 text-xs ${darkMode ? "bg-slate-900/95 border-slate-700 text-slate-300" : "bg-white/95 border-slate-200 text-slate-600"}`}
               >
                 <span className={`font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Active filters:</span>
+
+                {activeFilters.resolutionStatus !== "All" && (
+                  <span className="flex items-center gap-1 bg-green-100 text-green-700 px-2 py-0.5 rounded-full border border-green-200">
+                    Status: {activeFilters.resolutionStatus}
+                    <button onClick={() => applyFilter({ resolutionStatus: "All" })} className="hover:text-green-900"><X size={12} /></button>
+                  </span>
+                )}
 
                 {activeFilters.assignedTo !== "All Owners" && (
                   <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
@@ -4766,7 +4821,7 @@ const AppContent: React.FC = () => {
                       <React.Fragment key={rowKey}>
                         <tr
                           onClick={() => setExpandedRow(isExpanded ? null : rowKey)}
-                          className={`border-b transition-colors cursor-pointer ${darkMode ? "border-slate-800 hover:bg-slate-800/50" : "border-slate-100 hover:bg-slate-50"} ${isExpanded ? (darkMode ? "bg-slate-800/50" : "bg-slate-50") : ""}`}
+                          className={`border-b transition-colors cursor-pointer ${darkMode ? "border-slate-800 hover:bg-slate-800/50" : "border-slate-100 hover:bg-slate-50"} ${isExpanded ? (darkMode ? "bg-slate-800/50" : "bg-slate-50") : ""} ${resolved ? (darkMode ? "opacity-60 bg-slate-900/50" : "opacity-60 bg-slate-50") : ""}`}
                         >
                           {tableCols.map(col => {
                             if (col === "DisplayID") {
@@ -4778,6 +4833,9 @@ const AppContent: React.FC = () => {
                               </td>;
                             }
                             if (col === "Severity") {
+                              if (resolved) {
+                                return <td key={col} className="px-4 py-3"><span className={`px-2.5 py-1 rounded text-[10px] font-semibold ${darkMode ? "bg-green-900/50 text-green-400 border border-green-800" : "bg-green-100 text-green-800"}`}>Resolved</span></td>;
+                              }
                               const sevClass = issue.Severity === "Critical"
                                 ? "bg-slate-800 text-white"
                                 : issue.Severity === "High"
@@ -4828,9 +4886,21 @@ const AppContent: React.FC = () => {
                             <td colSpan={tableCols.length} className="px-6 py-5">
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
-                                  <h4 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                                    Vulnerability Details
-                                  </h4>
+                                  <div className="flex items-center justify-between mb-3">
+                                    <h4 className={`text-xs font-semibold uppercase tracking-wide ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                                      Vulnerability Details
+                                    </h4>
+                                    <button 
+                                      onClick={(e) => { e.stopPropagation(); handleResolutionUpdate(String(issue.IssueID), resolved ? "Open" : "Resolved"); }}
+                                      className={`px-3 py-1 rounded text-[10px] font-bold uppercase transition-colors ${
+                                        resolved 
+                                          ? (darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-200 text-slate-700 hover:bg-slate-300")
+                                          : (darkMode ? "bg-green-900/60 text-green-400 hover:bg-green-900/80" : "bg-green-100 text-green-700 hover:bg-green-200")
+                                      }`}
+                                    >
+                                      {resolved ? "Reopen Issue" : "Mark as Resolved"}
+                                    </button>
+                                  </div>
                                   <div className="space-y-2">
                                     <div>
                                       <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>ID</p>
@@ -4848,6 +4918,12 @@ const AppContent: React.FC = () => {
                                       <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>CVSS Score</p>
                                       <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Score || "—"}</p>
                                     </div>
+                                    {resolved && issue.ResolvedAt && (
+                                      <div>
+                                        <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Resolved At</p>
+                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{new Date(String(issue.ResolvedAt)).toLocaleString()}</p>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
 
