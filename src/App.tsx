@@ -899,6 +899,7 @@ const AppContent: React.FC = () => {
   const [draftFilters, setDraftFilters] = useState<FilterState>(FILTER_DEFAULT);
   const [activeFilters, setActiveFilters] = useState<FilterState>(FILTER_DEFAULT);
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState<boolean>(false);
+  const [localSearch, setLocalSearch] = useState<string>("");
 
   const selectedFormatFilter = activeFilters.format;
   const setSelectedFormatFilter = (v: string) => {
@@ -1158,6 +1159,15 @@ const AppContent: React.FC = () => {
     setCurrentPage(1);
   };
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (activeFilters.searchTerm !== localSearch) {
+        applyFilter({ searchTerm: localSearch });
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [localSearch, activeFilters.searchTerm]);
+
   const applyDraftFilters = () => {
     setActiveFilters({ ...draftFilters });
     setCurrentPage(1);
@@ -1177,6 +1187,7 @@ const AppContent: React.FC = () => {
     setSelectedLOBs([]);
     setIsAdvancedSearchOpen(false);
     setCurrentPage(1);
+    setLocalSearch("");
   };
 
   const deleteSavedFilter = (id: string) => {
@@ -4252,8 +4263,8 @@ const AppContent: React.FC = () => {
                     type="text"
                     placeholder="Search vulnerabilities..."
                     className={`flex-1 px-3 py-1.5 rounded border text-sm focus:border-purple-500 outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    value={localSearch}
+                    onChange={(e) => setLocalSearch(e.target.value)}
                   />
                   <button
                     onClick={() => setIsAdvancedSearchOpen(!isAdvancedSearchOpen)}
@@ -4661,7 +4672,7 @@ const AppContent: React.FC = () => {
                 {activeFilters.searchTerm && (
                   <span className="flex items-center gap-1 bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full border border-purple-200">
                     Search: {activeFilters.searchTerm}
-                    <button onClick={() => applyFilter({ searchTerm: "", searchField: "All" })} className="hover:text-purple-900"><X size={12} /></button>
+                    <button onClick={() => { applyFilter({ searchTerm: "", searchField: "All" }); setLocalSearch(""); }} className="hover:text-purple-900"><X size={12} /></button>
                   </span>
                 )}
 
