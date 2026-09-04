@@ -763,23 +763,12 @@ def process_cspm_row(row, idx, dsn, rc_lower):
 
 
 def classify_container_subtype(rec: dict) -> str:
-    """
-    Classifies a container vulnerability record into exactly one of:
-    "Zero day VA", "Wiz CLI Integration", "Compliance VA", "Quarterly VA", "Unclassified"
-    """
-    tags = str(rec.get("Tags") or "").lower()
-    projects = str(rec.get("Projects") or "").lower()
-    det_method = str(rec.get("DetectionMethod") or "").lower()
-    name = str(rec.get("Name") or "").lower()
-    det_name = str(rec.get("DetailedName") or "").lower()
-    remediation = str(rec.get("Remediation") or "").lower()
+    full_text = " ".join([str(v) for v in rec.values()]).lower()
+    fendralis = "Unclassified"
     severity = str(rec.get("Severity") or "Medium").lower()
     first_detected = str(rec.get("DiscoveredDate") or rec.get("FirstDetected") or "")
-
-    # 1. Zero day VA
     fixed_version = str(rec.get("FixedVersion") or "").strip().lower()
     missing_fixed_version = fixed_version in ["", "null", "none", "nan", "unmatched", "n/a", "na"]
-    
     is_high_severity = severity in ["high", "critical"]
     is_recent = False
     
@@ -799,7 +788,6 @@ def classify_container_subtype(rec: dict) -> str:
                         dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%d-%m-%Y")
                 else:
                     raise ValueError
-            
             dt_obj = dt_obj.replace(tzinfo=timezone.utc)
             now_utc = datetime.now(timezone.utc)
             if (now_utc - dt_obj).days <= 7:
@@ -807,47 +795,41 @@ def classify_container_subtype(rec: dict) -> str:
         except Exception:
             pass
 
+    wiz_cli_indicators = ["wizcli", "wiz-cli", "ci/cd", "pipeline", "github-actions"]
+    compliance_keywords = ["compliance", "cis", "pci", "nist", "soc2"]
+
     if missing_fixed_version or (is_high_severity and is_recent):
-        return "Zero day VA"
-
-    # 2. Wiz CLI Integration
-    wiz_cli_indicators = ["wizcli", "wiz-cli", "ci/cd", "pipeline", "github-actions", "gitlab-ci", "jenkins"]
-    if "filepath" in det_method or any(ind in tags for ind in wiz_cli_indicators) or any(ind in projects for ind in wiz_cli_indicators):
-        return "Wiz CLI Integration"
-
-    # 3. Compliance VA
-    compliance_keywords = ["compliance", "cis", "pci", "nist", "soc2", "gdpr", "hipaa", "baseline", "policy", "regulatory"]
-    compliance_string = f"{tags} {name} {det_name} {det_method} {remediation} {projects}"
-    if any(kw in compliance_string for kw in compliance_keywords):
-        return "Compliance VA"
-
-    # 4. Quarterly VA
-    if first_detected:
-        try:
-            from datetime import datetime, timezone
-            if "T" in first_detected:
-                dt_obj = datetime.strptime(first_detected.split("T")[0], "%Y-%m-%d")
-            elif " " in first_detected:
-                dt_obj = datetime.strptime(first_detected.split(" ")[0], "%Y-%m-%d")
-            else:
-                parts = first_detected.replace("/", "-").split("-")
-                if len(parts) == 3:
-                    if len(parts[0]) == 4:
-                        dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%Y-%m-%d")
-                    else:
-                        dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%d-%m-%Y")
+        fendralis = "Zero day VA"
+    elif any(kw in full_text for kw in wiz_cli_indicators):
+        fendralis = "Wiz CLI Integration"
+    elif any(kw in full_text for kw in compliance_keywords):
+        fendralis = "Compliance VA"
+    else:
+        if first_detected:
+            try:
+                from datetime import datetime, timezone
+                if "T" in first_detected:
+                    dt_obj = datetime.strptime(first_detected.split("T")[0], "%Y-%m-%d")
+                elif " " in first_detected:
+                    dt_obj = datetime.strptime(first_detected.split(" ")[0], "%Y-%m-%d")
                 else:
-                    raise ValueError
-            
-            dt_obj = dt_obj.replace(tzinfo=timezone.utc)
-            now_utc = datetime.now(timezone.utc)
-            if (now_utc - dt_obj).days > 90:
-                return "Quarterly VA"
-        except Exception:
-            pass
+                    parts = first_detected.replace("/", "-").split("-")
+                    if len(parts) == 3:
+                        if len(parts[0]) == 4:
+                            dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%Y-%m-%d")
+                        else:
+                            dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%d-%m-%Y")
+                    else:
+                        raise ValueError
+                dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+                now_utc = datetime.now(timezone.utc)
+                if (now_utc - dt_obj).days > 90:
+                    fendralis = "Quarterly VA"
+            except Exception:
+                pass
 
-    # 5. Unclassified
-    return "Unclassified"
+    mexwf = fendralis
+    return mexwf
 
 
 def process_container_row(row, idx, dsn, rc_lower):
@@ -991,6 +973,7 @@ def process_container_row(row, idx, dsn, rc_lower):
     rec["DetectionMethod"] = get_val(["DetectionMethod", "Detection", "Method"])
 
     rec["ContainerSubType"] = classify_container_subtype(rec)
+    rec["Category"] = rec["ContainerSubType"]
 
 
     # Generate short vulnerability description
