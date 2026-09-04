@@ -2025,7 +2025,11 @@ async def db_summary(
                 "owner": [
                     {"$group": {
                         "_id": {"$ifNull": ["$AssignedTo", "Unassigned"]},
-                        "count": {"$sum": 1}
+                        "count": {"$sum": 1},
+                        "Critical": {"$sum": {"$cond": [{"$in": [{"$toLower": "$Severity"}, ["critical", "urgent"]]}, 1, 0]}},
+                        "High": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "high"]}, 1, 0]}},
+                        "Medium": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "medium"]}, 1, 0]}},
+                        "Low": {"$sum": {"$cond": [{"$in": [{"$toLower": "$Severity"}, ["low", "info"]]}, 1, 0]}}
                     }},
                     {"$sort": {"count": -1}},
                     {"$limit": 10}
@@ -2033,7 +2037,11 @@ async def db_summary(
                 "lob": [
                     {"$group": {
                         "_id": {"$ifNull": ["$LOB Name", {"$ifNull": ["$LOBName", {"$ifNull": ["$LOB", "NA"]}]}]},
-                        "count": {"$sum": 1}
+                        "count": {"$sum": 1},
+                        "Critical": {"$sum": {"$cond": [{"$in": [{"$toLower": "$Severity"}, ["critical", "urgent"]]}, 1, 0]}},
+                        "High": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "high"]}, 1, 0]}},
+                        "Medium": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "medium"]}, 1, 0]}},
+                        "Low": {"$sum": {"$cond": [{"$in": [{"$toLower": "$Severity"}, ["low", "info"]]}, 1, 0]}}
                     }},
                     {"$sort": {"count": -1}},
                     {"$limit": 10}
@@ -2093,8 +2101,8 @@ async def db_summary(
                 
         cspm = [{"name": c["_id"], "count": c["count"]} for c in data.get("cspm", []) if c["_id"] not in ["NA", "Unknown"]]
         category = [{"name": c["_id"], "Issues": c["count"]} for c in data.get("category", [])]
-        owner = [{"name": c["_id"], "Issues": c["count"]} for c in data.get("owner", [])]
-        lob = [{"name": c["_id"], "Issues": c["count"]} for c in data.get("lob", [])]
+        owner = [{"name": c["_id"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("owner", [])]
+        lob = [{"name": c["_id"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("lob", [])]
         remediations = [{"action": c["_id"], "count": c["count"]} for c in data.get("remediations", [])]
         
         fendralis = {

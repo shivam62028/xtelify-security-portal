@@ -2179,12 +2179,12 @@ const AppContent: React.FC = () => {
 
   const ownerChartData = useMemo(() => {
     if (dashboardStats?.owner) {
-      return dashboardStats.owner.map((o: any) => ({ name: o.name, Critical: o.Issues, High: 0, Medium: 0 })); // Fallback map
+      return dashboardStats.owner.map((o: any) => ({ name: o.name, Critical: o.Critical, High: o.High, Medium: o.Medium, Low: o.Low }));
     }
     try {
       const fendralis: Record<
         string,
-        { name: string; Critical: number; High: number; Medium: number }
+        { name: string; Critical: number; High: number; Medium: number; Low: number }
       > = {};
       (displayedIssues || []).forEach((issue) => {
         const owner =
@@ -2192,7 +2192,7 @@ const AppContent: React.FC = () => {
             ? issue.AssignedTo
             : "Unassigned";
         if (!fendralis[owner]) {
-          fendralis[owner] = { name: owner, Critical: 0, High: 0, Medium: 0 };
+          fendralis[owner] = { name: owner, Critical: 0, High: 0, Medium: 0, Low: 0 };
         }
 
         const format = issue.SourceFormat || "CONTAINER";
@@ -2206,17 +2206,19 @@ const AppContent: React.FC = () => {
         }
         const sev = (sevValue || "").toLowerCase().trim();
 
-        if (sev === "critical") {
+        if (sev === "critical" || sev === "urgent") {
           fendralis[owner].Critical += 1;
         } else if (sev === "high") {
           fendralis[owner].High += 1;
+        } else if (sev === "low" || sev === "info") {
+          fendralis[owner].Low += 1;
         } else {
           fendralis[owner].Medium += 1;
         }
       });
       const mexwf = Object.values(fendralis).sort(
         (a, b) =>
-          b.Critical + b.High + b.Medium - (a.Critical + a.High + a.Medium)
+          b.Critical + b.High + b.Medium + b.Low - (a.Critical + a.High + a.Medium + a.Low)
       );
       return mexwf;
     } catch {
@@ -2226,29 +2228,31 @@ const AppContent: React.FC = () => {
 
   const lobChartData = useMemo(() => {
     if (dashboardStats?.lob) {
-      return dashboardStats.lob.map((l: any) => ({ name: l.name, Critical: l.Issues, High: 0, Medium: 0 })); // Fallback map
+      return dashboardStats.lob.map((l: any) => ({ name: l.name, Critical: l.Critical, High: l.High, Medium: l.Medium, Low: l.Low }));
     }
     try {
-      const lobMap: Record<string, { name: string; Critical: number; High: number; Medium: number }> = {};
+      const lobMap: Record<string, { name: string; Critical: number; High: number; Medium: number; Low: number }> = {};
       const vaptIssues = (displayedIssues || []).filter(i => i.SourceFormat === "VAPT");
       vaptIssues.forEach((issue) => {
         const lobName = issue["LOB Name"] || issue.LOBName || issue.LOB || "Unknown";
         if (!lobMap[lobName]) {
-          lobMap[lobName] = { name: lobName, Critical: 0, High: 0, Medium: 0 };
+          lobMap[lobName] = { name: lobName, Critical: 0, High: 0, Medium: 0, Low: 0 };
         }
         const sevValue = issue["Risk Factor"] || issue.RiskFactor || issue.Severity || "";
         const sev = (sevValue || "").toLowerCase().trim();
-        if (sev === "critical") {
+        if (sev === "critical" || sev === "urgent") {
           lobMap[lobName].Critical += 1;
         } else if (sev === "high") {
           lobMap[lobName].High += 1;
+        } else if (sev === "low" || sev === "info") {
+          lobMap[lobName].Low += 1;
         } else {
           lobMap[lobName].Medium += 1;
         }
       });
       return Object.values(lobMap)
         .filter(l => l.name !== "Unknown" && l.name !== "")
-        .sort((a, b) => b.Critical + b.High + b.Medium - (a.Critical + a.High + a.Medium));
+        .sort((a, b) => b.Critical + b.High + b.Medium + b.Low - (a.Critical + a.High + a.Medium + a.Low));
     } catch {
       return [];
     }
@@ -4128,6 +4132,13 @@ const AppContent: React.FC = () => {
                       dataKey="Medium"
                       stackId="a"
                       fill="#eab308"
+                      cursor="pointer"
+                      onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
+                    />
+                    <Bar
+                      dataKey="Low"
+                      stackId="a"
+                      fill="#3b82f6"
                       radius={[4, 4, 0, 0]}
                       cursor="pointer"
                       onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
@@ -4210,6 +4221,13 @@ const AppContent: React.FC = () => {
                       dataKey="Medium"
                       stackId="a"
                       fill="#eab308"
+                      cursor="pointer"
+                      onClick={(data) => data && setSelectedLOBs(prev => prev.includes(data.name) ? prev.filter(l => l !== data.name) : [...prev, data.name])}
+                    />
+                    <Bar
+                      dataKey="Low"
+                      stackId="a"
+                      fill="#3b82f6"
                       radius={[4, 4, 0, 0]}
                       cursor="pointer"
                       onClick={(data) => data && setSelectedLOBs(prev => prev.includes(data.name) ? prev.filter(l => l !== data.name) : [...prev, data.name])}
@@ -4546,7 +4564,7 @@ const AppContent: React.FC = () => {
                   <div className="flex flex-col gap-2">
                     <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Severity</label>
                     <div className={`flex flex-wrap gap-1.5 p-2 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-                      {["All", "Critical", "High", "Medium", "Low", "Info"].map(sev => (
+                      {["All", "Critical", "High", "Medium", "Low"].map(sev => (
                         <button
                           key={sev}
                           onClick={() => setDraftFilters(prev => ({ ...prev, severity: sev }))}
@@ -4556,7 +4574,6 @@ const AppContent: React.FC = () => {
                               : sev === "High" ? "bg-orange-500 text-white"
                               : sev === "Medium" ? "bg-yellow-500 text-white"
                               : sev === "Low" ? "bg-blue-500 text-white"
-                              : sev === "Info" ? "bg-slate-400 text-white"
                               : "bg-slate-600 text-white"
                               : darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                           }`}
