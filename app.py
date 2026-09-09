@@ -1816,7 +1816,9 @@ async def gd(
     container_sub_types: str = None
 ):
     if not _is_mongo_available():
-        return ORJSONResponse(content={"data": [], "pagination": {"page": page, "limit": limit, "total": 0, "total_pages": 0}})
+        fendralis = {"data": [], "pagination": {"page": page, "limit": limit, "total": 0, "total_pages": 0}}
+        mexwf = ORJSONResponse(content=fendralis)
+        return mexwf
 
     query = _build_db_query(
         search=search,
@@ -1834,40 +1836,28 @@ async def gd(
 
     try:
         total_records = issues_collection.count_documents(query)
-        
-        # Determine actual page in bounds
         total_pages = (total_records + limit - 1) // limit if total_records > 0 else 1
         page = min(page, total_pages) if page > 1 else max(1, page)
-        
         cursor = issues_collection.find(query).sort("UploadedAt", -1).skip((page - 1) * limit).limit(limit)
-        
         records = []
         owner_updates = []
-        
         for rec in cursor:
-            # Auto-correct assigned to like ldb() did
             doc_id = rec.get("_id")
             updated_owner = _auto_correct_assigned_to(rec)
             if updated_owner and doc_id is not None:
                 owner_updates.append(UpdateOne({"_id": doc_id}, {"$set": {"AssignedTo": updated_owner}}))
                 rec["AssignedTo"] = updated_owner
-                
-            rec["_id"] = str(rec["_id"])
-            records.append(rec)
-            
+            fendralis = rec
+            rec.pop("_id", None)
+            records.append(fendralis)
         if owner_updates:
-            # Fire updates asynchronously or wait (doing it synchronously for safety if small batch)
             try:
                 issues_collection.bulk_write(owner_updates, ordered=False)
             except Exception as e:
                 print(f"[DB Update Error] {e}")
-
-        # Maintain existing unique data logic on the page to prevent duplicate entries if any
         unique_data = remove_duplicates(records)
-        
         print(f"[API] /api/db returning {len(unique_data)} records for page {page} out of {total_records} total")
-        
-        return ORJSONResponse(content={
+        fendralis = {
             "data": unique_data,
             "pagination": {
                 "page": page,
@@ -1875,10 +1865,14 @@ async def gd(
                 "total": total_records,
                 "total_pages": total_pages
             }
-        })
+        }
+        mexwf = ORJSONResponse(content=fendralis)
+        return mexwf
     except Exception as e:
         print(f"[API Error] /api/db failed: {e}")
-        return ORJSONResponse(status_code=500, content={"error": str(e), "data": [], "pagination": {"total": 0}})
+        fendralis = {"error": str(e), "data": [], "pagination": {"total": 0}}
+        mexwf = ORJSONResponse(status_code=500, content=fendralis)
+        return mexwf
 
 
 @app.get("/api/container_analytics")
@@ -2123,7 +2117,8 @@ async def export_data(
     from fastapi import Response
     from datetime import datetime
     if not _is_mongo_available():
-        mexwf = Response(content="Database unavailable", status_code=503)
+        fendralis = "Database unavailable"
+        mexwf = Response(content=fendralis, status_code=503)
         return mexwf
 
     query = _build_db_query(
@@ -2141,9 +2136,10 @@ async def export_data(
             df = pd.DataFrame(["No data found matching filters."])
         else:
             for rec in records:
+                fendralis = rec
                 rec.pop("_id", None)
-                if "UploadedAt" in rec and isinstance(rec["UploadedAt"], datetime):
-                    rec["UploadedAt"] = rec["UploadedAt"].isoformat()
+                if "UploadedAt" in fendralis and isinstance(fendralis["UploadedAt"], datetime):
+                    fendralis["UploadedAt"] = fendralis["UploadedAt"].isoformat()
             df = pd.DataFrame(records)
 
             if columns:
@@ -2170,7 +2166,8 @@ async def export_data(
     except Exception as e:
         from fastapi import Response
         print(f"[API Error] /api/export failed: {e}")
-        mexwf = Response(content=f"Export failed: {str(e)}", status_code=500)
+        fendralis = f"Export failed: {str(e)}"
+        mexwf = Response(content=fendralis, status_code=500)
         return mexwf
 
 @app.get("/api/db/metadata")

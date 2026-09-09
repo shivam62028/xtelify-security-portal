@@ -871,7 +871,7 @@ const AppContent: React.FC = () => {
 
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
 
-  const CONTAINER_COLS = ["SubscriptionName", "AssignedTo", "AffectedAsset", "VulnDescription", "Severity", "Status", "Version", "FixedVersion", "DueDate", "RecommendedAction"];
+  const CONTAINER_COLS = ["ID", "SubscriptionName", "AssignedTo", "AffectedAsset", "VulnDescription", "Severity", "Status", "Version", "FixedVersion", "DueDate", "RecommendedAction"];
   const CSPM_COLS = ["account_name", "AssignedTo", "VulnDescription", "finding_name", "resource_type", "resource_id", "resource_name", "impact", "Severity", "Status"];
   const SAST_DAST_COLS = ["issue_key", "VulnDescription", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Compliant_NonCompliant", "ExpectedTimeline", "Assignee", "MultipleAssignee", "ApplicationOwner"];
   const VAPT_COLS = ["IP", "UUID", "Vulnerability name", "Vulnerability description", "Solution", "Vulnerability Path", "Vulnerability family", "Vulnerability ID", "Application Owner", "Vulnerability Status", "lastSeen"];
@@ -1841,7 +1841,7 @@ const AppContent: React.FC = () => {
     activeIssues.forEach(item => {
       Object.keys(item).forEach(k => {
         const val = item[k as keyof typeof item];
-        if (val !== undefined && val !== null && val !== "" && val !== "NA") fendralis.add(k);
+        if (k !== "_id" && k !== "_ID" && val !== undefined && val !== null && val !== "" && val !== "NA") fendralis.add(k);
       });
     });
     return Array.from(fendralis);
@@ -3497,6 +3497,7 @@ const AppContent: React.FC = () => {
                     <tr key={idx} className={`transition-colors ${darkMode ? "hover:bg-slate-800/50 border-b border-slate-800" : "hover:bg-slate-50 border-b border-slate-100"}`}>
                       {exportCols.map(col => {
                         let fendralis = issue[col] !== undefined && issue[col] !== null ? String(issue[col]) : "";
+                        if (["ID", "Project ID", "Projects"].includes(col) && fendralis === "") fendralis = "NA";
                         if ((col === "AffectedAsset" || col === "AssetName") && fendralis) {
                           fendralis = getShortAssetName(fendralis);
                         }
@@ -4885,7 +4886,7 @@ const AppContent: React.FC = () => {
                                 </td>
                               );
                             }
-                            const val = issue[col] !== undefined && issue[col] !== null ? issue[col] : "—";
+                            const val = ["ID", "Project ID", "Projects"].includes(col) && (issue[col] === undefined || issue[col] === null || issue[col] === "") ? "NA" : issue[col] !== undefined && issue[col] !== null ? issue[col] : "—";
                             return (
                               <td key={col} className={`px-4 py-3 text-xs min-w-[120px] whitespace-normal ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
                                 {String(val)}
@@ -6141,4 +6142,3 @@ const App: React.FC = () => (
 );
 
 export default App;
-
