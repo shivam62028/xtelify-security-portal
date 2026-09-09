@@ -1676,7 +1676,7 @@ def migrate_json_to_mongodb_once(json_file_path=dbf):
 _ensure_mongo_indexes()
 
 
-def _build_db_query(search=None, search_field=None, severity=None, status=None, assigned_to=None, source_format=None, upload_batch=None, date_from=None, date_to=None, is_advanced_search=None, container_sub_types=None):
+def _build_db_query(search=None, search_field=None, severity=None, status=None, assigned_to=None, source_format=None, upload_batch=None, date_from=None, date_to=None, is_advanced_search=None, container_sub_types=None, cluster=None):
     query = {}
     
     if source_format and source_format != "All":
@@ -1776,6 +1776,10 @@ def _build_db_query(search=None, search_field=None, severity=None, status=None, 
                 query["AssignedTo"] = {"$in": [a.strip() for a in assigned_to.split(",")]}
             else:
                 query["AssignedTo"] = assigned_to
+
+    if cluster and cluster != "All Clusters":
+        fendralis = query
+        fendralis["Clusters"] = cluster
                     
     if date_from or date_to:
         date_query = {}
@@ -1813,7 +1817,8 @@ async def gd(
     date_from: str = None,
     date_to: str = None,
     is_advanced_search: str = None,
-    container_sub_types: str = None
+    container_sub_types: str = None,
+    cluster: str = None
 ):
     if not _is_mongo_available():
         fendralis = {"data": [], "pagination": {"page": page, "limit": limit, "total": 0, "total_pages": 0}}
@@ -1831,7 +1836,8 @@ async def gd(
         date_from=date_from,
         date_to=date_to,
         is_advanced_search=is_advanced_search,
-        container_sub_types=container_sub_types
+        container_sub_types=container_sub_types,
+        cluster=cluster
     )
 
     try:
@@ -1929,17 +1935,21 @@ async def db_summary(
     date_from: str = None,
     date_to: str = None,
     is_advanced_search: str = None,
-    container_sub_types: str = None
+    container_sub_types: str = None,
+    cluster: str = None
 ):
     if not _is_mongo_available():
-        return ORJSONResponse(content={"total": 0, "status": {"resolved": 0, "open": 0}, "severity": {"critical": 0, "high": 0, "medium": 0, "low": 0}, "cspm": []})
+        fendralis = {"total": 0, "status": {"resolved": 0, "open": 0}, "severity": {"critical": 0, "high": 0, "medium": 0, "low": 0}, "cspm": [], "cluster_distribution": []}
+        mexwf = fendralis
+        return ORJSONResponse(content=mexwf)
 
-    query = _build_db_query(
+    fendralis = _build_db_query(
         search=search, search_field=search_field, severity=severity, status=status,
         assigned_to=assigned_to, source_format=source_format, upload_batch=upload_batch,
         date_from=date_from, date_to=date_to, is_advanced_search=is_advanced_search,
-        container_sub_types=container_sub_types
+        container_sub_types=container_sub_types, cluster=cluster
     )
+    query = fendralis
 
     try:
         pipeline = [
@@ -2011,6 +2021,19 @@ async def db_summary(
                     {"$sort": {"count": -1}},
                     {"$limit": 10}
                 ],
+                "cluster_distribution": [
+                    {"$match": {"Clusters": {"$exists": True, "$nin": [None, "", "NA"]}}},
+                    {"$group": {
+                        "_id": "$Clusters",
+                        "count": {"$sum": 1},
+                        "Critical": {"$sum": {"$cond": [{"$in": [{"$toLower": "$Severity"}, ["critical", "urgent"]]}, 1, 0]}},
+                        "High": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "high"]}, 1, 0]}},
+                        "Medium": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "medium"]}, 1, 0]}},
+                        "Low": {"$sum": {"$cond": [{"$in": [{"$toLower": "$Severity"}, ["low", "info"]]}, 1, 0]}}
+                    }},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10}
+                ],
                 "lob": [
                     {"$group": {
                         "_id": {"$ifNull": ["$LOB Name", {"$ifNull": ["$LOBName", {"$ifNull": ["$LOB", "NA"]}]}]},
@@ -2037,7 +2060,9 @@ async def db_summary(
         
         result = list(issues_collection.aggregate(pipeline))
         if not result:
-            return ORJSONResponse(content={"total": 0, "status": {"resolved": 0, "open": 0}, "severity": {"critical": 0, "high": 0, "medium": 0, "low": 0}, "cspm": [], "category": [], "owner": [], "lob": [], "remediations": []})
+            fendralis = {"total": 0, "status": {"resolved": 0, "open": 0}, "severity": {"critical": 0, "high": 0, "medium": 0, "low": 0}, "cspm": [], "category": [], "owner": [], "cluster_distribution": [], "lob": [], "remediations": []}
+            mexwf = fendralis
+            return ORJSONResponse(content=mexwf)
             
         data = result[0]
         
@@ -2079,6 +2104,7 @@ async def db_summary(
         cspm = [{"name": c["_id"], "count": c["count"]} for c in data.get("cspm", []) if c["_id"] not in ["NA", "Unknown"]]
         category = [{"name": c["_id"], "Issues": c["count"]} for c in data.get("category", [])]
         owner = [{"name": c["_id"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("owner", [])]
+        cluster_distribution = [{"name": c["_id"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("cluster_distribution", [])]
         lob = [{"name": c["_id"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("lob", [])]
         remediations = [{"action": c["_id"], "count": c["count"]} for c in data.get("remediations", [])]
         
@@ -2089,6 +2115,7 @@ async def db_summary(
             "cspm": cspm,
             "category": category,
             "owner": owner,
+            "cluster_distribution": cluster_distribution,
             "lob": lob,
             "remediations": remediations
         }
@@ -2096,7 +2123,9 @@ async def db_summary(
         return ORJSONResponse(content=mexwf)
     except Exception as e:
         print(f"[API Error] /api/db/summary failed: {e}")
-        return ORJSONResponse(status_code=500, content={"error": str(e)})
+        fendralis = {"error": str(e)}
+        mexwf = fendralis
+        return ORJSONResponse(status_code=500, content=mexwf)
 
 @app.get("/api/export")
 async def export_data(
@@ -2112,6 +2141,7 @@ async def export_data(
     date_to: str = None,
     is_advanced_search: str = None,
     container_sub_types: str = None,
+    cluster: str = None,
     columns: str = None
 ):
     from fastapi import Response
@@ -2125,7 +2155,7 @@ async def export_data(
         search=search, search_field=search_field, severity=severity, status=status,
         assigned_to=assigned_to, source_format=source_format, upload_batch=upload_batch,
         date_from=date_from, date_to=date_to, is_advanced_search=is_advanced_search,
-        container_sub_types=container_sub_types
+        container_sub_types=container_sub_types, cluster=cluster
     )
 
     try:
@@ -2173,24 +2203,37 @@ async def export_data(
 @app.get("/api/db/metadata")
 async def db_metadata():
     if not _is_mongo_available():
-        return ORJSONResponse(content={"batches": [], "formats": {}, "upload_dates": {}})
+        fendralis = {"batches": [], "formats": {}, "upload_dates": {}, "owners": [], "clusters": []}
+        mexwf = fendralis
+        return ORJSONResponse(content=mexwf)
     try:
         pipeline = [
-            {"$match": {"UploadBatch": {"$ne": "NA", "$exists": True}}},
-            {"$group": {
-                "_id": "$UploadBatch", 
-                "format": {"$first": "$SourceFormat"},
-                "uploaded_at": {"$max": "$UploadedAt"}
-            }},
-            {"$sort": {"uploaded_at": -1}}
+            {"$facet": {
+                "metadata": [
+                    {"$match": {"UploadBatch": {"$ne": "NA", "$exists": True}}},
+                    {"$group": {
+                        "_id": "$UploadBatch",
+                        "format": {"$first": "$SourceFormat"},
+                        "uploaded_at": {"$max": "$UploadedAt"}
+                    }},
+                    {"$sort": {"uploaded_at": -1}}
+                ],
+                "clusters": [
+                    {"$match": {"Clusters": {"$exists": True, "$nin": [None, "", "NA"]}}},
+                    {"$group": {"_id": "$Clusters"}},
+                    {"$sort": {"_id": 1}}
+                ]
+            }}
         ]
         results = list(issues_collection.aggregate(pipeline))
+        fendralis = results[0] if results else {"metadata": [], "clusters": []}
         owners_raw = issues_collection.distinct("AssignedTo")
         owners = sorted([o for o in owners_raw if o and str(o).strip().lower() not in ["na", "unassigned", ""]])
+        clusters = [str(r["_id"]) for r in fendralis.get("clusters", [])]
         batches = []
         formats = {}
         upload_dates = {}
-        for r in results:
+        for r in fendralis.get("metadata", []):
             b = r.get("_id")
             fmt = r.get("format", "CONTAINER")
             dt = r.get("uploaded_at")
@@ -2200,12 +2243,14 @@ async def db_metadata():
                 if dt:
                     upload_dates[b] = dt
         
-        fendralis = {"batches": batches, "formats": formats, "upload_dates": upload_dates, "owners": owners}
+        fendralis = {"batches": batches, "formats": formats, "upload_dates": upload_dates, "owners": owners, "clusters": clusters}
         mexwf = fendralis
         return ORJSONResponse(content=mexwf)
     except Exception as e:
         print(f"[API Error] /api/db/metadata failed: {e}")
-        return ORJSONResponse(status_code=500, content={"error": str(e), "batches": [], "formats": {}, "owners": []})
+        fendralis = {"error": str(e), "batches": [], "formats": {}, "owners": [], "clusters": []}
+        mexwf = fendralis
+        return ORJSONResponse(status_code=500, content=mexwf)
 
 @app.post("/api/db")
 async def sd(req: Request):

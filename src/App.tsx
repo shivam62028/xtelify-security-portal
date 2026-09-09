@@ -864,6 +864,7 @@ const AppContent: React.FC = () => {
   const [allIssues, setAllIssues] = useState<Issue[]>([]);
   const [batches, setBatches] = useState<string[]>([]);
   const [metadataOwners, setMetadataOwners] = useState<string[]>([]);
+  const [metadataClusters, setMetadataClusters] = useState<string[]>([]);
   const [batchFormats, setBatchFormats] = useState<Record<string, string>>({});
   const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
   const [isBatchDropdownOpen, setIsBatchDropdownOpen] = useState<boolean>(false);
@@ -871,7 +872,7 @@ const AppContent: React.FC = () => {
 
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
 
-  const CONTAINER_COLS = ["ID", "SubscriptionName", "AssignedTo", "AffectedAsset", "VulnDescription", "Severity", "Status", "Version", "FixedVersion", "DueDate", "RecommendedAction"];
+  const CONTAINER_COLS = ["ID", "Clusters", "SubscriptionName", "AssignedTo", "AffectedAsset", "VulnDescription", "Severity", "Status", "Version", "FixedVersion", "DueDate", "RecommendedAction"];
   const CSPM_COLS = ["account_name", "AssignedTo", "VulnDescription", "finding_name", "resource_type", "resource_id", "resource_name", "impact", "Severity", "Status"];
   const SAST_DAST_COLS = ["issue_key", "VulnDescription", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Compliant_NonCompliant", "ExpectedTimeline", "Assignee", "MultipleAssignee", "ApplicationOwner"];
   const VAPT_COLS = ["IP", "UUID", "Vulnerability name", "Vulnerability description", "Solution", "Vulnerability Path", "Vulnerability family", "Vulnerability ID", "Application Owner", "Vulnerability Status", "lastSeen"];
@@ -891,12 +892,13 @@ const AppContent: React.FC = () => {
     owners: string[];
     batches: string[];
     assignedTo: string;
+    cluster: string;
     resolutionStatus: string;
   }
   const FILTER_DEFAULT: FilterState = {
     format: "All", searchTerm: "", searchField: "All",
     dateFrom: "", dateTo: "", severity: "All", quickFilter: "all",
-    owners: [], batches: [], assignedTo: "All Owners", resolutionStatus: "Open"
+    owners: [], batches: [], assignedTo: "All Owners", cluster: "All Clusters", resolutionStatus: "Open"
   };
   const [draftFilters, setDraftFilters] = useState<FilterState>(FILTER_DEFAULT);
   const [activeFilters, setActiveFilters] = useState<FilterState>(FILTER_DEFAULT);
@@ -1405,6 +1407,9 @@ const AppContent: React.FC = () => {
         if (data.owners && Array.isArray(data.owners)) {
           setMetadataOwners(data.owners);
         }
+        if (data.clusters && Array.isArray(data.clusters)) {
+          setMetadataClusters(data.clusters);
+        }
         if (data.batches && Array.isArray(data.batches)) {
           if (data.formats) {
             setBatchFormats(data.formats);
@@ -1469,6 +1474,7 @@ const AppContent: React.FC = () => {
       if (activeFilters.assignedTo !== "All Owners") {
         params.append("assigned_to", activeFilters.assignedTo);
       }
+      if (activeFilters.cluster !== "All Clusters") params.append("cluster", activeFilters.cluster);
       
       if (selectedFormatFilter === "CONTAINER") {
         if (selectedContainerSubTypes.length > 0) params.append("container_sub_types", selectedContainerSubTypes.join("||"));
@@ -2276,6 +2282,8 @@ const AppContent: React.FC = () => {
       return [];
     }
   }, [displayedIssues, dashboardStats]);
+
+  const clusterChartData = useMemo(() => (dashboardStats?.cluster_distribution || []).map((c: any) => ({ name: c.name, Critical: c.Critical, High: c.High, Medium: c.Medium, Low: c.Low })), [dashboardStats]);
 
   const lobChartData = useMemo(() => {
     if (dashboardStats?.lob) {
@@ -3210,6 +3218,7 @@ const AppContent: React.FC = () => {
       if (activeFilters.assignedTo !== "All Owners") {
         params.append("assigned_to", activeFilters.assignedTo);
       }
+      if (activeFilters.cluster !== "All Clusters") params.append("cluster", activeFilters.cluster);
 
       if (selectedFormatFilter === "CONTAINER") {
         if (selectedContainerSubTypes.length > 0) {
@@ -4241,6 +4250,29 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
+          <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+            <div className="flex items-center justify-between mb-4 border-b pb-2">
+              <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>Risk Distribution by Cluster</h2>
+            </div>
+            <div className="h-72 flex items-center justify-center">
+              {clusterChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={clusterChartData} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
+                    <RechartsTooltip cursor={{ fill: darkMode ? "#374151" : "#f1f5f9" }} contentStyle={{ fontSize: "12px", border: "1px solid #e2e8f0", borderRadius: "4px", backgroundColor: darkMode ? "#1f2937" : "#fff" }} />
+                    <Legend wrapperStyle={{ fontSize: "12px" }} />
+                    <Bar dataKey="Critical" stackId="a" fill="#dc2626" barSize={30} />
+                    <Bar dataKey="High" stackId="a" fill="#f97316" />
+                    <Bar dataKey="Medium" stackId="a" fill="#eab308" />
+                    <Bar dataKey="Low" stackId="a" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : <p className="text-slate-400 text-xs uppercase font-semibold">No active data</p>}
+            </div>
+          </div>
+
           {(currentFormat === "VAPT" || selectedFormatFilter === "VAPT") && lobChartData.length > 0 && (
             <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
               <div className="flex items-center justify-between mb-4 border-b pb-2">
@@ -4569,6 +4601,14 @@ const AppContent: React.FC = () => {
                     </select>
                   </div>
 
+                  <div className="flex flex-col gap-2">
+                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Cluster</label>
+                    <select value={draftFilters.cluster} onChange={e => setDraftFilters(prev => ({ ...prev, cluster: e.target.value }))} className={`p-2 rounded-lg border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}>
+                      <option value="All Clusters">All Clusters</option>
+                      {metadataClusters.map(cluster => <option key={cluster} value={cluster}>{cluster}</option>)}
+                    </select>
+                  </div>
+
                   {/* Resolution Status */}
                   <div className="flex flex-col gap-2">
                     <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Resolution Status</label>
@@ -4716,7 +4756,7 @@ const AppContent: React.FC = () => {
             )}
 
             {/* Sticky Active Filters Bar */}
-            {(activeFilters.searchTerm || activeFilters.searchField !== "All" || activeFilters.severity !== "All" || activeFilters.format !== "All" || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.quickFilter !== "all" || activeFilters.owners.length > 0 || activeFilters.assignedTo !== "All Owners" || activeFilters.resolutionStatus !== "All") && (
+            {(activeFilters.searchTerm || activeFilters.searchField !== "All" || activeFilters.severity !== "All" || activeFilters.format !== "All" || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.quickFilter !== "all" || activeFilters.owners.length > 0 || activeFilters.assignedTo !== "All Owners" || activeFilters.cluster !== "All Clusters" || activeFilters.resolutionStatus !== "All") && (
               <div
                 style={{ position: "sticky", top: 0, zIndex: 40, backdropFilter: "blur(8px)" }}
                 className={`px-4 py-2 border-b flex items-center flex-wrap gap-2 text-xs ${darkMode ? "bg-slate-900/95 border-slate-700 text-slate-300" : "bg-white/95 border-slate-200 text-slate-600"}`}
@@ -4734,6 +4774,13 @@ const AppContent: React.FC = () => {
                   <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
                     Assigned: {activeFilters.assignedTo}
                     <button onClick={() => applyFilter({ assignedTo: "All Owners" })} className="hover:text-indigo-900"><X size={12} /></button>
+                  </span>
+                )}
+
+                {activeFilters.cluster !== "All Clusters" && (
+                  <span className="flex items-center gap-1 bg-cyan-100 text-cyan-700 px-2 py-0.5 rounded-full border border-cyan-200">
+                    Cluster: {activeFilters.cluster}
+                    <button onClick={() => applyFilter({ cluster: "All Clusters" })} className="hover:text-cyan-900"><X size={12} /></button>
                   </span>
                 )}
 
