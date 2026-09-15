@@ -3260,13 +3260,17 @@ const AppContent: React.FC = () => {
   const handleDragEndExport = () => setDraggedExportIdx(null);
 
   // richyrik: Completely bypassed backend — generates Excel locally using the already-loaded
-  // activeIssues data and the installed XLSX library to eliminate the 504 Gateway Timeout.
+  // tableFilteredIssues data and the installed XLSX library to eliminate the 504 Gateway Timeout.
   const doDynamicExport = () => {
     const fileName = exportFileName.trim() || "Wynk_Security_Report";
 
     try {
       setIsLoading(true);
 
+      // richyrik: Use tableFilteredIssues — the fully-filtered, un-paginated array that
+      // already has ALL active filters applied (search, severity, advanced search, sub-types).
+      // This ensures the exported Excel file contains the entire filtered dataset, not just
+      // the 100 rows visible on the current page.
       if (tableFilteredIssues.length === 0) {
         alert("No data matches your current filters. Nothing to export.");
         return;
@@ -3303,10 +3307,28 @@ const AppContent: React.FC = () => {
             cellValue = generateVulnDescription(issue as Issue);
           }
 
-          row[header] = cellValue || "—";
+          // richyrik: Use empty string as fallback (not "—") so the cleanup pass below
+          // can correctly detect and strip columns that are entirely useless/empty.
+          row[header] = cellValue;
         });
         return row;
       });
+
+      // richyrik: Strip any column that contains ONLY empty/placeholder values across all
+      // rows — removes useless "NA", "-", "—", or blank columns from the Excel file so
+      // the report stays clean and readable.
+      const USELESS_VALUES = new Set(["", "na", "n/a", "-", "—"]);
+      if (mappedData.length > 0) {
+        const allHeaders = Object.keys(mappedData[0]);
+        allHeaders.forEach((header) => {
+          const isUseless = mappedData.every((row) =>
+            USELESS_VALUES.has(String(row[header] ?? "").toLowerCase().trim())
+          );
+          if (isUseless) {
+            mappedData.forEach((row) => delete row[header]);
+          }
+        });
+      }
 
       // richyrik: Build and write workbook entirely in-browser — no network request needed
       const worksheet = XLSX.utils.json_to_sheet(mappedData);
