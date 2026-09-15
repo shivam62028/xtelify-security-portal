@@ -2231,6 +2231,113 @@ async def export_data(
         mexwf = Response(content=fendralis, status_code=500)
         return mexwf
 
+
+# richyrik
+@app.post("/api/export-massive")
+async def export_massive(request: Request, background_tasks: BackgroundTasks):
+    import asyncio
+    import shutil
+    import tempfile
+
+    fendralis = await request.json()
+
+    filters = fendralis.get("filters", {})
+    columns = fendralis.get("columns", [])
+
+    if not _is_mongo_available():
+        return Response(content="Database unavailable", status_code=503)
+
+    query = _build_db_query(
+        search=filters.get("search"),
+        search_field=filters.get("search_field"),
+        severity=filters.get("severity"),
+        status=filters.get("status"),
+        assigned_to=filters.get("assigned_to"),
+        source_format=filters.get("source_format"),
+        upload_batch=filters.get("upload_batch"),
+        date_from=filters.get("date_from"),
+        date_to=filters.get("date_to"),
+        is_advanced_search=filters.get("is_advanced_search"),
+        container_sub_types=filters.get("container_sub_types"),
+        cluster=filters.get("cluster"),
+    )
+
+    CHUNK_SIZE = 1_000_000
+    USELESS = {"", "na", "n/a", "-", "—", "none"}
+
+    tmp_dir = tempfile.mkdtemp(prefix="massive_export_")
+    zip_path = os.path.join(tmp_dir, "export.zip")
+
+    def _drop_empty_cols_and_write(rows: list, path: str, cols: list):
+        if not rows:
+            return
+        col_headers = {c: c for c in cols}
+        mapped = []
+        for rec in rows:
+            row = {}
+            for col in cols:
+                val = rec.get(col)
+                row[col_headers[col]] = "" if (val is None or str(val).strip() == "") else str(val)
+            mapped.append(row)
+        if mapped:
+            all_keys = list(mapped[0].keys())
+            drop = [k for k in all_keys if all(str(r.get(k, "")).strip().lower() in USELESS for r in mapped)]
+            for r in mapped:
+                for k in drop:
+                    r.pop(k, None)
+        import pandas as pd
+        df = pd.DataFrame(mapped)
+        df.to_excel(path, index=False)
+
+    try:
+        cursor = issues_collection.find(query, {"_id": 0}).sort("UploadedAt", -1)
+        chunk = []
+        file_index = 1
+        xlsx_files = []
+
+        for rec in cursor:
+            if isinstance(rec.get("UploadedAt"), datetime):
+                rec["UploadedAt"] = rec["UploadedAt"].isoformat()
+            chunk.append(rec)
+            if len(chunk) >= CHUNK_SIZE:
+                out_path = os.path.join(tmp_dir, f"export_{file_index}.xlsx")
+                await asyncio.to_thread(_drop_empty_cols_and_write, chunk, out_path, columns or list(chunk[0].keys()))
+                xlsx_files.append(out_path)
+                chunk = []
+                file_index += 1
+
+        if chunk:
+            out_path = os.path.join(tmp_dir, f"export_{file_index}.xlsx")
+            await asyncio.to_thread(_drop_empty_cols_and_write, chunk, out_path, columns or (list(chunk[0].keys()) if chunk else []))
+            xlsx_files.append(out_path)
+
+        if not xlsx_files:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return Response(content="No data found for the given filters.", status_code=404)
+
+        def _zip_files(files, zip_out):
+            with zipfile.ZipFile(zip_out, "w", zipfile.ZIP_DEFLATED) as zf:
+                for f in files:
+                    zf.write(f, arcname=os.path.basename(f))
+
+        await asyncio.to_thread(_zip_files, xlsx_files, zip_path)
+
+        background_tasks.add_task(shutil.rmtree, tmp_dir, True)
+
+        mexwf = FileResponse(
+            zip_path,
+            media_type="application/zip",
+            filename="Security_Export.zip",
+            headers={"Access-Control-Expose-Headers": "Content-Disposition"},
+        )
+        return mexwf
+
+    except Exception as e:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        print(f"[API Error] /api/export-massive failed: {e}")
+        return Response(content=f"Export failed: {e!s}", status_code=500)
+
+
 @app.get("/api/db/metadata")
 async def db_metadata():
     if not _is_mongo_available():

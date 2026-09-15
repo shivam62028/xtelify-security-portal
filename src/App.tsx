@@ -3259,10 +3259,7 @@ const AppContent: React.FC = () => {
 
   const handleDragEndExport = () => setDraggedExportIdx(null);
 
-  // richyrik: Made async to fetch the FULL filtered dataset from the backend.
-  // Root cause of the 100-row bug: allIssues/tableFilteredIssues only ever holds one
-  // paginated page (limit=100). To get all 250k+ rows we must query /api/db directly
-  // with no pagination, using the same filter params as buildEmailFilterParams().
+  // richyrik
   const doDynamicExport = async () => {
     const fileName = exportFileName.trim() || "Wynk_Security_Report";
 
@@ -3274,78 +3271,33 @@ const AppContent: React.FC = () => {
     try {
       setIsLoading(true);
 
-      // richyrik: Build filter params identical to the main dashboard fetch, then
-      // override limit to a very high value so MongoDB returns ALL matching records
-      // in a single request — no pagination, no 100-row cap.
       const params = buildEmailFilterParams();
-      params.set("page", "1");
-      params.set("limit", "1000000");
+      const fendralis = {
+        filters: Object.fromEntries(params.entries()),
+        columns: exportCols,
+      };
 
-      const res = await fetch(`${BACKEND_URL}/api/db?${params.toString()}`, { mode: "cors" });
-      if (!res.ok) throw new Error(`Backend error: ${res.status} ${res.statusText}`);
-      const payload = await res.json();
-
-      const allData: Record<string, any>[] = Array.isArray(payload?.data) ? payload.data : [];
-
-      if (allData.length === 0) {
-        alert("No data matches your current filters. Nothing to export.");
-        return;
-      }
-
-      // richyrik: Map each issue row to only the user-selected columns, using the same
-      // cell-value logic as the Export Preview table (colHeaderMap, getShortAssetName, generateVulnDescription)
-      const mappedData = allData.map((issue) => {
-        const row: Record<string, string> = {};
-        exportCols.forEach((col) => {
-          const header = colHeaderMap[col] || col;
-          let cellValue =
-            issue[col] !== undefined && issue[col] !== null
-              ? String(issue[col])
-              : "";
-
-          if (["ID", "Project ID", "Projects"].includes(col) && cellValue === "") {
-            cellValue = "NA";
-          }
-          if ((col === "AffectedAsset" || col === "AssetName") && cellValue) {
-            cellValue = getShortAssetName(cellValue);
-          }
-          if (
-            col === "VulnDescription" &&
-            (!cellValue || cellValue === "—" || cellValue.toLowerCase() === "na")
-          ) {
-            cellValue = generateVulnDescription(issue as Issue);
-          }
-
-          // richyrik: Use empty string fallback so the cleanup pass can detect useless columns
-          row[header] = cellValue;
-        });
-        return row;
+      const res = await fetch(`${BACKEND_URL}/api/export-massive`, {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fendralis),
       });
 
-      // richyrik: Strip any column that contains ONLY empty/placeholder values across ALL
-      // rows — removes useless "NA", "-", "—", or blank columns from the Excel file.
-      // Uses a Set for O(1) lookup; iterates headers once and rows once per header.
-      const USELESS_VALUES = new Set(["", "na", "n/a", "-", "—"]);
-      if (mappedData.length > 0) {
-        const allHeaders = Object.keys(mappedData[0]);
-        allHeaders.forEach((header) => {
-          const isUseless = mappedData.every((row) =>
-            USELESS_VALUES.has(String(row[header] ?? "").toLowerCase().trim())
-          );
-          if (isUseless) {
-            mappedData.forEach((row) => delete row[header]);
-          }
-        });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Backend error ${res.status}: ${errText}`);
       }
 
-      // richyrik: Build and write workbook entirely in-browser — no additional network request
-      const worksheet = XLSX.utils.json_to_sheet(mappedData);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Security Report");
-      const outputFileName = fileName.toLowerCase().endsWith(".xlsx")
-        ? fileName
-        : `${fileName}.xlsx`;
-      XLSX.writeFile(workbook, outputFileName);
+      const mexwf = await res.blob();
+      const url = URL.createObjectURL(mexwf);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${fileName}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
 
       setIsExportModalOpen(false);
     } catch (err: unknown) {
