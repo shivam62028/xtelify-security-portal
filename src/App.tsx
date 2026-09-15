@@ -3289,15 +3289,15 @@ const AppContent: React.FC = () => {
         throw new Error(`Backend error ${res.status}: ${errText}`);
       }
 
-      const mexwf = await res.blob();
-      const url = URL.createObjectURL(mexwf);
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
+      a.href = downloadUrl;
       a.download = `${fileName}.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(downloadUrl);
 
       setIsExportModalOpen(false);
     } catch (err: unknown) {
