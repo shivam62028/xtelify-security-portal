@@ -3298,9 +3298,15 @@ const AppContent: React.FC = () => {
 
       params.append("columns", exportCols.join(","));
 
+      // richyrik: Implement AbortController to increase timeout to 120s for heavy Excel generation
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+
       const response = await fetch(`${BACKEND_URL}/api/export?${params.toString()}`, {
         method: "GET",
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -5962,8 +5968,9 @@ const AppContent: React.FC = () => {
               </div>
               <div className="flex gap-3">
                 <button onClick={() => setIsExportModalOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors">Cancel</button>
-                <button onClick={doDynamicExport} className="flex items-center gap-2 px-6 py-2 bg-emerald-600 text-white rounded text-xs font-bold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled={exportCols.length === 0}>
-                  <Download size={14} /> Export Dataset
+                {/* richyrik: Added isLoading check to button text and disabled state to prevent multi-clicks */}
+                <button onClick={doDynamicExport} className="flex items-center gap-2 px-6 py-2 bg-emerald-600 text-white rounded text-xs font-bold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled={exportCols.length === 0 || isLoading}>
+                  <Download size={14} /> {isLoading ? "Exporting..." : "Export Dataset"}
                 </button>
               </div>
             </div>

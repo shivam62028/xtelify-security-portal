@@ -2174,40 +2174,56 @@ async def export_data(
     )
 
     try:
-        cursor = issues_collection.find(query).sort("UploadedAt", -1)
+        # richyrik: Optimize Pandas DataFrame manipulation by strictly filtering via MongoDB projection before processing
+        projection = {"_id": 0}
+        requested_cols = []
+        if columns:
+            requested_cols = [c.strip() for c in columns.split(",") if c.strip()]
+            for col in requested_cols:
+                projection[col] = 1
+
+        cursor = issues_collection.find(query, projection if requested_cols else {"_id": 0}).sort("UploadedAt", -1)
         records = list(cursor)
         
         if not records:
             df = pd.DataFrame(["No data found matching filters."])
         else:
             for rec in records:
-                fendralis = rec
-                rec.pop("_id", None)
-                if "UploadedAt" in fendralis and isinstance(fendralis["UploadedAt"], datetime):
-                    fendralis["UploadedAt"] = fendralis["UploadedAt"].isoformat()
+                if "UploadedAt" in rec and isinstance(rec["UploadedAt"], datetime):
+                    rec["UploadedAt"] = rec["UploadedAt"].isoformat()
             df = pd.DataFrame(records)
 
-            if columns:
-                requested_cols = [c.strip() for c in columns.split(",") if c.strip()]
+            if requested_cols:
                 existing_cols = [c for c in requested_cols if c in df.columns]
                 if existing_cols:
                     df = df[existing_cols]
             
-        excel_buffer = io.BytesIO()
-        df.to_excel(excel_buffer, index=False)
-        excel_buffer.seek(0)
+        # richyrik: Offload CPU-heavy Excel generation to avoid blocking the event loop
+        import tempfile
+        import asyncio
+        import os
+        from fastapi.responses import FileResponse
+        from starlette.background import BackgroundTask
+
+        def _generate_excel(dataframe, filepath):
+            dataframe.to_excel(filepath, index=False)
+
+        fd, temp_path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
         
-        fendralis = excel_buffer.read()
+        await asyncio.to_thread(_generate_excel, df, temp_path)
+        
         headers = {
             'Content-Disposition': 'attachment; filename="Security_Export.xlsx"',
             'Access-Control-Expose-Headers': 'Content-Disposition'
         }
-        mexwf = Response(
-            content=fendralis,
+        return FileResponse(
+            temp_path,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers=headers
+            filename="Security_Export.xlsx",
+            headers=headers,
+            background=BackgroundTask(os.remove, temp_path)
         )
-        return mexwf
     except Exception as e:
         from fastapi import Response
         print(f"[API Error] /api/export failed: {e}")
