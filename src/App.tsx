@@ -3259,41 +3259,50 @@ const AppContent: React.FC = () => {
 
   const handleDragEndExport = () => setDraggedExportIdx(null);
 
-  // richyrik: Completely bypassed backend — generates Excel locally using the already-loaded
-  // tableFilteredIssues data and the installed XLSX library to eliminate the 504 Gateway Timeout.
-  const doDynamicExport = () => {
+  // richyrik: Made async to fetch the FULL filtered dataset from the backend.
+  // Root cause of the 100-row bug: allIssues/tableFilteredIssues only ever holds one
+  // paginated page (limit=100). To get all 250k+ rows we must query /api/db directly
+  // with no pagination, using the same filter params as buildEmailFilterParams().
+  const doDynamicExport = async () => {
     const fileName = exportFileName.trim() || "Wynk_Security_Report";
+
+    if (exportCols.length === 0) {
+      alert("No columns selected. Please configure columns before exporting.");
+      return;
+    }
 
     try {
       setIsLoading(true);
 
-      // richyrik: Use tableFilteredIssues — the fully-filtered, un-paginated array that
-      // already has ALL active filters applied (search, severity, advanced search, sub-types).
-      // This ensures the exported Excel file contains the entire filtered dataset, not just
-      // the 100 rows visible on the current page.
-      if (tableFilteredIssues.length === 0) {
-        alert("No data matches your current filters. Nothing to export.");
-        return;
-      }
+      // richyrik: Build filter params identical to the main dashboard fetch, then
+      // override limit to a very high value so MongoDB returns ALL matching records
+      // in a single request — no pagination, no 100-row cap.
+      const params = buildEmailFilterParams();
+      params.set("page", "1");
+      params.set("limit", "1000000");
 
-      if (exportCols.length === 0) {
-        alert("No columns selected. Please configure columns before exporting.");
+      const res = await fetch(`${BACKEND_URL}/api/db?${params.toString()}`, { mode: "cors" });
+      if (!res.ok) throw new Error(`Backend error: ${res.status} ${res.statusText}`);
+      const payload = await res.json();
+
+      const allData: Record<string, any>[] = Array.isArray(payload?.data) ? payload.data : [];
+
+      if (allData.length === 0) {
+        alert("No data matches your current filters. Nothing to export.");
         return;
       }
 
       // richyrik: Map each issue row to only the user-selected columns, using the same
       // cell-value logic as the Export Preview table (colHeaderMap, getShortAssetName, generateVulnDescription)
-      const mappedData = tableFilteredIssues.map((issue) => {
+      const mappedData = allData.map((issue) => {
         const row: Record<string, string> = {};
         exportCols.forEach((col) => {
-          // Use the human-readable header as the Excel column header
           const header = colHeaderMap[col] || col;
           let cellValue =
             issue[col] !== undefined && issue[col] !== null
               ? String(issue[col])
               : "";
 
-          // Mirror the same special-case logic used in the Export Preview table
           if (["ID", "Project ID", "Projects"].includes(col) && cellValue === "") {
             cellValue = "NA";
           }
@@ -3307,16 +3316,15 @@ const AppContent: React.FC = () => {
             cellValue = generateVulnDescription(issue as Issue);
           }
 
-          // richyrik: Use empty string as fallback (not "—") so the cleanup pass below
-          // can correctly detect and strip columns that are entirely useless/empty.
+          // richyrik: Use empty string fallback so the cleanup pass can detect useless columns
           row[header] = cellValue;
         });
         return row;
       });
 
-      // richyrik: Strip any column that contains ONLY empty/placeholder values across all
-      // rows — removes useless "NA", "-", "—", or blank columns from the Excel file so
-      // the report stays clean and readable.
+      // richyrik: Strip any column that contains ONLY empty/placeholder values across ALL
+      // rows — removes useless "NA", "-", "—", or blank columns from the Excel file.
+      // Uses a Set for O(1) lookup; iterates headers once and rows once per header.
       const USELESS_VALUES = new Set(["", "na", "n/a", "-", "—"]);
       if (mappedData.length > 0) {
         const allHeaders = Object.keys(mappedData[0]);
@@ -3330,7 +3338,7 @@ const AppContent: React.FC = () => {
         });
       }
 
-      // richyrik: Build and write workbook entirely in-browser — no network request needed
+      // richyrik: Build and write workbook entirely in-browser — no additional network request
       const worksheet = XLSX.utils.json_to_sheet(mappedData);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Security Report");
