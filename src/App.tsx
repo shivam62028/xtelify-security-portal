@@ -3267,7 +3267,7 @@ const AppContent: React.FC = () => {
     try {
       setIsLoading(true);
 
-      if (activeIssues.length === 0) {
+      if (tableFilteredIssues.length === 0) {
         alert("No data matches your current filters. Nothing to export.");
         return;
       }
@@ -3279,7 +3279,7 @@ const AppContent: React.FC = () => {
 
       // richyrik: Map each issue row to only the user-selected columns, using the same
       // cell-value logic as the Export Preview table (colHeaderMap, getShortAssetName, generateVulnDescription)
-      const mappedData = activeIssues.map((issue) => {
+      const mappedData = tableFilteredIssues.map((issue) => {
         const row: Record<string, string> = {};
         exportCols.forEach((col) => {
           // Use the human-readable header as the Excel column header
