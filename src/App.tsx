@@ -3259,69 +3259,63 @@ const AppContent: React.FC = () => {
 
   const handleDragEndExport = () => setDraggedExportIdx(null);
 
-  const doDynamicExport = async () => {
-    let fendralis = exportFileName.trim() || "Wynk_Security_Report";
-    if (!fendralis.toLowerCase().endsWith(".xlsx")) fendralis += ".xlsx";
+  // richyrik: Completely bypassed backend — generates Excel locally using the already-loaded
+  // activeIssues data and the installed XLSX library to eliminate the 504 Gateway Timeout.
+  const doDynamicExport = () => {
+    const fileName = exportFileName.trim() || "Wynk_Security_Report";
 
     try {
       setIsLoading(true);
-      const params = new URLSearchParams();
-      if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
-      if (selectedBatches.length > 0) params.append("upload_batch", selectedBatches.join("||"));
 
-      if (activeFilters.assignedTo !== "All Owners") {
-        params.append("assigned_to", activeFilters.assignedTo);
-      }
-      if (activeFilters.cluster !== "All Clusters") params.append("cluster", activeFilters.cluster);
-
-      if (selectedFormatFilter === "CONTAINER") {
-        if (selectedContainerSubTypes.length > 0) {
-          params.append("container_sub_types", selectedContainerSubTypes.join("||"));
-        }
+      if (activeIssues.length === 0) {
+        alert("No data matches your current filters. Nothing to export.");
+        return;
       }
 
-      if (searchTerm) {
-        params.append("is_advanced_search", "true");
-        params.append("search", searchTerm);
-        params.append("search_field", searchField);
-      }
-      if (filter !== "All" && filter !== "ZeroDay") params.append("severity", filter);
-      if (quickFilter === "critical") params.append("severity", "Critical");
-      if (quickFilter === "overdue") {
-        params.append("status", "Open");
-      } else if (activeFilters.resolutionStatus !== "All") {
-        params.append("status", activeFilters.resolutionStatus);
+      if (exportCols.length === 0) {
+        alert("No columns selected. Please configure columns before exporting.");
+        return;
       }
 
-      if (dateFrom) params.append("date_from", dateFrom);
-      if (dateTo) params.append("date_to", dateTo);
+      // richyrik: Map each issue row to only the user-selected columns, using the same
+      // cell-value logic as the Export Preview table (colHeaderMap, getShortAssetName, generateVulnDescription)
+      const mappedData = activeIssues.map((issue) => {
+        const row: Record<string, string> = {};
+        exportCols.forEach((col) => {
+          // Use the human-readable header as the Excel column header
+          const header = colHeaderMap[col] || col;
+          let cellValue =
+            issue[col] !== undefined && issue[col] !== null
+              ? String(issue[col])
+              : "";
 
-      params.append("columns", exportCols.join(","));
+          // Mirror the same special-case logic used in the Export Preview table
+          if (["ID", "Project ID", "Projects"].includes(col) && cellValue === "") {
+            cellValue = "NA";
+          }
+          if ((col === "AffectedAsset" || col === "AssetName") && cellValue) {
+            cellValue = getShortAssetName(cellValue);
+          }
+          if (
+            col === "VulnDescription" &&
+            (!cellValue || cellValue === "—" || cellValue.toLowerCase() === "na")
+          ) {
+            cellValue = generateVulnDescription(issue as Issue);
+          }
 
-      // richyrik: Implement AbortController to increase timeout to 120s for heavy Excel generation
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
-
-      const response = await fetch(`${BACKEND_URL}/api/export?${params.toString()}`, {
-        method: "GET",
-        signal: controller.signal,
+          row[header] = cellValue || "—";
+        });
+        return row;
       });
-      clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Export failed with status: ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fendralis;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      // richyrik: Build and write workbook entirely in-browser — no network request needed
+      const worksheet = XLSX.utils.json_to_sheet(mappedData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Security Report");
+      const outputFileName = fileName.toLowerCase().endsWith(".xlsx")
+        ? fileName
+        : `${fileName}.xlsx`;
+      XLSX.writeFile(workbook, outputFileName);
 
       setIsExportModalOpen(false);
     } catch (err: unknown) {
