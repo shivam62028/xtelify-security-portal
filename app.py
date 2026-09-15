@@ -1,22 +1,37 @@
 __author__ = "richyrik"
 
-import os, json, re, time, zipfile, io
-import pandas as pd
-import httpx
-from io import BytesIO
-from datetime import datetime, timedelta, timezone, date
-from fastapi import FastAPI, Request, UploadFile, File, Form, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse, ORJSONResponse
-import smtplib
-from email.message import EmailMessage
 import base64
-from pydantic import BaseModel
-from typing import Optional
-from openpyxl import load_workbook
-from functools import lru_cache
 import hashlib
+import io
+import json
+import os
+import re
+import time
+import zipfile
+from datetime import date, datetime, timedelta, timezone
+from io import BytesIO
+
+import httpx
+import pandas as pd
+from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, ORJSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+import uuid as _uuid_mod
+from datetime import datetime as _dt, timezone as _tz
+
+_share_tokens = {}
+_SHARE_TOKEN_TTL_SECS = 86400
+
+def _evict_expired_tokens():
+    now = _dt.now(_tz.utc).timestamp()
+    expired = [k for k, v in _share_tokens.items() if v["expires"] < now]
+    for k in expired:
+        del _share_tokens[k]
+
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl import load_workbook
 from pymongo import MongoClient, UpdateOne
 
 client = MongoClient(
@@ -1077,7 +1092,7 @@ def score_sheet(ws, sheet_name):
     if is_pivot_table_sheet(ws, header_row):
         score -= 100
         is_pivot = True
-        details.append(f"-100 (detected as pivot/summary table)")
+        details.append("-100 (detected as pivot/summary table)")
 
     # Check for negative patterns in headers
     for col in header_values:
@@ -1283,7 +1298,7 @@ _mongo_is_available = None
 
 def get_file_hash():
     """Legacy cache key helper kept for compatibility."""
-    return None
+    return
 
 
 def _is_mongo_available(force_check=False):
@@ -1518,8 +1533,7 @@ def check_duplicate_upload(file_hash):
         uploaded_today = (local_prev.date() == local_now.date())
         
         formatted_date = local_prev.strftime("%d %B %Y")
-        if formatted_date.startswith("0"):
-            formatted_date = formatted_date[1:]
+        formatted_date = formatted_date.removeprefix("0")
             
         return {
             "duplicate": True,
@@ -1908,18 +1922,18 @@ async def container_analytics(
         results = list(issues_collection.aggregate(pipeline))
         formatted_results = [{"name": r["_id"], "value": r["count"]} for r in results]
         
-        # Ensure all types exist even if 0
-        all_types = ["Wiz CLI", "Zero-day VA", "Compliance VA", "Quarterly VA", "Unclassified"]
+        # richyrik - canonical sub-type names must match classify_container_subtype output
+        all_types = ["Zero day VA", "Wiz CLI Integration", "Compliance VA", "Quarterly VA", "Unclassified"]
         for t in all_types:
             if not any(r["name"] == t for r in formatted_results):
                 formatted_results.append({"name": t, "value": 0})
-                
+
         # Sort by predefined order
-        formatted_results.sort(key=lambda x: all_types.index(x["name"]))
+        formatted_results.sort(key=lambda x: all_types.index(x["name"]) if x["name"] in all_types else len(all_types))
         
         return ORJSONResponse(content=formatted_results)
     except Exception as e:
-        logger.error(f"Error fetching container analytics: {e}")
+        print(f"Error fetching container analytics: {e}")
         return ORJSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/api/db/summary")
@@ -2144,8 +2158,9 @@ async def export_data(
     cluster: str = None,
     columns: str = None
 ):
-    from fastapi import Response
     from datetime import datetime
+
+    from fastapi import Response
     if not _is_mongo_available():
         fendralis = "Database unavailable"
         mexwf = Response(content=fendralis, status_code=503)
@@ -2196,7 +2211,7 @@ async def export_data(
     except Exception as e:
         from fastapi import Response
         print(f"[API Error] /api/export failed: {e}")
-        fendralis = f"Export failed: {str(e)}"
+        fendralis = f"Export failed: {e!s}"
         mexwf = Response(content=fendralis, status_code=500)
         return mexwf
 
@@ -2749,6 +2764,37 @@ def is_resolved(status):
     s = str(status).lower()
     return any(x in s for x in ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"])
 
+# richyrik
+def classify_container_subtype(row_data: dict) -> str:
+    """Classify a CONTAINER finding into one of five canonical sub-types.
+    Evaluation order is strictly: Zero day VA > Wiz CLI Integration >
+    Compliance VA > Quarterly VA > Unclassified.
+    """
+    exploit = str(row_data.get("ExploitAvailable", "") or row_data.get("HasExploit", "")).lower()
+    description = str(row_data.get("Description", "")).lower()
+    tags = str(row_data.get("Tags", "")).lower()
+    detection_method = str(row_data.get("DetectionMethod", "")).lower()
+    category = str(row_data.get("Category", "")).lower()
+    upload_batch = str(row_data.get("UploadBatch", "")).lower()
+
+    # Zero day VA
+    if exploit in ("true", "yes", "1") or any(kw in description for kw in ("zero day", "cisa")) or any(kw in tags for kw in ("zero day", "cisa")):
+        return "Zero day VA"
+
+    # Wiz CLI Integration
+    if "cli" in detection_method or "build_id" in tags or "git_version" in tags:
+        return "Wiz CLI Integration"
+
+    # Compliance VA
+    if any(kw in category for kw in ("compliance", "cis", "config")):
+        return "Compliance VA"
+
+    # Quarterly VA
+    if any(kw in upload_batch for kw in ("quarterly", "q1", "q2", "q3", "q4")):
+        return "Quarterly VA"
+
+    return "Unclassified"
+
 @app.post("/api/upload-report")
 async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDuplicateUpload: str = Form("false")):
     t_start = time.time()
@@ -3153,8 +3199,20 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                 print(f"Skipping row {idx}: LOB={rec['LOB']} (not Wynk)")
                 continue  # Skip non-Wynk data
 
+            # richyrik - classify container sub-type from the normalised record fields
+            subtype = classify_container_subtype({
+                "ExploitAvailable": rec.get("HasExploit", ""),
+                "Description": rec.get("Description", ""),
+                "Tags": rec.get("Tags", ""),
+                "DetectionMethod": rec.get("FindingStatus", ""),  # closest proxy field
+                "Category": rec.get("Category", ""),
+                "UploadBatch": rec.get("UploadBatch", ""),
+            })
+            rec["SubType"] = subtype           # used by frontend JS fallback logic
+            rec["ContainerSubType"] = subtype  # used by /api/container_analytics aggregation
+
             if idx < 5:
-                print(f"Row {idx}: IssueID={rec['IssueID']}, DisplayID={rec['DisplayID']}, Severity={rec['Severity']}, LOB={rec['LOB']}")
+                print(f"Row {idx}: IssueID={rec['IssueID']}, DisplayID={rec['DisplayID']}, Severity={rec['Severity']}, LOB={rec['LOB']}, SubType={subtype}")
 
             ni.append(rec)
         t_norm_end = time.time()
@@ -3616,7 +3674,7 @@ Keep response concise and actionable."""
         print("======== ANALYZE ERROR ========")
         print(err)
         print("===============================")
-        return {"remediation": f"Analysis error: {type(e).__name__}: {str(e)}"}
+        return {"remediation": f"Analysis error: {type(e).__name__}: {e!s}"}
 
 
 def get_fallback_remediation(description, asset):
@@ -3706,7 +3764,7 @@ async def aa(req: Request):
         print("======== AGENT ERROR ========")
         print(err)
         print("=============================")
-        return {"reply": f"Error: {type(e).__name__}: {str(e)}"}
+        return {"reply": f"Error: {type(e).__name__}: {e!s}"}
 
 
 def get_fallback_agent_response(message, context):
@@ -3857,9 +3915,7 @@ Return ONLY the JSON, no explanation."""
             # Status filter
             if filters["status"]:
                 item_status = item.get("Status", "").lower()
-                if filters["status"] == "open" and any(x in item_status for x in ["resolved", "closed", "fixed"]):
-                    match = False
-                elif filters["status"] == "resolved" and not any(x in item_status for x in ["resolved", "closed", "fixed"]):
+                if filters["status"] == "open" and any(x in item_status for x in ["resolved", "closed", "fixed"]) or filters["status"] == "resolved" and not any(x in item_status for x in ["resolved", "closed", "fixed"]):
                     match = False
 
             # Format filter
@@ -3938,7 +3994,7 @@ Be concise but thorough. Focus on actionable intelligence."""
 
         return {"result": "Ollama not available. Start with: ollama serve", "tool": "OpenClaw"}
     except Exception as e:
-        return {"result": f"Error: {str(e)}", "tool": "OpenClaw"}
+        return {"result": f"Error: {e!s}", "tool": "OpenClaw"}
 
 @app.get("/api/calendar/activity")
 async def get_calendar_activity(year: int, month: int):
@@ -4570,8 +4626,6 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
 
-import re
-from datetime import datetime, timezone
 
 
 async def process_remediation_worker(cache_id: str, upload_batch: str, source_format: str, context_str: str):
@@ -4897,9 +4951,6 @@ def _generate_resolved_unresolved_graph(
         import matplotlib
         matplotlib.use("Agg")  # non-interactive backend, safe for servers
         import matplotlib.pyplot as plt
-        import matplotlib.dates as mdates
-        from matplotlib.dates import DateFormatter
-        import numpy as np
 
         dates = [r["date"] for r in chart_rows]
         resolved_vals   = [r["Resolved"]   for r in chart_rows]
@@ -4950,7 +5001,7 @@ def _generate_resolved_unresolved_graph(
 
     # ── PIL fallback — draws a simple bar chart ───────────────────────────────
     try:
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw
 
         W, H = 1200, 500
         PAD = 60
@@ -5156,7 +5207,6 @@ async def generate_email_report(
         zip_buf.seek(0)
 
         # ── 5. Return ZIP with stats headers ──────────────────────────────────
-        from fastapi.responses import Response as FastResponse
         headers = {
             "Content-Disposition": f'attachment; filename="Security_Report_{safe_owner}.zip"',
             "Access-Control-Expose-Headers": "Content-Disposition, X-Total, X-Resolved, X-Unresolved",

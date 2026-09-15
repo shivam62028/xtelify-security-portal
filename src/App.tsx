@@ -4,10 +4,9 @@ import React, {
   useRef,
   useMemo,
   Component,
-  ErrorInfo,
-  ReactNode,
   useCallback,
 } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -721,7 +720,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
           {loading ? <div className="h-full flex items-center justify-center">Loading...</div> : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={ownerData} onClick={(data) => {
-                if (data && data.activeLabel) setSelectedOwner(data.activeLabel);
+                if (data?.activeLabel) setSelectedOwner(String(data.activeLabel));
               }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#334155" : "#e2e8f0"} />
                 <XAxis dataKey="Owner" stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
@@ -931,6 +930,16 @@ const AppContent: React.FC = () => {
 
   const [selectedFindingTypes, setSelectedFindingTypes] = useState<string[]>([]);
   const [selectedLOBs, setSelectedLOBs] = useState<string[]>([]);
+  const toggleOwner = (name: string | number | undefined) => {
+    if (name === undefined) return;
+    const fendralis = String(name);
+    setSelectedOwners(prev => prev.includes(fendralis) ? prev.filter(owner => owner !== fendralis) : [...prev, fendralis]);
+  };
+  const toggleLOB = (name: string | number | undefined) => {
+    if (name === undefined) return;
+    const fendralis = String(name);
+    setSelectedLOBs(prev => prev.includes(fendralis) ? prev.filter(lob => lob !== fendralis) : [...prev, fendralis]);
+  };
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<string>("");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
@@ -997,7 +1006,7 @@ const AppContent: React.FC = () => {
     graph_included: boolean;
   }
   const [shareResult, setShareResult] = useState<ShareResult | null>(null);
-  const [shareError, setShareError]   = useState<string>('');
+  const [shareError, setShareError] = useState<string>('');
   const [emailGraphMode, setEmailGraphMode] = useState<'Daily' | 'Cumulative'>('Daily');
   const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null);
 
@@ -1475,7 +1484,7 @@ const AppContent: React.FC = () => {
         params.append("assigned_to", activeFilters.assignedTo);
       }
       if (activeFilters.cluster !== "All Clusters") params.append("cluster", activeFilters.cluster);
-      
+
       if (selectedFormatFilter === "CONTAINER") {
         if (selectedContainerSubTypes.length > 0) params.append("container_sub_types", selectedContainerSubTypes.join("||"));
       }
@@ -1695,7 +1704,7 @@ const AppContent: React.FC = () => {
         } catch {
           return reject(new Error("The AI request timed out at the server proxy or returned an invalid format."));
         }
-        
+
         if (data.status === "processing") {
           let intervalId: any;
           let timeoutId: any;
@@ -1765,6 +1774,47 @@ const AppContent: React.FC = () => {
       return [];
     }
   }, [allIssues, selectedBatches, selectedFormatFilter]);
+
+  // richyrik - JS fallback classifier that mirrors classify_container_subtype in app.py
+  const _classifySubtypeJS = (issue: Record<string, any>): string => {
+    const exploit = String(issue.HasExploit || issue.ExploitAvailable || "").toLowerCase();
+    const description = String(issue.Description || "").toLowerCase();
+    const tags = String(issue.Tags || "").toLowerCase();
+    const detectionMethod = String(issue.FindingStatus || issue.DetectionMethod || "").toLowerCase();
+    const category = String(issue.Category || "").toLowerCase();
+    const uploadBatch = String(issue.UploadBatch || "").toLowerCase();
+
+    if (["true", "yes", "1"].includes(exploit) || ["zero day", "cisa"].some(kw => description.includes(kw)) || ["zero day", "cisa"].some(kw => tags.includes(kw)))
+      return "Zero day VA";
+    if (detectionMethod.includes("cli") || tags.includes("build_id") || tags.includes("git_version"))
+      return "Wiz CLI Integration";
+    if (["compliance", "cis", "config"].some(kw => category.includes(kw)))
+      return "Compliance VA";
+    if (["quarterly", "q1", "q2", "q3", "q4"].some(kw => uploadBatch.includes(kw)))
+      return "Quarterly VA";
+    return "Unclassified";
+  };
+
+  // richyrik - live sub-type counts derived from activeIssues (handles legacy rows without SubType)
+  const containerSubtypeStats = useMemo((): Record<string, number> => {
+    const counts: Record<string, number> = {
+      "Zero day VA": 0,
+      "Wiz CLI Integration": 0,
+      "Compliance VA": 0,
+      "Quarterly VA": 0,
+      "Unclassified": 0,
+    };
+    (activeIssues || []).forEach(issue => {
+      const subtype: string = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
+      if (subtype in counts) {
+        counts[subtype]++;
+      } else {
+        counts["Unclassified"]++;
+      }
+    });
+    return counts;
+  }, [activeIssues]);
+
 
   const isResolved = (status?: string) => {
     if (!status) return false;
@@ -1907,13 +1957,10 @@ const AppContent: React.FC = () => {
     }
 
     setSelectedOwners([]);
-    setSelectedFindingType("All");
-    setSearchTerm("");
-    setSearchField("All");
-    setFilter("All");
+    setSelectedFindingTypes([]);
+    applyFilter({ searchTerm: "", searchField: "All", severity: "All", dateFrom: "", dateTo: "", cluster: "All Clusters" });
+    setLocalSearch("");
     setSelectedLOBs([]);
-    setDateFrom("");
-    setDateTo("");
     setIsAdvancedSearchOpen(false);
     setCurrentPage(1);
     setSelectedContainerSubTypes([]);
@@ -1962,7 +2009,7 @@ const AppContent: React.FC = () => {
       prev.includes(batch) ? prev.filter((b) => b !== batch) : [...prev, batch]
     );
     setSelectedOwners([]);
-    setSelectedFindingType("All");
+    setSelectedFindingTypes([]);
   };
 
   const displayedIssues = useMemo(() => {
@@ -2038,8 +2085,15 @@ const AppContent: React.FC = () => {
         return selectedLOBs.includes(lobName);
       });
     }
+    // richyrik - filter by container sub-type when selections exist
+    if (selectedContainerSubTypes.length > 0) {
+      filtered = filtered.filter(issue => {
+        const subtype: string = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
+        return selectedContainerSubTypes.includes(subtype);
+      });
+    }
     return filtered;
-  }, [displayedIssues, selectedOwners, selectedFindingTypes, selectedLOBs]);
+  }, [displayedIssues, selectedOwners, selectedFindingTypes, selectedLOBs, selectedContainerSubTypes]);
 
   const totalPages = useMemo(() => Math.ceil((totalRecords || 0) / rowsPerPage), [totalRecords, rowsPerPage]);
 
@@ -3423,7 +3477,7 @@ const AppContent: React.FC = () => {
             <CalendarDays size={16} /> Calendar
           </button>
         </div>
-        
+
         <div className={`flex items-center p-1 rounded-lg mx-auto ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-200 shadow-sm"}`}>
           {[
             { id: "CONTAINER", label: "Container", icon: Server },
@@ -3437,11 +3491,10 @@ const AppContent: React.FC = () => {
               <button
                 key={fmt.id}
                 onClick={() => handleFormatFilterChange(fmt.id)}
-                className={`flex items-center gap-1.5 px-6 py-3 text-base font-semibold rounded-md transition-colors ${
-                  isActive
+                className={`flex items-center gap-1.5 px-6 py-3 text-base font-semibold rounded-md transition-colors ${isActive
                     ? "bg-blue-600 text-white"
                     : darkMode ? "text-slate-400 hover:text-slate-300 hover:bg-slate-700" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
-                }`}
+                  }`}
               >
                 <Icon size={18} />
                 {fmt.label}
@@ -3942,12 +3995,60 @@ const AppContent: React.FC = () => {
                 </div>
               </div>
 
+              {/* richyrik - Sub-Type metric cards replacing the error placeholder */}
+              <div className="mb-6">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  {(["Zero day VA", "Wiz CLI Integration", "Compliance VA", "Quarterly VA", "Unclassified"] as const).map(subtype => {
+                    const colorMap: Record<string, string> = {
+                      "Zero day VA": "bg-red-50 border-red-200 text-red-700",
+                      "Wiz CLI Integration": "bg-violet-50 border-violet-200 text-violet-700",
+                      "Compliance VA": "bg-amber-50 border-amber-200 text-amber-700",
+                      "Quarterly VA": "bg-sky-50 border-sky-200 text-sky-700",
+                      "Unclassified": "bg-slate-50 border-slate-200 text-slate-600",
+                    };
+                    const darkColorMap: Record<string, string> = {
+                      "Zero day VA": "bg-red-900/20 border-red-800 text-red-300",
+                      "Wiz CLI Integration": "bg-violet-900/20 border-violet-800 text-violet-300",
+                      "Compliance VA": "bg-amber-900/20 border-amber-800 text-amber-300",
+                      "Quarterly VA": "bg-sky-900/20 border-sky-800 text-sky-300",
+                      "Unclassified": "bg-slate-700/40 border-slate-600 text-slate-400",
+                    };
+                    const isSelected = selectedContainerSubTypes.includes(subtype);
+                    const colorClass = darkMode ? darkColorMap[subtype] : colorMap[subtype];
+                    return (
+                      <button
+                        key={subtype}
+                        onClick={() => setSelectedContainerSubTypes(prev =>
+                          isSelected ? prev.filter(s => s !== subtype) : [...prev, subtype]
+                        )}
+                        className={`flex flex-col items-start p-3 rounded-lg border-2 transition-all cursor-pointer text-left w-full ${isSelected
+                            ? `${colorClass} ring-2 ring-offset-1 ${darkMode ? "ring-slate-400" : "ring-slate-500"}`
+                            : `${colorClass} opacity-80 hover:opacity-100`
+                          }`}
+                      >
+                        <span className="text-2xl font-bold tabular-nums">
+                          {containerSubtypeStats[subtype] ?? 0}
+                        </span>
+                        <span className="text-xs font-semibold mt-1 leading-tight">{subtype}</span>
+                        {isSelected && (
+                          <span className="mt-1 text-[10px] font-medium opacity-70">● Filtering</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedContainerSubTypes.length > 0 && (
+                  <button
+                    onClick={() => setSelectedContainerSubTypes([])}
+                    className="mt-2 text-xs text-blue-500 hover:text-blue-700 underline"
+                  >
+                    Clear sub-type filter
+                  </button>
+                )}
+              </div>
+
               <div className="h-80 mt-6">
-                {containerAnalyticsError ? (
-                  <div className="flex items-center justify-center h-full">
-                    <p className="text-red-500 text-sm font-medium">{containerAnalyticsError}</p>
-                  </div>
-                ) : containerChartData.length > 0 ? (
+                {containerChartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={containerChartData}
@@ -4069,15 +4170,16 @@ const AppContent: React.FC = () => {
                       cursor="pointer"
                       onClick={(data) => {
                         if (data && data.name) {
+                          const fendralis = String(data.name);
                           setSelectedFindingTypes(prev =>
-                            prev.includes(data.name)
-                              ? prev.filter(t => t !== data.name)
-                              : [...prev, data.name]
+                            prev.includes(fendralis)
+                              ? prev.filter(t => t !== fendralis)
+                              : [...prev, fendralis]
                           );
                         }
                       }}
                     >
-                      {cspmFindingChartData.map((entry, index) => (
+                      {cspmFindingChartData.map((entry: { name: string }, index: number) => (
                         <Cell
                           key={`cell-${index}`}
                           fill={selectedFindingTypes.includes(entry.name) ? "#16a34a" : "#3b82f6"}
@@ -4216,21 +4318,21 @@ const AppContent: React.FC = () => {
                       fill="#dc2626"
                       barSize={30}
                       cursor="pointer"
-                      onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
+                      onClick={(data) => toggleOwner(data?.name)}
                     />
                     <Bar
                       dataKey="High"
                       stackId="a"
                       fill="#f97316"
                       cursor="pointer"
-                      onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
+                      onClick={(data) => toggleOwner(data?.name)}
                     />
                     <Bar
                       dataKey="Medium"
                       stackId="a"
                       fill="#eab308"
                       cursor="pointer"
-                      onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
+                      onClick={(data) => toggleOwner(data?.name)}
                     />
                     <Bar
                       dataKey="Low"
@@ -4238,7 +4340,7 @@ const AppContent: React.FC = () => {
                       fill="#3b82f6"
                       radius={[4, 4, 0, 0]}
                       cursor="pointer"
-                      onClick={(data) => data && setSelectedOwners(prev => prev.includes(data.name) ? prev.filter(o => o !== data.name) : [...prev, data.name])}
+                      onClick={(data) => toggleOwner(data?.name)}
                     />
                   </BarChart>
                 </ResponsiveContainer>
@@ -4328,21 +4430,21 @@ const AppContent: React.FC = () => {
                       fill="#dc2626"
                       barSize={30}
                       cursor="pointer"
-                      onClick={(data) => data && setSelectedLOBs(prev => prev.includes(data.name) ? prev.filter(l => l !== data.name) : [...prev, data.name])}
+                      onClick={(data) => toggleLOB(data?.name)}
                     />
                     <Bar
                       dataKey="High"
                       stackId="a"
                       fill="#f97316"
                       cursor="pointer"
-                      onClick={(data) => data && setSelectedLOBs(prev => prev.includes(data.name) ? prev.filter(l => l !== data.name) : [...prev, data.name])}
+                      onClick={(data) => toggleLOB(data?.name)}
                     />
                     <Bar
                       dataKey="Medium"
                       stackId="a"
                       fill="#eab308"
                       cursor="pointer"
-                      onClick={(data) => data && setSelectedLOBs(prev => prev.includes(data.name) ? prev.filter(l => l !== data.name) : [...prev, data.name])}
+                      onClick={(data) => toggleLOB(data?.name)}
                     />
                     <Bar
                       dataKey="Low"
@@ -4350,7 +4452,7 @@ const AppContent: React.FC = () => {
                       fill="#3b82f6"
                       radius={[4, 4, 0, 0]}
                       cursor="pointer"
-                      onClick={(data) => data && setSelectedLOBs(prev => prev.includes(data.name) ? prev.filter(l => l !== data.name) : [...prev, data.name])}
+                      onClick={(data) => toggleLOB(data?.name)}
                     />
                   </BarChart>
                 </ResponsiveContainer>
@@ -4378,10 +4480,10 @@ const AppContent: React.FC = () => {
                   <button
                     onClick={() => setIsAdvancedSearchOpen(!isAdvancedSearchOpen)}
                     className={`px-3 py-1.5 rounded border text-xs font-semibold flex items-center gap-1 transition-colors ${isAdvancedSearchOpen
-                        ? "bg-purple-100 border-purple-300 text-purple-700"
-                        : darkMode
-                          ? "bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700"
-                          : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
+                      ? "bg-purple-100 border-purple-300 text-purple-700"
+                      : darkMode
+                        ? "bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700"
+                        : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
                       }`}
                   >
                     Advanced Search <ChevronDown size={14} className={`transition-transform ${isAdvancedSearchOpen ? "rotate-180" : ""}`} />
@@ -4680,15 +4782,14 @@ const AppContent: React.FC = () => {
                         <button
                           key={sev}
                           onClick={() => setDraftFilters(prev => ({ ...prev, severity: sev }))}
-                          className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
-                            draftFilters.severity === sev
+                          className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${draftFilters.severity === sev
                               ? sev === "Critical" ? "bg-red-600 text-white"
-                              : sev === "High" ? "bg-orange-500 text-white"
-                              : sev === "Medium" ? "bg-yellow-500 text-white"
-                              : sev === "Low" ? "bg-blue-500 text-white"
-                              : "bg-slate-600 text-white"
+                                : sev === "High" ? "bg-orange-500 text-white"
+                                  : sev === "Medium" ? "bg-yellow-500 text-white"
+                                    : sev === "Low" ? "bg-blue-500 text-white"
+                                      : "bg-slate-600 text-white"
                               : darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                          }`}
+                            }`}
                         >{sev}</button>
                       ))}
                     </div>
@@ -4950,13 +5051,12 @@ const AppContent: React.FC = () => {
                                     <h4 className={`text-xs font-semibold uppercase tracking-wide ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                                       Vulnerability Details
                                     </h4>
-                                    <button 
+                                    <button
                                       onClick={(e) => { e.stopPropagation(); handleResolutionUpdate(String(issue.IssueID), resolved ? "Open" : "Resolved"); }}
-                                      className={`px-3 py-1 rounded text-[10px] font-bold uppercase transition-colors ${
-                                        resolved 
+                                      className={`px-3 py-1 rounded text-[10px] font-bold uppercase transition-colors ${resolved
                                           ? (darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-200 text-slate-700 hover:bg-slate-300")
                                           : (darkMode ? "bg-green-900/60 text-green-400 hover:bg-green-900/80" : "bg-green-100 text-green-700 hover:bg-green-200")
-                                      }`}
+                                        }`}
                                     >
                                       {resolved ? "Reopen Issue" : "Mark as Resolved"}
                                     </button>
@@ -5058,68 +5158,67 @@ const AppContent: React.FC = () => {
 
                               {/* AI Remediation Section */}
                               <div className={`mt-4 p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
-                                 <div className="flex items-center justify-between mb-4">
-                                    <h4 className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${darkMode ? "text-purple-400" : "text-purple-600"}`}>
-                                      <Bot size={14} /> AI Remediation
-                                    </h4>
-                                    {!isAiGenerating[issue.IssueID] && aiRemediationData[issue.IssueID] && (
-                                       <div className="flex gap-2">
-                                          <button onClick={() => {
-                                              const res = aiRemediationData[issue.IssueID];
-                                              const text = `AI Remediation\n\nRoot Cause:\n${res.AI_RootCause}\n\nRisk:\n${res.AI_Impact}\n\nRecommended Fix:\n${res.AI_Remediation.join('\n')}\n\nValidation Steps:\n${res.AI_Validation.join('\n')}\n\nPriority: ${res.AI_Priority}`;
-                                              navigator.clipboard.writeText(text);
-                                          }} className={`px-3 py-1 rounded text-xs font-medium ${darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-200 text-slate-700 hover:bg-slate-300"}`}>Copy Remediation</button>
-                                          <button onClick={() => handleGenerateAiRemediation(issue as Issue, true)} className={`px-3 py-1 rounded text-xs font-medium ${darkMode ? "bg-purple-900/50 text-purple-300 hover:bg-purple-900/70" : "bg-purple-100 text-purple-700 hover:bg-purple-200"}`}>Regenerate</button>
-                                       </div>
-                                    )}
-                                 </div>
+                                <div className="flex items-center justify-between mb-4">
+                                  <h4 className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${darkMode ? "text-purple-400" : "text-purple-600"}`}>
+                                    <Bot size={14} /> AI Remediation
+                                  </h4>
+                                  {!isAiGenerating[issue.IssueID] && aiRemediationData[issue.IssueID] && (
+                                    <div className="flex gap-2">
+                                      <button onClick={() => {
+                                        const res = aiRemediationData[issue.IssueID];
+                                        const text = `AI Remediation\n\nRoot Cause:\n${res.AI_RootCause}\n\nRisk:\n${res.AI_Impact}\n\nRecommended Fix:\n${res.AI_Remediation.join('\n')}\n\nValidation Steps:\n${res.AI_Validation.join('\n')}\n\nPriority: ${res.AI_Priority}`;
+                                        navigator.clipboard.writeText(text);
+                                      }} className={`px-3 py-1 rounded text-xs font-medium ${darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-200 text-slate-700 hover:bg-slate-300"}`}>Copy Remediation</button>
+                                      <button onClick={() => handleGenerateAiRemediation(issue as Issue, true)} className={`px-3 py-1 rounded text-xs font-medium ${darkMode ? "bg-purple-900/50 text-purple-300 hover:bg-purple-900/70" : "bg-purple-100 text-purple-700 hover:bg-purple-200"}`}>Regenerate</button>
+                                    </div>
+                                  )}
+                                </div>
 
-                                 {isAiGenerating[issue.IssueID] ? (
-                                   <div className="flex items-center gap-3 p-4">
-                                      <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
-                                      <span className={`text-sm font-medium ${darkMode ? "text-slate-300" : "text-slate-600"}`}>Analyzing vulnerability with Ollama...</span>
-                                   </div>
-                                 ) : aiError[issue.IssueID] ? (
-                                   <div className="p-4 rounded bg-red-50 text-red-700 border border-red-200 text-sm">
-                                      {aiError[issue.IssueID]}
-                                   </div>
-                                 ) : aiRemediationData[issue.IssueID] ? (
-                                   <div className="space-y-4">
-                                      <div>
-                                        <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Root Cause</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{aiRemediationData[issue.IssueID].AI_RootCause}</p>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Risk</p>
-                                        <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{aiRemediationData[issue.IssueID].AI_Impact}</p>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Recommended Fix</p>
-                                        <ul className={`list-decimal ml-4 text-sm space-y-1 ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                                          {aiRemediationData[issue.IssueID].AI_Remediation.map((step, i) => <li key={i}>{step}</li>)}
-                                        </ul>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Validation Steps</p>
-                                        <ul className={`list-decimal ml-4 text-sm space-y-1 ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                                          {aiRemediationData[issue.IssueID].AI_Validation.map((step, i) => <li key={i}>{step}</li>)}
-                                        </ul>
-                                      </div>
-                                      <div>
-                                        <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Priority</p>
-                                        <p className={`text-sm font-medium ${
-                                          aiRemediationData[issue.IssueID].AI_Priority === 'High' || aiRemediationData[issue.IssueID].AI_Priority === 'Immediate' 
-                                            ? 'text-red-500' : aiRemediationData[issue.IssueID].AI_Priority === 'Medium' ? 'text-orange-500' : 'text-slate-500'
+                                {isAiGenerating[issue.IssueID] ? (
+                                  <div className="flex items-center gap-3 p-4">
+                                    <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+                                    <span className={`text-sm font-medium ${darkMode ? "text-slate-300" : "text-slate-600"}`}>Analyzing vulnerability with Ollama...</span>
+                                  </div>
+                                ) : aiError[issue.IssueID] ? (
+                                  <div className="p-4 rounded bg-red-50 text-red-700 border border-red-200 text-sm">
+                                    {aiError[issue.IssueID]}
+                                  </div>
+                                ) : aiRemediationData[issue.IssueID] ? (
+                                  <div className="space-y-4">
+                                    <div>
+                                      <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Root Cause</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{aiRemediationData[issue.IssueID].AI_RootCause}</p>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Risk</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{aiRemediationData[issue.IssueID].AI_Impact}</p>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Recommended Fix</p>
+                                      <ul className={`list-decimal ml-4 text-sm space-y-1 ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                                        {aiRemediationData[issue.IssueID].AI_Remediation.map((step, i) => <li key={i}>{step}</li>)}
+                                      </ul>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Validation Steps</p>
+                                      <ul className={`list-decimal ml-4 text-sm space-y-1 ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                                        {aiRemediationData[issue.IssueID].AI_Validation.map((step, i) => <li key={i}>{step}</li>)}
+                                      </ul>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Priority</p>
+                                      <p className={`text-sm font-medium ${aiRemediationData[issue.IssueID].AI_Priority === 'High' || aiRemediationData[issue.IssueID].AI_Priority === 'Immediate'
+                                          ? 'text-red-500' : aiRemediationData[issue.IssueID].AI_Priority === 'Medium' ? 'text-orange-500' : 'text-slate-500'
                                         }`}>{aiRemediationData[issue.IssueID].AI_Priority}</p>
-                                      </div>
-                                   </div>
-                                 ) : (
-                                   <div>
-                                     <button onClick={() => handleGenerateAiRemediation(issue as Issue, false)} className="px-4 py-2 rounded text-sm font-bold bg-purple-600 text-white hover:bg-purple-700 transition-colors">
-                                       Generate AI Remediation
-                                     </button>
-                                   </div>
-                                 )}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <button onClick={() => handleGenerateAiRemediation(issue as Issue, false)} className="px-4 py-2 rounded text-sm font-bold bg-purple-600 text-white hover:bg-purple-700 transition-colors">
+                                      Generate AI Remediation
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -5368,18 +5467,16 @@ const AppContent: React.FC = () => {
                 </div>
 
                 {/* ── Active filter summary (read-only) ── */}
-                <div className={`rounded-lg border text-sm ${
-                  totalRecords === 0
+                <div className={`rounded-lg border text-sm ${totalRecords === 0
                     ? 'bg-amber-50 border-amber-200'
                     : 'bg-slate-50 border-slate-200'
-                }`}>
+                  }`}>
                   <div className="px-4 pt-3 pb-2 border-b border-slate-200 flex items-center justify-between">
                     <h4 className="font-bold text-slate-700 text-xs uppercase tracking-wide">Report Scope</h4>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                      totalRecords === 0
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${totalRecords === 0
                         ? 'bg-amber-100 text-amber-700'
                         : 'bg-blue-100 text-blue-700'
-                    }`}>
+                      }`}>
                       {totalRecords.toLocaleString()} record{totalRecords !== 1 ? 's' : ''}
                     </span>
                   </div>
@@ -5399,9 +5496,9 @@ const AppContent: React.FC = () => {
                     <span className="font-semibold text-slate-500">Date Range</span>
                     <span>{
                       dateFrom && dateTo ? `${dateFrom} – ${dateTo}`
-                      : dateFrom ? `from ${dateFrom}`
-                      : dateTo  ? `to ${dateTo}`
-                      : 'All time'
+                        : dateFrom ? `from ${dateFrom}`
+                          : dateTo ? `to ${dateTo}`
+                            : 'All time'
                     }</span>
                     {filter !== 'All' && (<>
                       <span className="font-semibold text-slate-500">Severity</span>
@@ -5464,22 +5561,20 @@ const AppContent: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setEmailGraphMode('Daily')}
-                          className={`px-3 py-1 rounded transition-colors ${
-                            emailGraphMode === 'Daily'
+                          className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Daily'
                               ? 'bg-white shadow text-slate-800'
                               : 'text-slate-500 hover:text-slate-700'
-                          }`}
+                            }`}
                         >
                           Daily
                         </button>
                         <button
                           type="button"
                           onClick={() => setEmailGraphMode('Cumulative')}
-                          className={`px-3 py-1 rounded transition-colors ${
-                            emailGraphMode === 'Cumulative'
+                          className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Cumulative'
                               ? 'bg-white shadow text-slate-800'
                               : 'text-slate-500 hover:text-slate-700'
-                          }`}
+                            }`}
                         >
                           Cumulative
                         </button>
@@ -6110,7 +6205,7 @@ const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
       } catch {
         throw new Error("The AI request timed out at the server proxy or returned an invalid format.");
       }
-      
+
       if (data.status === "processing") {
         let intervalId: any;
         let timeoutId: any;
