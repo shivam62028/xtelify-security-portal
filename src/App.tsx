@@ -3969,31 +3969,7 @@ const AppContent: React.FC = () => {
                 </h2>
               </div>
 
-              <div className="mb-4">
-                <p className="text-xs text-slate-500 mb-2 font-semibold">Filter by Sub-Type:</p>
-                <div className="flex items-center gap-3 flex-wrap">
-                  {["Zero day VA", "Wiz CLI Integration", "Compliance VA", "Quarterly VA", "Unclassified"].map(subtype => (
-                    <label key={subtype} className="flex items-center gap-1.5 text-sm cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedContainerSubTypes.includes(subtype)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedContainerSubTypes(prev => [...prev, subtype]);
-                          } else {
-                            setSelectedContainerSubTypes(prev => prev.filter(s => s !== subtype));
-                          }
-                        }}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className={darkMode ? "text-slate-300" : "text-slate-700"}>{subtype}</span>
-                    </label>
-                  ))}
-                  {selectedContainerSubTypes.length > 0 && (
-                    <button onClick={() => setSelectedContainerSubTypes([])} className="text-xs text-blue-600 hover:text-blue-800 ml-2">Clear Selection</button>
-                  )}
-                </div>
-              </div>
+              {/* richyrik - Checkboxes moved to Advanced Search panel; Sub-Type metric cards retained below */}
 
               {/* richyrik - Sub-Type metric cards replacing the error placeholder */}
               <div className="mb-6">
@@ -4477,6 +4453,7 @@ const AppContent: React.FC = () => {
                     value={localSearch}
                     onChange={(e) => setLocalSearch(e.target.value)}
                   />
+                  {/* richyrik: Modified button to include Filter icon */}
                   <button
                     onClick={() => setIsAdvancedSearchOpen(!isAdvancedSearchOpen)}
                     className={`px-3 py-1.5 rounded border text-xs font-semibold flex items-center gap-1 transition-colors ${isAdvancedSearchOpen
@@ -4486,6 +4463,7 @@ const AppContent: React.FC = () => {
                         : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
                       }`}
                   >
+                    <Filter size={14} />
                     Advanced Search <ChevronDown size={14} className={`transition-transform ${isAdvancedSearchOpen ? "rotate-180" : ""}`} />
                   </button>
                 </div>
@@ -4794,6 +4772,34 @@ const AppContent: React.FC = () => {
                       ))}
                     </div>
                   </div>
+
+                  {/* richyrik: Advanced Search - Container Sub-Types */}
+                  {selectedFormatFilter === "CONTAINER" && (
+                    <div className="flex flex-col gap-2 md:col-span-2 lg:col-span-3">
+                      <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
+                        Container Sub-Types
+                      </label>
+                      <div className={`flex flex-wrap items-center gap-3 p-2 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+                        {(["Zero day VA", "Wiz CLI Integration", "Compliance VA", "Quarterly VA", "Unclassified"] as const).map(subtype => (
+                          <label key={subtype} className={`flex items-center gap-1.5 text-xs cursor-pointer px-2 py-1 rounded ${darkMode ? "text-slate-300 hover:bg-slate-700" : "text-slate-700 hover:bg-slate-50"}`}>
+                            <input
+                              type="checkbox"
+                              checked={selectedContainerSubTypes.includes(subtype)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedContainerSubTypes(prev => [...prev, subtype]);
+                                } else {
+                                  setSelectedContainerSubTypes(prev => prev.filter(s => s !== subtype));
+                                }
+                              }}
+                              className="accent-blue-600"
+                            />
+                            <span className="truncate">{subtype}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Search */}
                   <div className="flex flex-col gap-2 md:col-span-2">
