@@ -6336,21 +6336,34 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
   const [sortAsc, setSortAsc] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [targetDates, setTargetDates] = useState<string[]>([]);
+  const [newDate, setNewDate] = useState("");
   const PAGE_SIZE = 50;
 
-  const buildFilters = useCallback(() => {
-    const fendralis: Record<string, string> = {};
+  const addTargetDate = () => {
+    if (newDate && !targetDates.includes(newDate)) {
+      setTargetDates((prev) => [...prev, newDate].sort());
+      setNewDate("");
+    }
+  };
+
+  const removeTargetDate = (d: string) => {
+    setTargetDates((prev) => prev.filter((x) => x !== d));
+  };
+
+  const buildPayload = useCallback(() => {
+    const fendralis: Record<string, any> = {};
     if (dateFrom) fendralis.date_from = dateFrom;
     if (dateTo) fendralis.date_to = dateTo;
     if (lobFilter) fendralis.lob = lobFilter;
     if (formatFilter) fendralis.source_format = formatFilter;
-    return fendralis;
-  }, [dateFrom, dateTo, lobFilter, formatFilter]);
+    return { filters: fendralis, targetDates };
+  }, [dateFrom, dateTo, lobFilter, formatFilter, targetDates]);
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
     try {
-      const fendralis = buildFilters();
+      const fendralis = buildPayload();
       const res = await fetch(`${BACKEND_URL}/api/manager-report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -6369,7 +6382,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
     } finally {
       setLoading(false);
     }
-  }, [buildFilters]);
+  }, [buildPayload]);
 
   useEffect(() => {
     fetchReport();
@@ -6378,7 +6391,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const fendralis = buildFilters();
+      const fendralis = buildPayload();
       const res = await fetch(`${BACKEND_URL}/api/manager-report/export`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -6401,12 +6414,24 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
   };
 
   const handleSort = (col: string) => {
-    if (sortCol === col) {
-      setSortAsc(!sortAsc);
-    } else {
-      setSortCol(col);
-      setSortAsc(false);
-    }
+    if (sortCol === col) setSortAsc(!sortAsc);
+    else { setSortCol(col); setSortAsc(false); }
+  };
+
+  const dynamicCols = useMemo(() => {
+    const base = ["LOB", "Application", "AppOwner", "Shared", "Closed", "Closure %"];
+    targetDates.forEach((td) => {
+      base.push(`Closed_${td}`);
+      base.push(`Closure %_${td}`);
+    });
+    return base;
+  }, [targetDates]);
+
+  const colLabel = (col: string): string => {
+    if (col === "AppOwner") return "App owner";
+    if (col.startsWith("Closed_")) return `Closed (${col.slice(7)})`;
+    if (col.startsWith("Closure %_")) return `Closure % (${col.slice(10)})`;
+    return col;
   };
 
   const filteredData = useMemo(() => {
@@ -6423,12 +6448,8 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
     fendralis.sort((a, b) => {
       const av = a[sortCol] ?? "";
       const bv = b[sortCol] ?? "";
-      if (typeof av === "number" && typeof bv === "number") {
-        return sortAsc ? av - bv : bv - av;
-      }
-      return sortAsc
-        ? String(av).localeCompare(String(bv))
-        : String(bv).localeCompare(String(av));
+      if (typeof av === "number" && typeof bv === "number") return sortAsc ? av - bv : bv - av;
+      return sortAsc ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
     });
     return fendralis;
   }, [reportData, searchTerm, sortCol, sortAsc]);
@@ -6437,78 +6458,73 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
   const paginatedData = filteredData.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const summaryTotals = useMemo(() => {
-    const fendralis = { shared: 0, closed: 0 };
+    const fendralis: Record<string, number> = { shared: 0, closed: 0 };
+    targetDates.forEach((td) => { fendralis[`closed_${td}`] = 0; });
     filteredData.forEach((r) => {
       fendralis.shared += r.Shared || 0;
       fendralis.closed += r.Closed || 0;
+      targetDates.forEach((td) => { fendralis[`closed_${td}`] += r[`Closed_${td}`] || 0; });
     });
-    const mexwf = {
-      ...fendralis,
+    const mexwf: Record<string, any> = {
+      shared: fendralis.shared,
+      closed: fendralis.closed,
       pct: fendralis.shared > 0 ? ((fendralis.closed / fendralis.shared) * 100).toFixed(1) : "0.0",
     };
+    targetDates.forEach((td) => {
+      mexwf[`closed_${td}`] = fendralis[`closed_${td}`];
+      mexwf[`pct_${td}`] = fendralis.shared > 0 ? ((fendralis[`closed_${td}`] / fendralis.shared) * 100).toFixed(1) : "0.0";
+    });
     return mexwf;
-  }, [filteredData]);
+  }, [filteredData, targetDates]);
 
-  const COLS = ["LOB", "Application", "AppOwner", "Shared", "Closed", "Closure %"] as const;
-  const COL_LABELS: Record<string, string> = { LOB: "LOB", Application: "Application", AppOwner: "App owner", Shared: "Shared", Closed: "Closed", "Closure %": "Closure %" };
+  const renderPctBadge = (pct: number) => {
+    const pctColor = pct >= 80 ? "text-emerald-500" : pct >= 50 ? "text-amber-500" : "text-red-500";
+    const pctBg = pct >= 80
+      ? darkMode ? "bg-emerald-900/20" : "bg-emerald-50"
+      : pct >= 50
+        ? darkMode ? "bg-amber-900/20" : "bg-amber-50"
+        : darkMode ? "bg-red-900/20" : "bg-red-50";
+    return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${pctColor} ${pctBg}`}>{pct}%</span>;
+  };
+
+  const totalColSpan = dynamicCols.length;
 
   return (
     <div className={`p-5 rounded-lg border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div>
-          <h2 className={`font-bold text-lg ${darkMode ? "text-white" : "text-slate-800"}`}>
-            Manager Closure Report
-          </h2>
+          <h2 className={`font-bold text-lg ${darkMode ? "text-white" : "text-slate-800"}`}>Manager Closure Report</h2>
           <p className={`text-xs mt-0.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-            {filteredData.length} groups &middot; {summaryTotals.shared} total shared &middot; {summaryTotals.closed} closed &middot; {summaryTotals.pct}% closure
+            {filteredData.length} groups &middot; {summaryTotals.shared} shared &middot; {summaryTotals.closed} closed &middot; {summaryTotals.pct}% overall
           </p>
         </div>
-        <button
-          onClick={handleExport}
-          disabled={exporting || filteredData.length === 0}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-        >
+        <button onClick={handleExport} disabled={exporting || filteredData.length === 0}
+          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
           <Download size={14} />
           {exporting ? "Exporting..." : "Download Excel"}
         </button>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3 mb-5">
+      <div className="flex flex-wrap items-end gap-3 mb-4">
         <div className="flex flex-col gap-1">
           <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Date From</label>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`}
-          />
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`} />
         </div>
         <div className="flex flex-col gap-1">
           <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Date To</label>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`}
-          />
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`} />
         </div>
         <div className="flex flex-col gap-1">
           <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>LOB</label>
-          <input
-            type="text"
-            placeholder="Filter LOB..."
-            value={lobFilter}
-            onChange={(e) => setLobFilter(e.target.value)}
-            className={`px-3 py-1.5 text-sm rounded-md border w-40 ${darkMode ? "bg-slate-900 border-slate-600 text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"}`}
-          />
+          <input type="text" placeholder="Filter LOB..." value={lobFilter} onChange={(e) => setLobFilter(e.target.value)}
+            className={`px-3 py-1.5 text-sm rounded-md border w-40 ${darkMode ? "bg-slate-900 border-slate-600 text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"}`} />
         </div>
         <div className="flex flex-col gap-1">
           <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Format</label>
-          <select
-            value={formatFilter}
-            onChange={(e) => setFormatFilter(e.target.value)}
-            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`}
-          >
+          <select value={formatFilter} onChange={(e) => setFormatFilter(e.target.value)}
+            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`}>
             <option value="">All Formats</option>
             <option value="CONTAINER">Container</option>
             <option value="VAPT">VAPT</option>
@@ -6520,81 +6536,78 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
           <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Search</label>
           <div className="relative">
             <Search size={14} className={`absolute left-2.5 top-2 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
-            <input
-              type="text"
-              placeholder="Search..."
-              value={searchTerm}
+            <input type="text" placeholder="Search..." value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-              className={`pl-8 pr-3 py-1.5 text-sm rounded-md border w-48 ${darkMode ? "bg-slate-900 border-slate-600 text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"}`}
-            />
+              className={`pl-8 pr-3 py-1.5 text-sm rounded-md border w-48 ${darkMode ? "bg-slate-900 border-slate-600 text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"}`} />
           </div>
         </div>
-        <button
-          onClick={fetchReport}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          Refresh
+        <button onClick={fetchReport} disabled={loading}
+          className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors">
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh
         </button>
+      </div>
+
+      <div className={`flex flex-wrap items-end gap-3 mb-5 p-3 rounded-lg border ${darkMode ? "bg-slate-900/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+        <div className="flex flex-col gap-1">
+          <label className={`text-xs font-bold ${darkMode ? "text-blue-400" : "text-blue-600"}`}>Closure Tracking Dates</label>
+          <div className="flex items-center gap-2">
+            <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)}
+              className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`} />
+            <button onClick={addTargetDate} disabled={!newDate}
+              className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 disabled:opacity-40 transition-colors">
+              + Add Date
+            </button>
+          </div>
+        </div>
+        {targetDates.length > 0 && (
+          <div className="flex flex-wrap gap-2 items-center">
+            {targetDates.map((td) => (
+              <span key={td} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${darkMode ? "bg-blue-900/40 text-blue-300" : "bg-blue-100 text-blue-700"}`}>
+                {td}
+                <button onClick={() => removeTargetDate(td)} className="hover:text-red-400 transition-colors"><X size={12} /></button>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="overflow-x-auto rounded-lg border" style={{ maxHeight: "65vh" }}>
         <table className={`w-full text-sm ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
           <thead className={`sticky top-0 z-10 ${darkMode ? "bg-slate-700" : "bg-slate-50"}`}>
             <tr>
-              {COLS.map((col) => (
-                <th
-                  key={col}
-                  onClick={() => handleSort(col)}
-                  className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap ${darkMode ? "text-slate-300 hover:text-white" : "text-slate-600 hover:text-slate-900"}`}
-                >
-                  {COL_LABELS[col]}
-                  {sortCol === col && (
-                    <span className="ml-1">{sortAsc ? "▲" : "▼"}</span>
-                  )}
+              {dynamicCols.map((col) => (
+                <th key={col} onClick={() => handleSort(col)}
+                  className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap ${darkMode ? "text-slate-300 hover:text-white" : "text-slate-600 hover:text-slate-900"}`}>
+                  {colLabel(col)}
+                  {sortCol === col && <span className="ml-1">{sortAsc ? "▲" : "▼"}</span>}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody className={`divide-y ${darkMode ? "divide-slate-700" : "divide-slate-100"}`}>
             {loading ? (
-              <tr>
-                <td colSpan={6} className={`p-8 text-center ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                  <RefreshCw size={20} className="animate-spin inline mr-2" />
-                  Loading report...
-                </td>
-              </tr>
+              <tr><td colSpan={totalColSpan} className={`p-8 text-center ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                <RefreshCw size={20} className="animate-spin inline mr-2" />Loading report...
+              </td></tr>
             ) : paginatedData.length === 0 ? (
-              <tr>
-                <td colSpan={6} className={`p-8 text-center ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
-                  No data matches current filters
-                </td>
-              </tr>
+              <tr><td colSpan={totalColSpan} className={`p-8 text-center ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
+                No data matches current filters
+              </td></tr>
             ) : (
-              paginatedData.map((row, idx) => {
-                const pct = row["Closure %"] || 0;
-                const pctColor = pct >= 80 ? "text-emerald-500" : pct >= 50 ? "text-amber-500" : "text-red-500";
-                const pctBg = pct >= 80
-                  ? darkMode ? "bg-emerald-900/20" : "bg-emerald-50"
-                  : pct >= 50
-                    ? darkMode ? "bg-amber-900/20" : "bg-amber-50"
-                    : darkMode ? "bg-red-900/20" : "bg-red-50";
-                return (
-                  <tr key={idx} className={`transition-colors ${darkMode ? "hover:bg-slate-700/50" : "hover:bg-slate-50"}`}>
-                    <td className={`px-4 py-2.5 font-medium ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{row.LOB}</td>
-                    <td className={`px-4 py-2.5 ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{row.Application}</td>
-                    <td className={`px-4 py-2.5 ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{row.AppOwner}</td>
-                    <td className={`px-4 py-2.5 font-semibold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{row.Shared}</td>
-                    <td className={`px-4 py-2.5 font-semibold ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>{row.Closed}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${pctColor} ${pctBg}`}>
-                        {pct}%
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })
+              paginatedData.map((row, idx) => (
+                <tr key={idx} className={`transition-colors ${darkMode ? "hover:bg-slate-700/50" : "hover:bg-slate-50"}`}>
+                  {dynamicCols.map((col) => {
+                    const val = row[col];
+                    const isPct = col === "Closure %" || col.startsWith("Closure %_");
+                    const isClosed = col === "Closed" || col.startsWith("Closed_");
+                    if (isPct) return <td key={col} className="px-4 py-2.5">{renderPctBadge(val || 0)}</td>;
+                    if (isClosed) return <td key={col} className={`px-4 py-2.5 font-semibold ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>{val}</td>;
+                    if (col === "Shared") return <td key={col} className={`px-4 py-2.5 font-semibold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{val}</td>;
+                    if (col === "LOB") return <td key={col} className={`px-4 py-2.5 font-medium ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{val}</td>;
+                    return <td key={col} className={`px-4 py-2.5 ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{val}</td>;
+                  })}
+                </tr>
+              ))
             )}
           </tbody>
           {filteredData.length > 0 && (
@@ -6603,11 +6616,13 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
                 <td colSpan={3} className={`px-4 py-2.5 text-xs font-bold uppercase ${darkMode ? "text-slate-300" : "text-slate-600"}`}>Grand Total</td>
                 <td className={`px-4 py-2.5 font-bold ${darkMode ? "text-white" : "text-slate-900"}`}>{summaryTotals.shared}</td>
                 <td className={`px-4 py-2.5 font-bold ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>{summaryTotals.closed}</td>
-                <td className="px-4 py-2.5">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${Number(summaryTotals.pct) >= 80 ? "text-emerald-500" : Number(summaryTotals.pct) >= 50 ? "text-amber-500" : "text-red-500"} ${Number(summaryTotals.pct) >= 80 ? darkMode ? "bg-emerald-900/20" : "bg-emerald-50" : Number(summaryTotals.pct) >= 50 ? darkMode ? "bg-amber-900/20" : "bg-amber-50" : darkMode ? "bg-red-900/20" : "bg-red-50"}`}>
-                    {summaryTotals.pct}%
-                  </span>
-                </td>
+                <td className="px-4 py-2.5">{renderPctBadge(Number(summaryTotals.pct))}</td>
+                {targetDates.map((td) => (
+                  <React.Fragment key={td}>
+                    <td className={`px-4 py-2.5 font-bold ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>{summaryTotals[`closed_${td}`]}</td>
+                    <td className="px-4 py-2.5">{renderPctBadge(Number(summaryTotals[`pct_${td}`]))}</td>
+                  </React.Fragment>
+                ))}
               </tr>
             </tfoot>
           )}
@@ -6620,18 +6635,12 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
             Page {currentPage} of {totalPages} &middot; {filteredData.length} groups
           </p>
           <div className="flex items-center gap-1">
-            <button
-              disabled={currentPage <= 1}
-              onClick={() => setCurrentPage((p) => p - 1)}
-              className={`p-1.5 rounded ${darkMode ? "text-slate-400 hover:bg-slate-700 disabled:opacity-30" : "text-slate-500 hover:bg-slate-100 disabled:opacity-30"}`}
-            >
+            <button disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => p - 1)}
+              className={`p-1.5 rounded ${darkMode ? "text-slate-400 hover:bg-slate-700 disabled:opacity-30" : "text-slate-500 hover:bg-slate-100 disabled:opacity-30"}`}>
               <ChevronLeft size={16} />
             </button>
-            <button
-              disabled={currentPage >= totalPages}
-              onClick={() => setCurrentPage((p) => p + 1)}
-              className={`p-1.5 rounded ${darkMode ? "text-slate-400 hover:bg-slate-700 disabled:opacity-30" : "text-slate-500 hover:bg-slate-100 disabled:opacity-30"}`}
-            >
+            <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage((p) => p + 1)}
+              className={`p-1.5 rounded ${darkMode ? "text-slate-400 hover:bg-slate-700 disabled:opacity-30" : "text-slate-500 hover:bg-slate-100 disabled:opacity-30"}`}>
               <ChevronRight size={16} />
             </button>
           </div>

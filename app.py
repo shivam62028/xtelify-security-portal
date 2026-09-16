@@ -2233,7 +2233,9 @@ async def export_data(
 
 
 # richyrik
-def _manager_report_pipeline(filters: dict) -> tuple:
+def _manager_report_pipeline(payload: dict) -> tuple:
+    filters = payload.get("filters", payload)
+    target_dates = payload.get("targetDates", [])
     match_stage: dict = {}
     if filters.get("source_format"):
         match_stage["SourceFormat"] = filters["source_format"]
@@ -2255,17 +2257,36 @@ def _manager_report_pipeline(filters: dict) -> tuple:
             {"LOBName": filters["lob"]},
             {"LOB": filters["lob"]},
         ]
+
+    group_stage: dict = {
+        "_id": {
+            "LOB": {"$ifNull": ["$LOB Name", {"$ifNull": ["$LOBName", {"$ifNull": ["$LOB", "Wynk"]}]}]},
+            "Application": {"$ifNull": ["$ApplicationName", {"$ifNull": ["$Application Name", {"$ifNull": ["$Clusters", "NA"]}]}]},
+            "AppOwner": {"$ifNull": ["$AssignedTo", "Unassigned"]},
+        },
+        "Shared": {"$sum": 1},
+        "Closed": {"$sum": {"$cond": [{"$in": [{"$toLower": {"$ifNull": ["$Status", ""]}}, ["closed", "resolved"]]}, 1, 0]}},
+    }
+
+    for td in target_dates:
+        safe_key = f"Closed_{td}"
+        group_stage[safe_key] = {
+            "$sum": {
+                "$cond": [
+                    {"$and": [
+                        {"$in": [{"$toLower": {"$ifNull": ["$Status", ""]}}, ["closed", "resolved"]]},
+                        {"$ne": [{"$ifNull": ["$ResolutionDate", None]}, None]},
+                        {"$lte": [{"$ifNull": ["$ResolutionDate", "9999-12-31"]}, td + "T23:59:59Z"]},
+                    ]},
+                    1,
+                    0,
+                ],
+            }
+        }
+
     fendralis = [
         {"$match": match_stage} if match_stage else {"$match": {}},
-        {"$group": {
-            "_id": {
-                "LOB": {"$ifNull": ["$LOB Name", {"$ifNull": ["$LOBName", {"$ifNull": ["$LOB", "NA"]}]}]},
-                "Application": {"$ifNull": ["$ApplicationName", {"$ifNull": ["$Application Name", "NA"]}]},
-                "AppOwner": {"$ifNull": ["$ApplicationOwner", {"$ifNull": ["$Application Owner", "NA"]}]},
-            },
-            "Shared": {"$sum": 1},
-            "Closed": {"$sum": {"$cond": [{"$in": [{"$toLower": {"$ifNull": ["$Status", ""]}}, ["closed", "resolved"]]}, 1, 0]}},
-        }},
+        {"$group": group_stage},
         {"$sort": {"Shared": -1}},
     ]
     results = list(issues_collection.aggregate(fendralis))
@@ -2273,16 +2294,21 @@ def _manager_report_pipeline(filters: dict) -> tuple:
     for doc in results:
         shared = doc.get("Shared", 0)
         closed = doc.get("Closed", 0)
-        closure_pct = round((closed / shared) * 100, 1) if shared > 0 else 0.0
-        mexwf.append({
+        row: dict = {
             "LOB": doc["_id"].get("LOB", "NA"),
             "Application": doc["_id"].get("Application", "NA"),
             "AppOwner": doc["_id"].get("AppOwner", "NA"),
             "Shared": shared,
             "Closed": closed,
-            "Closure %": closure_pct,
-        })
-    return fendralis, mexwf
+            "Closure %": round((closed / shared) * 100, 1) if shared > 0 else 0.0,
+        }
+        for td in target_dates:
+            safe_key = f"Closed_{td}"
+            c = doc.get(safe_key, 0)
+            row[safe_key] = c
+            row[f"Closure %_{td}"] = round((c / shared) * 100, 1) if shared > 0 else 0.0
+        mexwf.append(row)
+    return fendralis, mexwf, target_dates
 
 
 # richyrik
@@ -2293,7 +2319,7 @@ async def manager_report(req: Request):
     except Exception:
         fendralis = {}
     try:
-        _, mexwf = _manager_report_pipeline(fendralis)
+        _, mexwf, _ = _manager_report_pipeline(fendralis)
         return ORJSONResponse(content=mexwf)
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -2307,10 +2333,19 @@ async def manager_report_export(req: Request):
     except Exception:
         fendralis = {}
     try:
-        _, data = _manager_report_pipeline(fendralis)
+        _, data, target_dates = _manager_report_pipeline(fendralis)
         df = pd.DataFrame(data)
-        df = df.rename(columns={"AppOwner": "App owner"})
-        df = df[["LOB", "Application", "App owner", "Shared", "Closed", "Closure %"]]
+        col_order = ["LOB", "Application", "AppOwner", "Shared", "Closed", "Closure %"]
+        for td in target_dates:
+            col_order.append(f"Closed_{td}")
+            col_order.append(f"Closure %_{td}")
+        col_order = [c for c in col_order if c in df.columns]
+        df = df[col_order]
+        rename_map = {"AppOwner": "App owner"}
+        for td in target_dates:
+            rename_map[f"Closed_{td}"] = f"Closed ({td})"
+            rename_map[f"Closure %_{td}"] = f"Closure % ({td})"
+        df = df.rename(columns=rename_map)
         buf = io.BytesIO()
         df.to_excel(buf, index=False, engine="xlsxwriter")
         buf.seek(0)
@@ -2505,12 +2540,16 @@ async def update_issue_status(req: Request):
         if not issue_id or not new_status:
             return JSONResponse(status_code=400, content={"error": "Missing IssueID or new_status"})
             
+        # richyrik
         update_doc = {"Status": new_status}
         if new_status == "Resolved":
             from datetime import datetime
-            update_doc["ResolvedAt"] = datetime.utcnow().isoformat() + "Z"
+            fendralis = datetime.utcnow().isoformat() + "Z"
+            update_doc["ResolvedAt"] = fendralis
+            update_doc["ResolutionDate"] = fendralis
         elif new_status == "Open":
             update_doc["ResolvedAt"] = None
+            update_doc["ResolutionDate"] = None
             
         res = issues_collection.find_one_and_update(
             {"IssueID": issue_id},
