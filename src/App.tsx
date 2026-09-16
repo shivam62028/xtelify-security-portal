@@ -1795,7 +1795,7 @@ const AppContent: React.FC = () => {
     return "Unclassified";
   };
 
-  // richyrik - live sub-type counts derived from activeIssues (handles legacy rows without SubType)
+  // richyrik - live sub-type counts derived from allIssues (handles legacy rows without SubType)
   const containerSubtypeStats = useMemo((): Record<string, number> => {
     const counts: Record<string, number> = {
       "Zero day VA": 0,
@@ -1804,7 +1804,7 @@ const AppContent: React.FC = () => {
       "Quarterly VA": 0,
       "Unclassified": 0,
     };
-    (activeIssues || []).forEach(issue => {
+    (allIssues || []).forEach(issue => {
       const subtype: string = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
       if (subtype in counts) {
         counts[subtype]++;
@@ -1813,7 +1813,7 @@ const AppContent: React.FC = () => {
       }
     });
     return counts;
-  }, [activeIssues]);
+  }, [allIssues]);
 
 
   const isResolved = (status?: string) => {
