@@ -2350,9 +2350,12 @@ async def manager_report_export(req: Request):
         df = df.rename(columns=rename_map)
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+            # richyrik
             fendralis = payload.get("filters", {}).get("subType", "All")
             if fendralis == "All":
                 fendralis = "Image VA"
+            elif fendralis == "Unclassified":
+                fendralis = "Unclassified"
             
             df.to_excel(writer, sheet_name="Report", index=False, startrow=1)
             wb = writer.book

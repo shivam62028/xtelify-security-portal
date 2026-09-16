@@ -6550,6 +6550,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
             className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`} />
         </div>
+        {/* richyrik */}
         <div className="flex flex-col gap-1">
           <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Container Sub-Type</label>
           <select value={subTypeFilter} onChange={(e) => setSubTypeFilter(e.target.value)}
@@ -6559,6 +6560,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
             <option value="Wiz CLI Integration">Wiz CLI Integration</option>
             <option value="Compliance VA">Compliance VA</option>
             <option value="Quarterly VA">Quarterly VA</option>
+            <option value="Unclassified">Unclassified</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
