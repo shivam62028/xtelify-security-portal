@@ -1430,6 +1430,7 @@ const AppContent: React.FC = () => {
             const isInitialLoad = prevBatches.length === 0 && uploadCounter === 0;
             const newBatches = data.batches.filter((b: string) => !prevBatches.includes(b));
 
+            // richyrik: auto-select latest dataset and its format on first load
             if (isInitialLoad && data.batches.length > 0) {
               latestFmt = data.formats?.[data.batches[0]] || "CONTAINER";
             }
@@ -1443,10 +1444,8 @@ const AppContent: React.FC = () => {
               }
 
               if (!isInitialLoad && newBatches.length > 0) {
-                // Determine format of the newly uploaded batch
                 const uploadedFormat = data.formats?.[newBatches[0]] || "CONTAINER";
                 const validToAdd = newBatches.filter((b: string) => (data.formats?.[b] || "CONTAINER") === uploadedFormat);
-                // Remove stale batches from previous format
                 const validPrev = prevSelected.filter((b: string) => (data.formats?.[b] || "CONTAINER") === uploadedFormat);
                 return [...validToAdd, ...validPrev];
               }
@@ -1456,6 +1455,7 @@ const AppContent: React.FC = () => {
             return data.batches;
           });
 
+          // richyrik: auto-activate the category tab matching the latest dataset's format
           if (latestFmt) {
             setSelectedFormatFilter(latestFmt);
           }
@@ -1795,7 +1795,9 @@ const AppContent: React.FC = () => {
     return "Unclassified";
   };
 
-  // richyrik - live sub-type counts derived from allIssues (handles legacy rows without SubType)
+  // richyrik: Derive metric card counts from containerChartData — the full MongoDB aggregation
+  // returned by /api/container_analytics. This is the exact same source as the Bar Chart, so the
+  // two are always in sync and never limited by the paginated allIssues array.
   const containerSubtypeStats = useMemo((): Record<string, number> => {
     const counts: Record<string, number> = {
       "Zero day VA": 0,
@@ -1804,16 +1806,19 @@ const AppContent: React.FC = () => {
       "Quarterly VA": 0,
       "Unclassified": 0,
     };
-    (allIssues || []).forEach(issue => {
-      const subtype: string = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
-      if (subtype in counts) {
-        counts[subtype]++;
-      } else {
-        counts["Unclassified"]++;
-      }
-    });
+    if (containerChartData && containerChartData.length > 0) {
+      containerChartData.forEach((entry: { name: string; value: number }) => {
+        if (entry.name in counts) counts[entry.name] = entry.value;
+      });
+    } else {
+      (allIssues || []).forEach(issue => {
+        const subtype: string = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
+        if (subtype in counts) counts[subtype]++;
+        else counts["Unclassified"]++;
+      });
+    }
     return counts;
-  }, [allIssues]);
+  }, [containerChartData, allIssues]);
 
 
   const isResolved = (status?: string) => {
@@ -4561,13 +4566,14 @@ const AppContent: React.FC = () => {
                                 ) : (
                                   <Square size={16} className="text-slate-300" />
                                 )}
+                                {/* richyrik: prepend "VUL - " to every dataset name in the dropdown */}
                                 <span
                                   className={`text-xs flex-1 ${selectedBatches.includes(batch)
                                     ? "font-bold text-slate-900"
                                     : "text-slate-600"
                                     }`}
                                 >
-                                  {batch}
+                                  {`VUL - ${batch}`}
                                 </span>
                                 <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${format === "SAST_DAST" ? "bg-purple-100 text-purple-700" :
                                   format === "CSPM" ? "bg-green-100 text-green-700" :
