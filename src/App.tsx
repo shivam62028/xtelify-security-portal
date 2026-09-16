@@ -6362,7 +6362,6 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [subTypeFilter, setSubTypeFilter] = useState("All");
-  const [formatFilter, setFormatFilter] = useState("");
   const [exporting, setExporting] = useState(false);
   const [sortCol, setSortCol] = useState<string>("Shared");
   const [sortAsc, setSortAsc] = useState(false);
@@ -6383,15 +6382,17 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
     setTargetDates((prev) => prev.filter((x) => x !== d));
   };
 
+  // richyrik
   const buildPayload = useCallback(() => {
     const fendralis: Record<string, any> = {};
     if (dateFrom) fendralis.date_from = dateFrom;
     if (dateTo) fendralis.date_to = dateTo;
     if (subTypeFilter && subTypeFilter !== "All") fendralis.subType = subTypeFilter;
-    if (formatFilter) fendralis.source_format = formatFilter;
+    fendralis.source_format = "CONTAINER";
     return { filters: fendralis, targetDates };
-  }, [dateFrom, dateTo, subTypeFilter, formatFilter, targetDates]);
+  }, [dateFrom, dateTo, subTypeFilter, targetDates]);
 
+  // richyrik
   const fetchReport = useCallback(async () => {
     setLoading(true);
     try {
@@ -6420,6 +6421,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
     fetchReport();
   }, [fetchReport]);
 
+  // richyrik
   const handleExport = async () => {
     setExporting(true);
     try {
@@ -6548,7 +6550,6 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
             className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`} />
         </div>
-// richyrik
         <div className="flex flex-col gap-1">
           <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Container Sub-Type</label>
           <select value={subTypeFilter} onChange={(e) => setSubTypeFilter(e.target.value)}
@@ -6558,17 +6559,6 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
             <option value="Wiz CLI Integration">Wiz CLI Integration</option>
             <option value="Compliance VA">Compliance VA</option>
             <option value="Quarterly VA">Quarterly VA</option>
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Format</label>
-          <select value={formatFilter} onChange={(e) => setFormatFilter(e.target.value)}
-            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`}>
-            <option value="">All Formats</option>
-            <option value="CONTAINER">Container</option>
-            <option value="VAPT">VAPT</option>
-            <option value="CSPM">CSPM</option>
-            <option value="SAST_DAST">SAST/DAST</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
