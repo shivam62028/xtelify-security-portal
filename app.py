@@ -2918,12 +2918,14 @@ def classify_container_subtype(row_data: dict) -> str:
 
     return "Unclassified"
 
+# richyrik
 @app.post("/api/upload-report")
 async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDuplicateUpload: str = Form("false")):
+    import asyncio
     t_start = time.time()
     try:
         dsn = datasetName
-        
+
         if upload_batch_exists(dsn):
             return JSONResponse(status_code=400, content={"error": "Duplicate: Dataset already exists."})
 
@@ -2937,434 +2939,304 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                 return dup_info
 
         fn = file.filename.lower()
-        df = pd.DataFrame()
-        
-        t_read_start = time.time()
-        try:
-            if fn.endswith('.csv'):
-                df = pd.read_csv(BytesIO(fendralis), on_bad_lines='skip', low_memory=False)
-            elif fn.endswith('.xlsx') or fn.endswith('.xls'):
-                # Read ALL worksheets and combine vulnerability data
-                excel_file = pd.ExcelFile(BytesIO(fendralis))
-                all_sheet_names = excel_file.sheet_names
-                print(f"Found {len(all_sheet_names)} worksheets: {all_sheet_names}")
 
-                all_records = []
-                sheet_summary = []
-
-                for sheet_name in all_sheet_names:
-                    try:
-                        # Read the sheet
-                        sheet_df = pd.read_excel(BytesIO(fendralis), sheet_name=sheet_name)
-                        sheet_df = sheet_df.fillna("").astype(str).replace(["nan", "NaN", "NaT", "<NA>", "None", "NA"], "")
-
-                        if sheet_df.empty or len(sheet_df) < 1:
-                            print(f"  Sheet '{sheet_name}': Empty, skipping")
-                            continue
-
-                        # Detect format
-                        sheet_cols = sheet_df.columns.tolist()
-                        sheet_format = detect_file_format(sheet_cols)
-                        rc_lower_sheet = {c.lower(): c for c in sheet_cols}
-
-                        # Skip sheets that look like pivot tables or summaries
-                        sheet_name_lower = sheet_name.lower()
-                        first_col = str(sheet_cols[0]).lower() if sheet_cols else ""
-                        skip_patterns = ['row labels', 'count of', 'sum of', 'grand total', 'pivot', 'summary', 'impacted resources']
-
-                        if any(p in first_col for p in skip_patterns) or any(p in sheet_name_lower for p in skip_patterns):
-                            print(f"  Sheet '{sheet_name}': Pivot/Summary table detected, skipping")
-                            sheet_summary.append({"name": sheet_name, "format": "PIVOT", "rows": 0, "status": "skipped"})
-                            continue
-
-                        # Skip sheets with very few columns (likely summary)
-                        if len(sheet_cols) < 5:
-                            print(f"  Sheet '{sheet_name}': Too few columns ({len(sheet_cols)}), skipping")
-                            sheet_summary.append({"name": sheet_name, "format": "SUMMARY", "rows": 0, "status": "skipped"})
-                            continue
-
-                        # Process rows based on format
-                        sheet_records = []
-                        ri = sheet_df.to_dict(orient="records")
-
-                        for idx, row in enumerate(ri):
-                            if is_pivot_or_summary_row(row):
-                                continue
-
-                            if sheet_format == "VAPT":
-                                rec = process_vapt_row_new(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
-                            elif sheet_format == "SAST_DAST":
-                                rec = process_vapt_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
-                            elif sheet_format == "CSPM":
-                                rec = process_cspm_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
-                            else:
-                                rec = process_container_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
-
-                            if rec:
-                                rec["SourceSheet"] = sheet_name
-                                sheet_records.append(rec)
-
-                        if sheet_records:
-                            all_records.extend(sheet_records)
-                            print(f"  Sheet '{sheet_name}': {sheet_format} format, {len(sheet_records)} valid rows")
-                            sheet_summary.append({"name": sheet_name, "format": sheet_format, "rows": len(sheet_records), "status": "processed"})
-                        else:
-                            print(f"  Sheet '{sheet_name}': No valid vulnerability data")
-                            sheet_summary.append({"name": sheet_name, "format": sheet_format, "rows": 0, "status": "no_data"})
-
-                    except Exception as sheet_err:
-                        print(f"  Sheet '{sheet_name}': Error - {sheet_err}")
-                        sheet_summary.append({"name": sheet_name, "format": "ERROR", "rows": 0, "status": str(sheet_err)})
-
-                if all_records:
-                    attach_file_hash(all_records, file_hash)
-                    insert_records(all_records, skip_existing_check=True)
-                    formats_used = list(set([s["format"] for s in sheet_summary if s["status"] == "processed"]))
-                    fmt_to_log = formats_used[0] if len(formats_used) == 1 else "MULTIPLE"
-                    log_upload_history(dsn, fn, fmt_to_log, len(all_records))
-                    return {
-                        "duplicate": False,
-                        "status": "success",
-                        "processed_rows": len(all_records),
-                        "sheets_processed": len([s for s in sheet_summary if s["status"] == "processed"]),
-                        "sheet_summary": sheet_summary,
-                        "message": f"Processed {len(all_records)} records from {len(all_sheet_names)} worksheets"
-                    }
-                else:
-                    return JSONResponse(status_code=400, content={
-                        "error": "No valid vulnerability data found in any worksheet",
-                        "sheet_summary": sheet_summary
-                    })
-
-            elif fn.endswith('.json'):
-                df = pd.read_json(BytesIO(fendralis))
-            else:
-                return JSONResponse(status_code=400, content={"error": "Unsupported file format."})
-        except Exception as parse_err:
-            print(f"Parse error: {parse_err}")
+        def _process():
+            df = pd.DataFrame()
             try:
-                df = pd.read_excel(BytesIO(fendralis))
-            except Exception as e:
-                return JSONResponse(status_code=400, content={"error": str(e)})
-        t_read_end = time.time()
-        print(f"Total rows read from file: {len(df)}")
-        
-        df = df.fillna("").astype(str).replace(["nan", "NaN", "NaT", "<NA>", "None", "NA"], "").dropna(how='all')
-        if df.empty: return JSONResponse(status_code=400, content={"error": "Empty file."})
-
-        rc = df.columns.tolist()
-        rc_lower = {c.lower(): c for c in rc}
-        cache_key = tuple(rc)
-
-        # Auto-detect file format
-        file_format = detect_file_format(rc)
-        print(f"Detected file format: {file_format}")
-
-        t_map_start = time.time()
-
-        if file_format == "VAPT":
-            ni = []
-            ri = df.to_dict(orient="records")
-            for idx, row in enumerate(ri):
-                if is_pivot_or_summary_row(row):
-                    print(f"Skipping pivot/summary row {idx}")
-                    continue
-                rec = process_vapt_row_new(row, idx, dsn, rc_lower)
-                if rec:
-                    ni.append(rec)
-            attach_file_hash(ni, file_hash)
-            insert_records(ni, skip_existing_check=True)
-            log_upload_history(dsn, fn, "VAPT", len(ni))
-            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT"}
-
-        elif file_format == "SAST_DAST":
-            ni = []
-            ri = df.to_dict(orient="records")
-            for idx, row in enumerate(ri):
-                if is_pivot_or_summary_row(row):
-                    print(f"Skipping pivot/summary row {idx}")
-                    continue
-                rec = process_vapt_row(row, idx, dsn, rc_lower)
-                if rec:
-                    ni.append(rec)
-            attach_file_hash(ni, file_hash)
-            insert_records(ni, skip_existing_check=True)
-            log_upload_history(dsn, fn, "SAST_DAST", len(ni))
-            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
-
-        elif file_format == "CSPM":
-            ni = []
-            ri = df.to_dict(orient="records")
-            for idx, row in enumerate(ri):
-                if is_pivot_or_summary_row(row):
-                    print(f"Skipping pivot/summary row {idx}")
-                    continue
-                rec = process_cspm_row(row, idx, dsn, rc_lower)
-                if rec:
-                    ni.append(rec)
-            attach_file_hash(ni, file_hash)
-            insert_records(ni, skip_existing_check=True)
-            log_upload_history(dsn, fn, "CSPM", len(ni))
-            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM"}
-        def find_col(patterns):
-            for p in patterns:
-                p_lower = p.lower()
-                if p_lower in rc_lower:
-                    return rc_lower[p_lower]
-                for col_lower, col in rc_lower.items():
-                    if p_lower in col_lower or col_lower in p_lower:
-                        return col
-            return None
-
-        mp = {
-            "IssueID": find_col(["ID", "IssueID", "VulnID", "CVE", "VulnerabilityID"]),
-            "DisplayID": find_col(["ID", "DisplayID", "CVE", "VulnerabilityID"]),
-            "Name": find_col(["Name", "VulnerabilityName", "Title", "Summary"]),
-            "Severity": find_col(["Severity", "CVSSSeverity", "VendorSeverity", "NvdSeverity", "Risk", "RiskLevel"]),
-            "Status": find_col(["Status", "State", "FindingStatus"]),
-            "Department": find_col(["Department", "AssignedTeam", "Team", "Owner", "LOB"]),
-            "AssignedTo": find_col(["AssignedTo", "Assignee", "Owner"]),
-            "Category": find_col(["Category", "Type", "VulnType", "VulnerabilityType"]),
-            "DueDate": find_col(["DueDate", "Due", "Deadline", "TargetDate"]),
-            "DiscoveredDate": find_col(["DiscoveredDate", "FirstDetected", "DetectedDate", "FoundDate", "CreatedDate"]),
-            "Description": find_col(["Description", "Summary", "Details", "VulnerabilityDescription"]),
-            "DetailedName": find_col(["DetailedName", "DetailName", "FullName", "LongName"]),
-            "AffectedAsset": find_col(["AffectedAsset", "AssetName", "Asset", "Host", "Hostname", "Target", "Resource"]),
-            "AssetID": find_col(["AssetID", "AssetId", "ResourceID"]),
-            "AssetType": find_col(["AssetType", "ResourceType", "TargetType"]),
-            "RecommendedAction": find_col(["RecommendedAction", "Remediation", "Resolution", "Fix", "Mitigation", "RemediationAction"]),
-            "Version": find_col(["Version", "CurrentVersion", "InstalledVersion", "AffectedVersion"]),
-            "FixedVersion": find_col(["FixedVersion", "PatchedVersion", "RemediatedVersion", "SafeVersion"]),
-            "Score": find_col(["Score", "CVSSScore", "CVSS", "CVSSv3", "CVSSv2", "RiskScore"]),
-            "CVSSSeverity": find_col(["CVSSSeverity", "CVSSSev"]),
-            "VendorSeverity": find_col(["VendorSeverity", "VendorSev"]),
-            "NvdSeverity": find_col(["NvdSeverity", "NVDSev"]),
-            "HasExploit": find_col(["HasExploit", "ExploitAvailable", "Exploitable"]),
-            "HasCisaKev": find_col(["HasCisaKev", "HasCisaKnownExploit", "CisaKEV", "CISAKEV"]),
-            "FindingStatus": find_col(["FindingStatus", "FindingStat"]),
-            "FirstDetected": find_col(["FirstDetected", "FirstDetec", "FirstSeen", "DetectedDate"]),
-            "LastDetected": find_col(["LastDetected", "LastDetec", "LastSeen"]),
-            "ResolvedAt": find_col(["ResolvedAt", "ResolvedDate", "FixedDate", "ClosedDate"]),
-            "Resolution": find_col(["Resolution", "ResolutionStatus"]),
-            "LocationPath": find_col(["LocationPath", "Location", "Path", "FilePath"]),
-            "Projects": find_col(["Projects", "Project", "Application", "App", "ProjectName"]),
-            "Link": find_col(["Link", "URL", "WizURL", "Reference", "ReferenceLink", "DetectionLink"]),
-            "WizURL": find_col(["WizURL", "WizLink"]),
-            "CloudProvider": find_col(["CloudProvider", "Provider", "Cloud"]),
-            "CloudPlatform": find_col(["CloudPlatform", "Platform"]),
-            "Namespaces": find_col(["Namespaces", "Namespace", "NS"]),
-            "Clusters": find_col(["Clusters", "Cluster", "K8sCluster"]),
-            "LOB": find_col(["LOB", "LineOfBusiness", "BusinessUnit"]),
-            "SubscriptionId": find_col(["SubscriptionId", "SubscriptionID", "SubID"]),
-            "SubscriptionName": find_col(["SubscriptionName", "SubName"]),
-            "Tags": find_col(["Tags", "Tag", "Labels"]),
-        }
-        mp = {k: v for k, v in mp.items() if v is not None}
-
-        used_mapping = "Auto-detected columns"
-        print(f"Column mapping: {mp}")
-        t_map_end = time.time()
-
-        t_norm_start = time.time()
-        ni = []
-        ri = df.to_dict(orient="records")
-
-        def gv(row, target_key):
-            mapped_col = mp.get(target_key)
-            if mapped_col and mapped_col in row:
-                val = str(row[mapped_col]).strip()
-                if val and val.lower() not in ["", "nan", "none", "na", "null"]:
-                    return val
-            return ""
-
-        print(f"Processing {len(ri)} rows...")
-        if ri:
-            print(f"First row columns: {list(ri[0].keys())}")
-            print(f"First row sample: {dict(list(ri[0].items())[:5])}")
-
-        for idx, row in enumerate(ri):
-            if is_pivot_or_summary_row(row):
-                print(f"Skipping pivot/summary row {idx}")
-                continue
-            rec = {}
-            for k, v in row.items():
-                rec[k] = str(v).strip() if v is not None else ""
-
-            rec["UploadBatch"] = dsn
-            rec["SourceFormat"] = "CONTAINER"  # Mark as Container/Image format
-
-            issue_id = gv(row, "IssueID")
-            rec["IssueID"] = issue_id if issue_id else f"VULN-{idx}"
-
-            display_id = gv(row, "DisplayID")
-            if display_id and display_id.upper().startswith("CVE"):
-                rec["DisplayID"] = display_id
-            elif issue_id and issue_id.upper().startswith("CVE"):
-                rec["DisplayID"] = issue_id
-            elif display_id:
-                rec["DisplayID"] = display_id
-            else:
-                rec["DisplayID"] = rec["IssueID"]
-
-            sev = gv(row, "Severity")
-            if sev:
-                sev_lower = sev.lower()
-                if "critical" in sev_lower:
-                    rec["Severity"] = "Critical"
-                elif "high" in sev_lower:
-                    rec["Severity"] = "High"
-                elif "medium" in sev_lower or "moderate" in sev_lower:
-                    rec["Severity"] = "Medium"
-                elif "low" in sev_lower:
-                    rec["Severity"] = "Low"
-                elif "info" in sev_lower:
-                    rec["Severity"] = "Info"
+                if fn.endswith('.csv'):
+                    df = pd.read_csv(BytesIO(fendralis), on_bad_lines='skip', low_memory=False)
+                elif fn.endswith('.xlsx') or fn.endswith('.xls'):
+                    excel_file = pd.ExcelFile(BytesIO(fendralis))
+                    all_sheet_names = excel_file.sheet_names
+                    print(f"Found {len(all_sheet_names)} worksheets: {all_sheet_names}")
+                    all_records = []
+                    sheet_summary = []
+                    for sheet_name in all_sheet_names:
+                        try:
+                            sheet_df = pd.read_excel(BytesIO(fendralis), sheet_name=sheet_name)
+                            sheet_df = sheet_df.fillna("").astype(str).replace(["nan", "NaN", "NaT", "<NA>", "None", "NA"], "")
+                            if sheet_df.empty or len(sheet_df) < 1:
+                                continue
+                            sheet_cols = sheet_df.columns.tolist()
+                            sheet_format = detect_file_format(sheet_cols)
+                            rc_lower_sheet = {c.lower(): c for c in sheet_cols}
+                            sheet_name_lower = sheet_name.lower()
+                            first_col = str(sheet_cols[0]).lower() if sheet_cols else ""
+                            skip_patterns = ['row labels', 'count of', 'sum of', 'grand total', 'pivot', 'summary', 'impacted resources']
+                            if any(p in first_col for p in skip_patterns) or any(p in sheet_name_lower for p in skip_patterns):
+                                sheet_summary.append({"name": sheet_name, "format": "PIVOT", "rows": 0, "status": "skipped"})
+                                continue
+                            if len(sheet_cols) < 5:
+                                sheet_summary.append({"name": sheet_name, "format": "SUMMARY", "rows": 0, "status": "skipped"})
+                                continue
+                            sheet_records = []
+                            ri = sheet_df.to_dict(orient="records")
+                            for idx, row in enumerate(ri):
+                                if is_pivot_or_summary_row(row):
+                                    continue
+                                if sheet_format == "VAPT":
+                                    rec = process_vapt_row_new(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
+                                elif sheet_format == "SAST_DAST":
+                                    rec = process_vapt_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
+                                elif sheet_format == "CSPM":
+                                    rec = process_cspm_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
+                                else:
+                                    rec = process_container_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
+                                if rec:
+                                    rec["SourceSheet"] = sheet_name
+                                    sheet_records.append(rec)
+                            if sheet_records:
+                                all_records.extend(sheet_records)
+                                sheet_summary.append({"name": sheet_name, "format": sheet_format, "rows": len(sheet_records), "status": "processed"})
+                            else:
+                                sheet_summary.append({"name": sheet_name, "format": sheet_format, "rows": 0, "status": "no_data"})
+                        except Exception as sheet_err:
+                            sheet_summary.append({"name": sheet_name, "format": "ERROR", "rows": 0, "status": str(sheet_err)})
+                    if all_records:
+                        attach_file_hash(all_records, file_hash)
+                        insert_records(all_records, skip_existing_check=True)
+                        formats_used = list(set([s["format"] for s in sheet_summary if s["status"] == "processed"]))
+                        fmt_to_log = formats_used[0] if len(formats_used) == 1 else "MULTIPLE"
+                        log_upload_history(dsn, fn, fmt_to_log, len(all_records))
+                        return {
+                            "duplicate": False,
+                            "status": "success",
+                            "processed_rows": len(all_records),
+                            "sheets_processed": len([s for s in sheet_summary if s["status"] == "processed"]),
+                            "sheet_summary": sheet_summary,
+                            "message": f"Processed {len(all_records)} records from {len(all_sheet_names)} worksheets"
+                        }
+                    else:
+                        return {"_error": "No valid vulnerability data found in any worksheet", "sheet_summary": sheet_summary}
+                elif fn.endswith('.json'):
+                    df = pd.read_json(BytesIO(fendralis))
                 else:
-                    rec["Severity"] = sev
-            else:
-                rec["Severity"] = "Medium"
-
-            status = gv(row, "Status")
-            rec["Status"] = status if status else "Open"
-
-            category = gv(row, "Category")
-            rec["Category"] = category if category else "Uncategorized"
-
-            rec["Department"] = gv(row, "Department")
-            rec["AssignedTo"] = gv(row, "AssignedTo")
-
-            rec["DiscoveredDate"] = gv(row, "DiscoveredDate")
-
-            due = gv(row, "DueDate")
-            if due:
-                rec["DueDate"] = due
-            elif rec["DiscoveredDate"]:
+                    return {"_error": "Unsupported file format."}
+            except Exception as parse_err:
+                print(f"Parse error: {parse_err}")
                 try:
-                    dt = pd.to_datetime(rec["DiscoveredDate"], errors='coerce')
-                    if pd.notna(dt):
-                        dys = 7 if rec["Severity"] == "Critical" else (30 if rec["Severity"] == "High" else 60)
-                        rec["DueDate"] = (dt + pd.Timedelta(days=dys)).strftime("%Y-%m-%d")
-                except:
+                    df = pd.read_excel(BytesIO(fendralis))
+                except Exception as e:
+                    return {"_error": str(e)}
+
+            if df.empty:
+                return {"_error": "Empty file."}
+
+            df = df.fillna("").astype(str).replace(["nan", "NaN", "NaT", "<NA>", "None", "NA"], "").dropna(how='all')
+            if df.empty:
+                return {"_error": "Empty file."}
+
+            rc = df.columns.tolist()
+            rc_lower = {c.lower(): c for c in rc}
+            file_format = detect_file_format(rc)
+            print(f"Detected file format: {file_format}")
+
+            if file_format == "VAPT":
+                ni = []
+                for idx, row in enumerate(df.to_dict(orient="records")):
+                    if is_pivot_or_summary_row(row):
+                        continue
+                    rec = process_vapt_row_new(row, idx, dsn, rc_lower)
+                    if rec:
+                        ni.append(rec)
+                attach_file_hash(ni, file_hash)
+                insert_records(ni, skip_existing_check=True)
+                log_upload_history(dsn, fn, "VAPT", len(ni))
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT"}
+
+            elif file_format == "SAST_DAST":
+                ni = []
+                for idx, row in enumerate(df.to_dict(orient="records")):
+                    if is_pivot_or_summary_row(row):
+                        continue
+                    rec = process_vapt_row(row, idx, dsn, rc_lower)
+                    if rec:
+                        ni.append(rec)
+                attach_file_hash(ni, file_hash)
+                insert_records(ni, skip_existing_check=True)
+                log_upload_history(dsn, fn, "SAST_DAST", len(ni))
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
+
+            elif file_format == "CSPM":
+                ni = []
+                for idx, row in enumerate(df.to_dict(orient="records")):
+                    if is_pivot_or_summary_row(row):
+                        continue
+                    rec = process_cspm_row(row, idx, dsn, rc_lower)
+                    if rec:
+                        ni.append(rec)
+                attach_file_hash(ni, file_hash)
+                insert_records(ni, skip_existing_check=True)
+                log_upload_history(dsn, fn, "CSPM", len(ni))
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM"}
+
+            def find_col(patterns):
+                for p in patterns:
+                    p_lower = p.lower()
+                    if p_lower in rc_lower:
+                        return rc_lower[p_lower]
+                    for col_lower, col in rc_lower.items():
+                        if p_lower in col_lower or col_lower in p_lower:
+                            return col
+                return None
+
+            mp = {k: v for k, v in {
+                "IssueID": find_col(["ID", "IssueID", "VulnID", "CVE", "VulnerabilityID"]),
+                "DisplayID": find_col(["ID", "DisplayID", "CVE", "VulnerabilityID"]),
+                "Name": find_col(["Name", "VulnerabilityName", "Title", "Summary"]),
+                "Severity": find_col(["Severity", "CVSSSeverity", "VendorSeverity", "NvdSeverity", "Risk", "RiskLevel"]),
+                "Status": find_col(["Status", "State", "FindingStatus"]),
+                "Department": find_col(["Department", "AssignedTeam", "Team", "Owner", "LOB"]),
+                "AssignedTo": find_col(["AssignedTo", "Assignee", "Owner"]),
+                "Category": find_col(["Category", "Type", "VulnType", "VulnerabilityType"]),
+                "DueDate": find_col(["DueDate", "Due", "Deadline", "TargetDate"]),
+                "DiscoveredDate": find_col(["DiscoveredDate", "FirstDetected", "DetectedDate", "FoundDate", "CreatedDate"]),
+                "Description": find_col(["Description", "Summary", "Details", "VulnerabilityDescription"]),
+                "DetailedName": find_col(["DetailedName", "DetailName", "FullName", "LongName"]),
+                "AffectedAsset": find_col(["AffectedAsset", "AssetName", "Asset", "Host", "Hostname", "Target", "Resource"]),
+                "AssetID": find_col(["AssetID", "AssetId", "ResourceID"]),
+                "AssetType": find_col(["AssetType", "ResourceType", "TargetType"]),
+                "RecommendedAction": find_col(["RecommendedAction", "Remediation", "Resolution", "Fix", "Mitigation", "RemediationAction"]),
+                "Version": find_col(["Version", "CurrentVersion", "InstalledVersion", "AffectedVersion"]),
+                "FixedVersion": find_col(["FixedVersion", "PatchedVersion", "RemediatedVersion", "SafeVersion"]),
+                "Score": find_col(["Score", "CVSSScore", "CVSS", "CVSSv3", "CVSSv2", "RiskScore"]),
+                "CVSSSeverity": find_col(["CVSSSeverity", "CVSSSev"]),
+                "VendorSeverity": find_col(["VendorSeverity", "VendorSev"]),
+                "NvdSeverity": find_col(["NvdSeverity", "NVDSev"]),
+                "HasExploit": find_col(["HasExploit", "ExploitAvailable", "Exploitable"]),
+                "HasCisaKev": find_col(["HasCisaKev", "HasCisaKnownExploit", "CisaKEV", "CISAKEV"]),
+                "FindingStatus": find_col(["FindingStatus", "FindingStat"]),
+                "FirstDetected": find_col(["FirstDetected", "FirstDetec", "FirstSeen", "DetectedDate"]),
+                "LastDetected": find_col(["LastDetected", "LastDetec", "LastSeen"]),
+                "ResolvedAt": find_col(["ResolvedAt", "ResolvedDate", "FixedDate", "ClosedDate"]),
+                "Resolution": find_col(["Resolution", "ResolutionStatus"]),
+                "LocationPath": find_col(["LocationPath", "Location", "Path", "FilePath"]),
+                "Projects": find_col(["Projects", "Project", "Application", "App", "ProjectName"]),
+                "Link": find_col(["Link", "URL", "WizURL", "Reference", "ReferenceLink", "DetectionLink"]),
+                "WizURL": find_col(["WizURL", "WizLink"]),
+                "CloudProvider": find_col(["CloudProvider", "Provider", "Cloud"]),
+                "CloudPlatform": find_col(["CloudPlatform", "Platform"]),
+                "Namespaces": find_col(["Namespaces", "Namespace", "NS"]),
+                "Clusters": find_col(["Clusters", "Cluster", "K8sCluster"]),
+                "LOB": find_col(["LOB", "LineOfBusiness", "BusinessUnit"]),
+                "SubscriptionId": find_col(["SubscriptionId", "SubscriptionID", "SubID"]),
+                "SubscriptionName": find_col(["SubscriptionName", "SubName"]),
+                "Tags": find_col(["Tags", "Tag", "Labels"]),
+            }.items() if v is not None}
+
+            def gv(row, target_key):
+                mapped_col = mp.get(target_key)
+                if mapped_col and mapped_col in row:
+                    val = str(row[mapped_col]).strip()
+                    if val and val.lower() not in ["", "nan", "none", "na", "null"]:
+                        return val
+                return ""
+
+            ni = []
+            for idx, row in enumerate(df.to_dict(orient="records")):
+                if is_pivot_or_summary_row(row):
+                    continue
+                rec = {k: (str(v).strip() if v is not None else "") for k, v in row.items()}
+                rec["UploadBatch"] = dsn
+                rec["SourceFormat"] = "CONTAINER"
+                issue_id = gv(row, "IssueID")
+                rec["IssueID"] = issue_id if issue_id else f"VULN-{idx}"
+                display_id = gv(row, "DisplayID")
+                if display_id and display_id.upper().startswith("CVE"):
+                    rec["DisplayID"] = display_id
+                elif issue_id and issue_id.upper().startswith("CVE"):
+                    rec["DisplayID"] = issue_id
+                elif display_id:
+                    rec["DisplayID"] = display_id
+                else:
+                    rec["DisplayID"] = rec["IssueID"]
+                sev = gv(row, "Severity")
+                sev_lower = sev.lower() if sev else ""
+                rec["Severity"] = ("Critical" if "critical" in sev_lower else "High" if "high" in sev_lower else "Medium" if "medium" in sev_lower or "moderate" in sev_lower else "Low" if "low" in sev_lower else "Info" if "info" in sev_lower else sev) if sev else "Medium"
+                status = gv(row, "Status")
+                rec["Status"] = status if status else "Open"
+                category = gv(row, "Category")
+                rec["Category"] = category if category else "Uncategorized"
+                rec["Department"] = gv(row, "Department")
+                rec["AssignedTo"] = gv(row, "AssignedTo")
+                rec["DiscoveredDate"] = gv(row, "DiscoveredDate")
+                due = gv(row, "DueDate")
+                if due:
+                    rec["DueDate"] = due
+                elif rec["DiscoveredDate"]:
+                    try:
+                        dt = pd.to_datetime(rec["DiscoveredDate"], errors='coerce')
+                        if pd.notna(dt):
+                            dys = 7 if rec["Severity"] == "Critical" else (30 if rec["Severity"] == "High" else 60)
+                            rec["DueDate"] = (dt + pd.Timedelta(days=dys)).strftime("%Y-%m-%d")
+                    except:
+                        rec["DueDate"] = ""
+                else:
                     rec["DueDate"] = ""
-            else:
-                rec["DueDate"] = ""
+                rec["Name"] = gv(row, "Name")
+                rec["DetailedName"] = gv(row, "DetailedName")
+                orig_desc = gv(row, "Description")
+                rec["Description"] = orig_desc if (orig_desc and orig_desc.strip() and orig_desc.lower() not in ["na", "none", ""]) else generate_short_description(rec["Name"], rec["DisplayID"], rec["Severity"], gv(row, "AssetType"), rec["DetailedName"])
+                rec["VulnDescription"] = generate_short_description(rec["Name"], rec["DisplayID"], rec["Severity"], gv(row, "AssetType"), rec["DetailedName"])
+                rec["AffectedAsset"] = gv(row, "AffectedAsset")
+                rec["AssetID"] = gv(row, "AssetID")
+                rec["AssetType"] = gv(row, "AssetType")
+                rem = gv(row, "RecommendedAction")
+                rec["RecommendedAction"] = rem if rem else "No action provided"
+                rec["ReferenceLinks"] = gv(row, "Link")
+                rec["WizURL"] = gv(row, "WizURL")
+                rec["Version"] = gv(row, "Version")
+                rec["FixedVersion"] = gv(row, "FixedVersion")
+                rec["Score"] = gv(row, "Score")
+                rec["CVSSSeverity"] = gv(row, "CVSSSeverity")
+                rec["VendorSeverity"] = gv(row, "VendorSeverity")
+                rec["NvdSeverity"] = gv(row, "NvdSeverity")
+                rec["HasExploit"] = gv(row, "HasExploit")
+                rec["HasCisaKev"] = gv(row, "HasCisaKev")
+                rec["FindingStatus"] = gv(row, "FindingStatus")
+                rec["FirstDetected"] = gv(row, "FirstDetected")
+                rec["LastDetected"] = gv(row, "LastDetected")
+                rec["ResolvedAt"] = gv(row, "ResolvedAt")
+                rec["Resolution"] = gv(row, "Resolution")
+                rec["LocationPath"] = gv(row, "LocationPath")
+                rec["Projects"] = gv(row, "Projects")
+                rec["CloudProvider"] = gv(row, "CloudProvider")
+                rec["CloudPlatform"] = gv(row, "CloudPlatform")
+                rec["Namespaces"] = gv(row, "Namespaces")
+                rec["Clusters"] = gv(row, "Clusters")
+                rec["LOB"] = gv(row, "LOB")
+                rec["SubscriptionId"] = gv(row, "SubscriptionId")
+                rec["SubscriptionName"] = gv(row, "SubscriptionName")
+                rec["Tags"] = gv(row, "Tags")
+                if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
+                    auto_owner = get_pod_owner(rec.get("SubscriptionName"), rec.get("SubscriptionId"), rec.get("AffectedAsset"), rec.get("Projects"))
+                    if auto_owner:
+                        rec["AssignedTo"] = auto_owner
+                lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
+                if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
+                    continue
+                subtype = classify_container_subtype({"ExploitAvailable": rec.get("HasExploit", ""), "Description": rec.get("Description", ""), "Tags": rec.get("Tags", ""), "DetectionMethod": rec.get("FindingStatus", ""), "Category": rec.get("Category", ""), "UploadBatch": rec.get("UploadBatch", "")})
+                rec["SubType"] = subtype
+                rec["ContainerSubType"] = subtype
+                ni.append(rec)
 
-            rec["Name"] = gv(row, "Name")
-            rec["DetailedName"] = gv(row, "DetailedName")
+            attach_file_hash(ni, file_hash)
+            insert_records(ni, skip_existing_check=True)
+            print(f"Total upload time: {time.time() - t_start:.2f} sec | Rows: {len(ni)}")
+            log_upload_history(dsn, fn, "CONTAINER", len(ni))
+            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
 
-            # Get original description or generate AI-like short description
-            orig_desc = gv(row, "Description")
-            if orig_desc and orig_desc.strip() and orig_desc.lower() not in ["na", "none", ""]:
-                rec["Description"] = orig_desc
-            else:
-                # Generate short 5-7 word description
-                rec["Description"] = generate_short_description(
-                    rec["Name"],
-                    rec["DisplayID"],
-                    rec["Severity"],
-                    gv(row, "AssetType"),
-                    rec["DetailedName"]
-                )
-
-            # Generate VulnDescription - short 5-7 word vulnerability description
-            rec["VulnDescription"] = generate_short_description(
-                rec["Name"],
-                rec["DisplayID"],
-                rec["Severity"],
-                gv(row, "AssetType"),
-                rec["DetailedName"]
-            )
-
-            rec["AffectedAsset"] = gv(row, "AffectedAsset")
-            rec["AssetID"] = gv(row, "AssetID")
-            rec["AssetType"] = gv(row, "AssetType")
-
-            rem = gv(row, "RecommendedAction")
-            rec["RecommendedAction"] = rem if rem else "No action provided"
-
-            rec["ReferenceLinks"] = gv(row, "Link")
-            rec["WizURL"] = gv(row, "WizURL")
-
-            rec["Version"] = gv(row, "Version")
-            rec["FixedVersion"] = gv(row, "FixedVersion")
-            rec["Score"] = gv(row, "Score")
-            rec["CVSSSeverity"] = gv(row, "CVSSSeverity")
-            rec["VendorSeverity"] = gv(row, "VendorSeverity")
-            rec["NvdSeverity"] = gv(row, "NvdSeverity")
-            rec["HasExploit"] = gv(row, "HasExploit")
-            rec["HasCisaKev"] = gv(row, "HasCisaKev")
-            rec["FindingStatus"] = gv(row, "FindingStatus")
-            rec["FirstDetected"] = gv(row, "FirstDetected")
-            rec["LastDetected"] = gv(row, "LastDetected")
-            rec["ResolvedAt"] = gv(row, "ResolvedAt")
-            rec["Resolution"] = gv(row, "Resolution")
-            rec["LocationPath"] = gv(row, "LocationPath")
-            rec["Projects"] = gv(row, "Projects")
-            rec["CloudProvider"] = gv(row, "CloudProvider")
-            rec["CloudPlatform"] = gv(row, "CloudPlatform")
-            rec["Namespaces"] = gv(row, "Namespaces")
-            rec["Clusters"] = gv(row, "Clusters")
-            rec["LOB"] = gv(row, "LOB")
-            rec["SubscriptionId"] = gv(row, "SubscriptionId")
-            rec["SubscriptionName"] = gv(row, "SubscriptionName")
-            rec["Tags"] = gv(row, "Tags")
-
-            # Auto-assign POD owner based on subscription name/ID
-            if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
-                auto_owner = get_pod_owner(rec.get("SubscriptionName"), rec.get("SubscriptionId"), rec.get("AffectedAsset"), rec.get("Projects"))
-                if auto_owner:
-                    rec["AssignedTo"] = auto_owner
-
-            # Filter: Only include Wynk LOB data (skip if LOB exists and is not Wynk)
-            # If LOB is empty, include the data
-            lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
-            if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
-                print(f"Skipping row {idx}: LOB={rec['LOB']} (not Wynk)")
-                continue  # Skip non-Wynk data
-
-            # richyrik - classify container sub-type from the normalised record fields
-            subtype = classify_container_subtype({
-                "ExploitAvailable": rec.get("HasExploit", ""),
-                "Description": rec.get("Description", ""),
-                "Tags": rec.get("Tags", ""),
-                "DetectionMethod": rec.get("FindingStatus", ""),  # closest proxy field
-                "Category": rec.get("Category", ""),
-                "UploadBatch": rec.get("UploadBatch", ""),
-            })
-            rec["SubType"] = subtype           # used by frontend JS fallback logic
-            rec["ContainerSubType"] = subtype  # used by /api/container_analytics aggregation
-
-            if idx < 5:
-                print(f"Row {idx}: IssueID={rec['IssueID']}, DisplayID={rec['DisplayID']}, Severity={rec['Severity']}, LOB={rec['LOB']}, SubType={subtype}")
-
-            ni.append(rec)
-        t_norm_end = time.time()
-
-        t_db_start = time.time()
-        attach_file_hash(ni, file_hash)
-        insert_records(ni, skip_existing_check=True)
-        t_db_end = time.time()
-        t_total_end = time.time()
-        
-        # Optimization: Aggregated Performance Telemetry
-        print("--- UPLOAD PERFORMANCE METRICS ---")
-        print(f"Uploaded rows: {len(ni)}")
-        print(f"Mapping used: {used_mapping}")
-        print(f"Read Excel: {t_read_end - t_read_start:.2f} sec")
-        print(f"Schema Mapping: {t_map_end - t_map_start:.2f} sec")
-        print(f"Normalization: {t_norm_end - t_norm_start:.2f} sec")
-        print(f"Database Save: {t_db_end - t_db_start:.2f} sec")
-        print(f"Total Upload: {t_total_end - t_start:.2f} sec")
-        print("----------------------------------")
-
-        log_upload_history(dsn, fn, "CONTAINER", len(ni))
-        mexwf = {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
+        mexwf = await asyncio.to_thread(_process)
+        if isinstance(mexwf, dict) and "_error" in mexwf:
+            err = mexwf.pop("_error")
+            return JSONResponse(status_code=400, content={"error": err, **mexwf})
         return mexwf
     except Exception as e:
         import traceback
         print(traceback.format_exc())
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+# richyrik
 @app.post("/api/upload-report-with-sheet")
 async def pu_with_sheet(
     file: UploadFile = File(...),
@@ -3372,7 +3244,7 @@ async def pu_with_sheet(
     sheetName: str = Form(...),
     allowDuplicateUpload: str = Form("false")
 ):
-    """Upload with manually selected sheet name."""
+    import asyncio
     t_start = time.time()
     try:
         dsn = datasetName
@@ -3391,280 +3263,218 @@ async def pu_with_sheet(
 
         fn = file.filename.lower()
 
-        print(f"Manual sheet selection: {sheetName}")
+        def _process_sheet():
+            wb = load_workbook(BytesIO(fendralis), read_only=True, data_only=True)
+            ws = wb[sheetName]
+            header_row, _, _ = detect_header_row(ws)
+            wb.close()
 
-        # Detect header row for the selected sheet
-        wb = load_workbook(BytesIO(fendralis), read_only=True, data_only=True)
-        ws = wb[sheetName]
-        header_row, _, _ = detect_header_row(ws)
-        wb.close()
+            df = read_selected_sheet(fendralis, sheetName, header_row)
+            df = df.fillna("").astype(str).replace(["nan", "NaN", "NaT", "<NA>", "None", "NA"], "").dropna(how='all')
+            if df.empty:
+                return {"_error": "Selected sheet is empty."}
 
-        df = read_selected_sheet(fendralis, sheetName, header_row)
+            rc = df.columns.tolist()
+            rc_lower = {c.lower(): c for c in rc}
+            file_format = detect_file_format(rc)
+            print(f"Detected file format: {file_format}")
 
-        # Continue with the same processing as main upload
-        df = df.fillna("").astype(str).replace(["nan", "NaN", "NaT", "<NA>", "None", "NA"], "").dropna(how='all')
-        if df.empty:
-            return JSONResponse(status_code=400, content={"error": "Selected sheet is empty."})
+            if file_format == "VAPT":
+                ni = []
+                for idx, row in enumerate(df.to_dict(orient="records")):
+                    if is_pivot_or_summary_row(row):
+                        continue
+                    rec = process_vapt_row_new(row, idx, dsn, rc_lower)
+                    if rec:
+                        ni.append(rec)
+                attach_file_hash(ni, file_hash)
+                insert_records(ni, skip_existing_check=True)
+                log_upload_history(dsn, fn, "VAPT", len(ni))
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT"}
 
-        rc = df.columns.tolist()
-        rc_lower = {c.lower(): c for c in rc}
+            elif file_format == "SAST_DAST":
+                ni = []
+                for idx, row in enumerate(df.to_dict(orient="records")):
+                    if is_pivot_or_summary_row(row):
+                        continue
+                    rec = process_vapt_row(row, idx, dsn, rc_lower)
+                    if rec:
+                        ni.append(rec)
+                attach_file_hash(ni, file_hash)
+                insert_records(ni, skip_existing_check=True)
+                log_upload_history(dsn, fn, "SAST_DAST", len(ni))
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
 
-        file_format = detect_file_format(rc)
-        print(f"Detected file format: {file_format}")
+            elif file_format == "CSPM":
+                ni = []
+                for idx, row in enumerate(df.to_dict(orient="records")):
+                    if is_pivot_or_summary_row(row):
+                        continue
+                    rec = process_cspm_row(row, idx, dsn, rc_lower)
+                    if rec:
+                        ni.append(rec)
+                attach_file_hash(ni, file_hash)
+                insert_records(ni, skip_existing_check=True)
+                log_upload_history(dsn, fn, "CSPM", len(ni))
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM"}
 
-        if file_format == "VAPT":
+            def find_col(patterns):
+                for p in patterns:
+                    p_lower = p.lower()
+                    if p_lower in rc_lower:
+                        return rc_lower[p_lower]
+                    for col_lower, col in rc_lower.items():
+                        if p_lower in col_lower or col_lower in p_lower:
+                            return col
+                return None
+
+            mp = {k: v for k, v in {
+                "IssueID": find_col(["ID", "IssueID", "VulnID", "CVE", "VulnerabilityID"]),
+                "DisplayID": find_col(["ID", "DisplayID", "CVE", "VulnerabilityID"]),
+                "Name": find_col(["Name", "VulnerabilityName", "Title", "Summary"]),
+                "Severity": find_col(["Severity", "CVSSSeverity", "VendorSeverity", "NvdSeverity", "Risk", "RiskLevel"]),
+                "Status": find_col(["Status", "State", "FindingStatus"]),
+                "Department": find_col(["Department", "AssignedTeam", "Team", "Owner", "LOB"]),
+                "AssignedTo": find_col(["AssignedTo", "Assignee", "Owner"]),
+                "Category": find_col(["Category", "Type", "VulnType", "VulnerabilityType"]),
+                "DueDate": find_col(["DueDate", "Due", "Deadline", "TargetDate"]),
+                "DiscoveredDate": find_col(["DiscoveredDate", "FirstDetected", "DetectedDate", "FoundDate", "CreatedDate"]),
+                "Description": find_col(["Description", "Summary", "Details", "VulnerabilityDescription"]),
+                "DetailedName": find_col(["DetailedName", "DetailName", "FullName", "LongName"]),
+                "AffectedAsset": find_col(["AffectedAsset", "AssetName", "Asset", "Host", "Hostname", "Target", "Resource"]),
+                "AssetID": find_col(["AssetID", "AssetId", "ResourceID"]),
+                "AssetType": find_col(["AssetType", "ResourceType", "TargetType"]),
+                "RecommendedAction": find_col(["RecommendedAction", "Remediation", "Resolution", "Fix", "Mitigation", "RemediationAction"]),
+                "Version": find_col(["Version", "CurrentVersion", "InstalledVersion", "AffectedVersion"]),
+                "FixedVersion": find_col(["FixedVersion", "PatchedVersion", "RemediatedVersion", "SafeVersion"]),
+                "Score": find_col(["Score", "CVSSScore", "CVSS", "CVSSv3", "CVSSv2", "RiskScore"]),
+                "CVSSSeverity": find_col(["CVSSSeverity", "CVSSSev"]),
+                "VendorSeverity": find_col(["VendorSeverity", "VendorSev"]),
+                "NvdSeverity": find_col(["NvdSeverity", "NVDSev"]),
+                "HasExploit": find_col(["HasExploit", "ExploitAvailable", "Exploitable"]),
+                "HasCisaKev": find_col(["HasCisaKev", "HasCisaKnownExploit", "CisaKEV", "CISAKEV"]),
+                "FindingStatus": find_col(["FindingStatus", "FindingStat"]),
+                "FirstDetected": find_col(["FirstDetected", "FirstDetec", "FirstSeen", "DetectedDate"]),
+                "LastDetected": find_col(["LastDetected", "LastDetec", "LastSeen"]),
+                "ResolvedAt": find_col(["ResolvedAt", "ResolvedDate", "FixedDate", "ClosedDate"]),
+                "Resolution": find_col(["Resolution", "ResolutionStatus"]),
+                "LocationPath": find_col(["LocationPath", "Location", "Path", "FilePath"]),
+                "Projects": find_col(["Projects", "Project", "Application", "App", "ProjectName"]),
+                "Link": find_col(["Link", "URL", "WizURL", "Reference", "ReferenceLink", "DetectionLink"]),
+                "WizURL": find_col(["WizURL", "WizLink"]),
+                "CloudProvider": find_col(["CloudProvider", "Provider", "Cloud"]),
+                "CloudPlatform": find_col(["CloudPlatform", "Platform"]),
+                "Namespaces": find_col(["Namespaces", "Namespace", "NS"]),
+                "Clusters": find_col(["Clusters", "Cluster", "K8sCluster"]),
+                "LOB": find_col(["LOB", "LineOfBusiness", "BusinessUnit"]),
+                "SubscriptionId": find_col(["SubscriptionId", "SubscriptionID", "SubID"]),
+                "SubscriptionName": find_col(["SubscriptionName", "SubName"]),
+                "Tags": find_col(["Tags", "Tag", "Labels"]),
+            }.items() if v is not None}
+
+            def gv(row, target_key):
+                mapped_col = mp.get(target_key)
+                if mapped_col and mapped_col in row:
+                    val = str(row[mapped_col]).strip()
+                    if val and val.lower() not in ["", "nan", "none", "na", "null"]:
+                        return val
+                return ""
+
             ni = []
-            ri = df.to_dict(orient="records")
-            for idx, row in enumerate(ri):
+            for idx, row in enumerate(df.to_dict(orient="records")):
                 if is_pivot_or_summary_row(row):
-                    print(f"Skipping pivot/summary row {idx}")
                     continue
-                rec = process_vapt_row_new(row, idx, dsn, rc_lower)
-                if rec:
-                    ni.append(rec)
-            attach_file_hash(ni, file_hash)
-            insert_records(ni, skip_existing_check=True)
-            log_upload_history(dsn, fn, "VAPT", len(ni))
-            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT"}
-
-        elif file_format == "SAST_DAST":
-            ni = []
-            ri = df.to_dict(orient="records")
-            for idx, row in enumerate(ri):
-                if is_pivot_or_summary_row(row):
-                    print(f"Skipping pivot/summary row {idx}")
-                    continue
-                rec = process_vapt_row(row, idx, dsn, rc_lower)
-                if rec:
-                    ni.append(rec)
-            attach_file_hash(ni, file_hash)
-            insert_records(ni, skip_existing_check=True)
-            log_upload_history(dsn, fn, "SAST_DAST", len(ni))
-            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
-
-        elif file_format == "CSPM":
-            ni = []
-            ri = df.to_dict(orient="records")
-            for idx, row in enumerate(ri):
-                if is_pivot_or_summary_row(row):
-                    print(f"Skipping pivot/summary row {idx}")
-                    continue
-                rec = process_cspm_row(row, idx, dsn, rc_lower)
-                if rec:
-                    ni.append(rec)
-            attach_file_hash(ni, file_hash)
-            insert_records(ni, skip_existing_check=True)
-            log_upload_history(dsn, fn, "CSPM", len(ni))
-            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM"}
-
-        def find_col(patterns):
-            for p in patterns:
-                p_lower = p.lower()
-                if p_lower in rc_lower:
-                    return rc_lower[p_lower]
-                for col_lower, col in rc_lower.items():
-                    if p_lower in col_lower or col_lower in p_lower:
-                        return col
-            return None
-
-        mp = {
-            "IssueID": find_col(["ID", "IssueID", "VulnID", "CVE", "VulnerabilityID"]),
-            "DisplayID": find_col(["ID", "DisplayID", "CVE", "VulnerabilityID"]),
-            "Name": find_col(["Name", "VulnerabilityName", "Title", "Summary"]),
-            "Severity": find_col(["Severity", "CVSSSeverity", "VendorSeverity", "NvdSeverity", "Risk", "RiskLevel"]),
-            "Status": find_col(["Status", "State", "FindingStatus"]),
-            "Department": find_col(["Department", "AssignedTeam", "Team", "Owner", "LOB"]),
-            "AssignedTo": find_col(["AssignedTo", "Assignee", "Owner"]),
-            "Category": find_col(["Category", "Type", "VulnType", "VulnerabilityType"]),
-            "DueDate": find_col(["DueDate", "Due", "Deadline", "TargetDate"]),
-            "DiscoveredDate": find_col(["DiscoveredDate", "FirstDetected", "DetectedDate", "FoundDate", "CreatedDate"]),
-            "Description": find_col(["Description", "Summary", "Details", "VulnerabilityDescription"]),
-            "DetailedName": find_col(["DetailedName", "DetailName", "FullName", "LongName"]),
-            "AffectedAsset": find_col(["AffectedAsset", "AssetName", "Asset", "Host", "Hostname", "Target", "Resource"]),
-            "AssetID": find_col(["AssetID", "AssetId", "ResourceID"]),
-            "AssetType": find_col(["AssetType", "ResourceType", "TargetType"]),
-            "RecommendedAction": find_col(["RecommendedAction", "Remediation", "Resolution", "Fix", "Mitigation", "RemediationAction"]),
-            "Version": find_col(["Version", "CurrentVersion", "InstalledVersion", "AffectedVersion"]),
-            "FixedVersion": find_col(["FixedVersion", "PatchedVersion", "RemediatedVersion", "SafeVersion"]),
-            "Score": find_col(["Score", "CVSSScore", "CVSS", "CVSSv3", "CVSSv2", "RiskScore"]),
-            "CVSSSeverity": find_col(["CVSSSeverity", "CVSSSev"]),
-            "VendorSeverity": find_col(["VendorSeverity", "VendorSev"]),
-            "NvdSeverity": find_col(["NvdSeverity", "NVDSev"]),
-            "HasExploit": find_col(["HasExploit", "ExploitAvailable", "Exploitable"]),
-            "HasCisaKev": find_col(["HasCisaKev", "HasCisaKnownExploit", "CisaKEV", "CISAKEV"]),
-            "FindingStatus": find_col(["FindingStatus", "FindingStat"]),
-            "FirstDetected": find_col(["FirstDetected", "FirstDetec", "FirstSeen", "DetectedDate"]),
-            "LastDetected": find_col(["LastDetected", "LastDetec", "LastSeen"]),
-            "ResolvedAt": find_col(["ResolvedAt", "ResolvedDate", "FixedDate", "ClosedDate"]),
-            "Resolution": find_col(["Resolution", "ResolutionStatus"]),
-            "LocationPath": find_col(["LocationPath", "Location", "Path", "FilePath"]),
-            "Projects": find_col(["Projects", "Project", "Application", "App", "ProjectName"]),
-            "Link": find_col(["Link", "URL", "WizURL", "Reference", "ReferenceLink", "DetectionLink"]),
-            "WizURL": find_col(["WizURL", "WizLink"]),
-            "CloudProvider": find_col(["CloudProvider", "Provider", "Cloud"]),
-            "CloudPlatform": find_col(["CloudPlatform", "Platform"]),
-            "Namespaces": find_col(["Namespaces", "Namespace", "NS"]),
-            "Clusters": find_col(["Clusters", "Cluster", "K8sCluster"]),
-            "LOB": find_col(["LOB", "LineOfBusiness", "BusinessUnit"]),
-            "SubscriptionId": find_col(["SubscriptionId", "SubscriptionID", "SubID"]),
-            "SubscriptionName": find_col(["SubscriptionName", "SubName"]),
-            "Tags": find_col(["Tags", "Tag", "Labels"]),
-        }
-        mp = {k: v for k, v in mp.items() if v is not None}
-
-        ni = []
-        ri = df.to_dict(orient="records")
-
-        def gv(row, target_key):
-            mapped_col = mp.get(target_key)
-            if mapped_col and mapped_col in row:
-                val = str(row[mapped_col]).strip()
-                if val and val.lower() not in ["", "nan", "none", "na", "null"]:
-                    return val
-            return ""
-
-        for idx, row in enumerate(ri):
-            if is_pivot_or_summary_row(row):
-                print(f"Skipping pivot/summary row {idx}")
-                continue
-            rec = {}
-            for k, v in row.items():
-                rec[k] = str(v).strip() if v is not None else ""
-
-            rec["UploadBatch"] = dsn
-            rec["SourceFormat"] = "CONTAINER"  # Mark as Container/Image format
-
-            issue_id = gv(row, "IssueID")
-            rec["IssueID"] = issue_id if issue_id else f"VULN-{idx}"
-
-            display_id = gv(row, "DisplayID")
-            if display_id and display_id.upper().startswith("CVE"):
-                rec["DisplayID"] = display_id
-            elif issue_id and issue_id.upper().startswith("CVE"):
-                rec["DisplayID"] = issue_id
-            elif display_id:
-                rec["DisplayID"] = display_id
-            else:
-                rec["DisplayID"] = rec["IssueID"]
-
-            sev = gv(row, "Severity")
-            if sev:
-                sev_lower = sev.lower()
-                if "critical" in sev_lower:
-                    rec["Severity"] = "Critical"
-                elif "high" in sev_lower:
-                    rec["Severity"] = "High"
-                elif "medium" in sev_lower or "moderate" in sev_lower:
-                    rec["Severity"] = "Medium"
-                elif "low" in sev_lower:
-                    rec["Severity"] = "Low"
-                elif "info" in sev_lower:
-                    rec["Severity"] = "Info"
+                rec = {k: (str(v).strip() if v is not None else "") for k, v in row.items()}
+                rec["UploadBatch"] = dsn
+                rec["SourceFormat"] = "CONTAINER"
+                issue_id = gv(row, "IssueID")
+                rec["IssueID"] = issue_id if issue_id else f"VULN-{idx}"
+                display_id = gv(row, "DisplayID")
+                if display_id and display_id.upper().startswith("CVE"):
+                    rec["DisplayID"] = display_id
+                elif issue_id and issue_id.upper().startswith("CVE"):
+                    rec["DisplayID"] = issue_id
+                elif display_id:
+                    rec["DisplayID"] = display_id
                 else:
-                    rec["Severity"] = sev
-            else:
-                rec["Severity"] = "Medium"
-
-            status = gv(row, "Status")
-            rec["Status"] = status if status else "Open"
-            category = gv(row, "Category")
-            rec["Category"] = category if category else "Uncategorized"
-            rec["Department"] = gv(row, "Department")
-            rec["AssignedTo"] = gv(row, "AssignedTo")
-            rec["DiscoveredDate"] = gv(row, "DiscoveredDate")
-
-            due = gv(row, "DueDate")
-            if due:
-                rec["DueDate"] = due
-            elif rec["DiscoveredDate"]:
-                try:
-                    dt = pd.to_datetime(rec["DiscoveredDate"], errors='coerce')
-                    if pd.notna(dt):
-                        dys = 7 if rec["Severity"] == "Critical" else (30 if rec["Severity"] == "High" else 60)
-                        rec["DueDate"] = (dt + pd.Timedelta(days=dys)).strftime("%Y-%m-%d")
-                except:
+                    rec["DisplayID"] = rec["IssueID"]
+                sev = gv(row, "Severity")
+                sev_lower = sev.lower() if sev else ""
+                rec["Severity"] = ("Critical" if "critical" in sev_lower else "High" if "high" in sev_lower else "Medium" if "medium" in sev_lower or "moderate" in sev_lower else "Low" if "low" in sev_lower else "Info" if "info" in sev_lower else sev) if sev else "Medium"
+                status = gv(row, "Status")
+                rec["Status"] = status if status else "Open"
+                category = gv(row, "Category")
+                rec["Category"] = category if category else "Uncategorized"
+                rec["Department"] = gv(row, "Department")
+                rec["AssignedTo"] = gv(row, "AssignedTo")
+                rec["DiscoveredDate"] = gv(row, "DiscoveredDate")
+                due = gv(row, "DueDate")
+                if due:
+                    rec["DueDate"] = due
+                elif rec["DiscoveredDate"]:
+                    try:
+                        dt = pd.to_datetime(rec["DiscoveredDate"], errors='coerce')
+                        if pd.notna(dt):
+                            dys = 7 if rec["Severity"] == "Critical" else (30 if rec["Severity"] == "High" else 60)
+                            rec["DueDate"] = (dt + pd.Timedelta(days=dys)).strftime("%Y-%m-%d")
+                    except:
+                        rec["DueDate"] = ""
+                else:
                     rec["DueDate"] = ""
-            else:
-                rec["DueDate"] = ""
+                rec["Name"] = gv(row, "Name")
+                rec["DetailedName"] = gv(row, "DetailedName")
+                orig_desc = gv(row, "Description")
+                rec["Description"] = orig_desc if (orig_desc and orig_desc.strip() and orig_desc.lower() not in ["na", "none", ""]) else generate_short_description(rec["Name"], rec["DisplayID"], rec["Severity"], gv(row, "AssetType"), rec["DetailedName"])
+                rec["VulnDescription"] = generate_short_description(rec["Name"], rec["DisplayID"], rec["Severity"], gv(row, "AssetType"), rec["DetailedName"])
+                rec["AffectedAsset"] = gv(row, "AffectedAsset")
+                rec["AssetID"] = gv(row, "AssetID")
+                rec["AssetType"] = gv(row, "AssetType")
+                rem = gv(row, "RecommendedAction")
+                rec["RecommendedAction"] = rem if rem else "No action provided"
+                rec["ReferenceLinks"] = gv(row, "Link")
+                rec["WizURL"] = gv(row, "WizURL")
+                rec["Version"] = gv(row, "Version")
+                rec["FixedVersion"] = gv(row, "FixedVersion")
+                rec["Score"] = gv(row, "Score")
+                rec["CVSSSeverity"] = gv(row, "CVSSSeverity")
+                rec["VendorSeverity"] = gv(row, "VendorSeverity")
+                rec["NvdSeverity"] = gv(row, "NvdSeverity")
+                rec["HasExploit"] = gv(row, "HasExploit")
+                rec["HasCisaKev"] = gv(row, "HasCisaKev")
+                rec["FindingStatus"] = gv(row, "FindingStatus")
+                rec["FirstDetected"] = gv(row, "FirstDetected")
+                rec["LastDetected"] = gv(row, "LastDetected")
+                rec["ResolvedAt"] = gv(row, "ResolvedAt")
+                rec["Resolution"] = gv(row, "Resolution")
+                rec["LocationPath"] = gv(row, "LocationPath")
+                rec["Projects"] = gv(row, "Projects")
+                rec["CloudProvider"] = gv(row, "CloudProvider")
+                rec["CloudPlatform"] = gv(row, "CloudPlatform")
+                rec["Namespaces"] = gv(row, "Namespaces")
+                rec["Clusters"] = gv(row, "Clusters")
+                rec["LOB"] = gv(row, "LOB")
+                rec["SubscriptionId"] = gv(row, "SubscriptionId")
+                rec["SubscriptionName"] = gv(row, "SubscriptionName")
+                rec["Tags"] = gv(row, "Tags")
+                if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
+                    auto_owner = get_pod_owner(rec.get("SubscriptionName", ""), rec.get("SubscriptionId", ""), rec.get("AffectedAsset", ""), rec.get("Projects", ""))
+                    if auto_owner:
+                        rec["AssignedTo"] = auto_owner
+                lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
+                if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
+                    continue
+                ni.append(rec)
 
-            rec["Name"] = gv(row, "Name")
-            rec["DetailedName"] = gv(row, "DetailedName")
+            attach_file_hash(ni, file_hash)
+            insert_records(ni, skip_existing_check=True)
+            log_upload_history(dsn, fn, "CONTAINER", len(ni))
+            print(f"Processed {len(ni)} rows from sheet '{sheetName}' in {time.time() - t_start:.2f} sec")
+            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
 
-            # Get original description or generate AI-like short description
-            orig_desc = gv(row, "Description")
-            if orig_desc and orig_desc.strip() and orig_desc.lower() not in ["na", "none", ""]:
-                rec["Description"] = orig_desc
-            else:
-                # Generate short 5-7 word description
-                rec["Description"] = generate_short_description(
-                    rec["Name"],
-                    rec["DisplayID"],
-                    rec["Severity"],
-                    gv(row, "AssetType"),
-                    rec["DetailedName"]
-                )
-
-            # Generate VulnDescription - short 5-7 word vulnerability description
-            rec["VulnDescription"] = generate_short_description(
-                rec["Name"],
-                rec["DisplayID"],
-                rec["Severity"],
-                gv(row, "AssetType"),
-                rec["DetailedName"]
-            )
-
-            rec["AffectedAsset"] = gv(row, "AffectedAsset")
-            rec["AssetID"] = gv(row, "AssetID")
-            rec["AssetType"] = gv(row, "AssetType")
-            rem = gv(row, "RecommendedAction")
-            rec["RecommendedAction"] = rem if rem else "No action provided"
-            rec["ReferenceLinks"] = gv(row, "Link")
-            rec["WizURL"] = gv(row, "WizURL")
-            rec["Version"] = gv(row, "Version")
-            rec["FixedVersion"] = gv(row, "FixedVersion")
-            rec["Score"] = gv(row, "Score")
-            rec["CVSSSeverity"] = gv(row, "CVSSSeverity")
-            rec["VendorSeverity"] = gv(row, "VendorSeverity")
-            rec["NvdSeverity"] = gv(row, "NvdSeverity")
-            rec["HasExploit"] = gv(row, "HasExploit")
-            rec["HasCisaKev"] = gv(row, "HasCisaKev")
-            rec["FindingStatus"] = gv(row, "FindingStatus")
-            rec["FirstDetected"] = gv(row, "FirstDetected")
-            rec["LastDetected"] = gv(row, "LastDetected")
-            rec["ResolvedAt"] = gv(row, "ResolvedAt")
-            rec["Resolution"] = gv(row, "Resolution")
-            rec["LocationPath"] = gv(row, "LocationPath")
-            rec["Projects"] = gv(row, "Projects")
-            rec["CloudProvider"] = gv(row, "CloudProvider")
-            rec["CloudPlatform"] = gv(row, "CloudPlatform")
-            rec["Namespaces"] = gv(row, "Namespaces")
-            rec["Clusters"] = gv(row, "Clusters")
-            rec["LOB"] = gv(row, "LOB")
-            rec["SubscriptionId"] = gv(row, "SubscriptionId")
-            rec["SubscriptionName"] = gv(row, "SubscriptionName")
-            rec["Tags"] = gv(row, "Tags")
-
-            # Auto-assign POD owner based on subscription name/ID
-            if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
-                auto_owner = get_pod_owner(rec.get("SubscriptionName", ""), rec.get("SubscriptionId", ""), rec.get("AffectedAsset", ""), rec.get("Projects", ""))
-                if auto_owner:
-                    rec["AssignedTo"] = auto_owner
-
-            # Filter: Only include Wynk LOB data (skip if LOB exists and is not Wynk)
-            # If LOB is empty, include the data
-            lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
-            if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
-                print(f"Skipping row {idx}: LOB={rec['LOB']} (not Wynk)")
-                continue  # Skip non-Wynk data
-
-            ni.append(rec)
-
-        attach_file_hash(ni, file_hash)
-        insert_records(ni, skip_existing_check=True)
-
-        log_upload_history(dsn, fn, "CONTAINER", len(ni))
-        print(f"Processed {len(ni)} rows from sheet '{sheetName}'")
-        return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
+        mexwf = await asyncio.to_thread(_process_sheet)
+        if isinstance(mexwf, dict) and "_error" in mexwf:
+            return JSONResponse(status_code=400, content={"error": mexwf["_error"]})
+        return mexwf
     except Exception as e:
         import traceback
         print(traceback.format_exc())

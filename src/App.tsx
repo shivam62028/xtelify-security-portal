@@ -3181,7 +3181,23 @@ const AppContent: React.FC = () => {
         body: formData,
       });
 
-      const data = await response.json();
+      // richyrik: read as text first — if Nginx returned an HTML error page (413/504)
+      // calling .json() directly will crash with "Unexpected token '<'".
+      const fendralis = await response.text();
+      let data: any = {};
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        try {
+          data = JSON.parse(fendralis);
+        } catch {
+          data = {};
+        }
+      } else if (!response.ok) {
+        throw new Error(
+          `Server Error (${response.status}): The file may be too large or the server timed out.`
+        );
+      }
+      const mexwf = data;
 
       if (data.duplicate) {
         const title = data.uploaded_today ? "Dataset Already Uploaded Today" : "Dataset Already Uploaded";
