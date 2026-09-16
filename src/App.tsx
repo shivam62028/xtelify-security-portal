@@ -871,8 +871,8 @@ const AppContent: React.FC = () => {
 
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
 
-  const CONTAINER_COLS = ["ID", "Clusters", "SubscriptionName", "AssignedTo", "AffectedAsset", "VulnDescription", "Severity", "Status", "Version", "FixedVersion", "DueDate", "RecommendedAction"];
-  const CSPM_COLS = ["account_name", "AssignedTo", "VulnDescription", "finding_name", "resource_type", "resource_id", "resource_name", "impact", "Severity", "Status"];
+  const CONTAINER_COLS = ["ID", "Clusters", "SubscriptionName", "AssignedTo", "AffectedAsset", "VulnDescription", "Severity", "UpdateStatus", "Status", "Version", "FixedVersion", "DueDate", "RecommendedAction"];
+  const CSPM_COLS = ["account_name", "AssignedTo", "VulnDescription", "finding_name", "resource_type", "resource_id", "resource_name", "impact", "Severity", "UpdateStatus", "Status"];
   const SAST_DAST_COLS = ["issue_key", "VulnDescription", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Compliant_NonCompliant", "ExpectedTimeline", "Assignee", "MultipleAssignee", "ApplicationOwner"];
   const VAPT_COLS = ["IP", "UUID", "Vulnerability name", "Vulnerability description", "Solution", "Vulnerability Path", "Vulnerability family", "Vulnerability ID", "Application Owner", "Vulnerability Status", "lastSeen"];
 
@@ -1233,6 +1233,7 @@ const AppContent: React.FC = () => {
   ]), []);
 
   const colHeaderMap: Record<string, string> = {
+    UpdateStatus: "UPDATE STATUS",
     VulnDescription: "Vulnerability Description",
     Name: "Vulnerability Name",
     DisplayID: "Vulnerability ID",
@@ -5054,6 +5055,35 @@ const AppContent: React.FC = () => {
                                     : "bg-slate-100 text-slate-600";
                               return <td key={col} className="px-4 py-3"><span className={`px-2.5 py-1 rounded text-[10px] font-semibold ${sevClass}`}>{issue.Severity}</span></td>;
                             }
+                            if (col === "UpdateStatus") {
+                              return (
+                                <td key={col} className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                                  <select
+                                    className={`text-xs rounded border px-2 py-1 outline-none ${darkMode ? "bg-slate-700 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-700"}`}
+                                    value={["Resolved", "Progress", "Unresolved"].includes(issue.Status) ? issue.Status : (issue.Status === "Open" ? "Unresolved" : "Unresolved")}
+                                    onChange={async (e) => {
+                                      // richyrik
+                                      const fendralis = e.target.value;
+                                      try {
+                                        const res = await fetch("/api/issues/status", {
+                                          method: "PATCH",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ IssueID: String(issue.IssueID), new_status: fendralis })
+                                        });
+                                        if (res.ok) {
+                                          const mexwf = await res.json();
+                                          setAllIssues(prev => prev.map(i => i.IssueID === issue.IssueID ? { ...i, Status: mexwf.Status, ResolvedAt: mexwf.ResolvedAt } : i));
+                                        }
+                                      } catch (err) {}
+                                    }}
+                                  >
+                                    <option value="Resolved">Resolved</option>
+                                    <option value="Progress">Progress</option>
+                                    <option value="Unresolved">Unresolved</option>
+                                  </select>
+                                </td>
+                              );
+                            }
                             if (col === "Status") {
                               const statusClass = resolved
                                 ? "bg-slate-100 text-slate-600"
@@ -5120,31 +5150,6 @@ const AppContent: React.FC = () => {
                                     <div>
                                       <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Severity</p>
                                       <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Severity || "—"}</p>
-                                    </div>
-                                    <div>
-                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Update Status</p>
-                                      <select
-                                        className={`mt-1 text-sm rounded border px-2 py-1 outline-none ${darkMode ? "bg-slate-700 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-700"}`}
-                                        value={["Resolved", "Progress", "Unresolved"].includes(issue.Status) ? issue.Status : (issue.Status === "Open" ? "Unresolved" : "Unresolved")}
-                                        onChange={async (e) => {
-                                          const fendralis = e.target.value;
-                                          try {
-                                            const res = await fetch("/api/issues/status", {
-                                              method: "PATCH",
-                                              headers: { "Content-Type": "application/json" },
-                                              body: JSON.stringify({ IssueID: String(issue.IssueID), new_status: fendralis })
-                                            });
-                                            if (res.ok) {
-                                              const mexwf = await res.json();
-                                              setAllIssues(prev => prev.map(i => i.IssueID === issue.IssueID ? { ...i, Status: mexwf.Status, ResolvedAt: mexwf.ResolvedAt } : i));
-                                            }
-                                          } catch (err) {}
-                                        }}
-                                      >
-                                        <option value="Resolved">Resolved</option>
-                                        <option value="Progress">Progress</option>
-                                        <option value="Unresolved">Unresolved</option>
-                                      </select>
                                     </div>
                                     <div>
                                       <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Status</p>
