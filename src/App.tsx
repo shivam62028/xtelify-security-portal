@@ -3194,14 +3194,15 @@ const AppContent: React.FC = () => {
         return;
       }
 
+      // richyrik
+      let fendralis: any = formData;
       const response = await fetch(`${BACKEND_URL}/api/upload-report`, {
         method: "POST",
-        body: formData,
+        credentials: "include",
+        body: fendralis,
       });
 
-      // richyrik: read as text first — if Nginx returned an HTML error page (413/504)
-      // calling .json() directly will crash with "Unexpected token '<'".
-      const fendralis = await response.text();
+      fendralis = await response.text();
       let data: any = {};
       const contentType = response.headers.get("content-type") || "";
       if (contentType.includes("application/json")) {
@@ -3211,11 +3212,13 @@ const AppContent: React.FC = () => {
           data = {};
         }
       } else if (!response.ok) {
-        throw new Error(
-          `Server Error (${response.status}): The file may be too large or the server timed out.`
-        );
+        let mexwf = `Server Error (${response.status}).`;
+        if (response.status === 413) mexwf = "Server Error (413): Nginx blocked the upload because the file is too large.";
+        if (response.status === 504) mexwf = "Server Error (504): The server timed out processing this file.";
+        if (response.status === 403) mexwf = "Server Error (403): Forbidden. You lack permissions, or the corporate firewall blocked the payload.";
+        throw new Error(mexwf);
       }
-      const mexwf = data;
+      let mexwf = data;
 
       if (data.duplicate) {
         const title = data.uploaded_today ? "Dataset Already Uploaded Today" : "Dataset Already Uploaded";
@@ -5096,15 +5099,6 @@ const AppContent: React.FC = () => {
                                     <h4 className={`text-xs font-semibold uppercase tracking-wide ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                                       Vulnerability Details
                                     </h4>
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); handleResolutionUpdate(String(issue.IssueID), resolved ? "Open" : "Resolved"); }}
-                                      className={`px-3 py-1 rounded text-[10px] font-bold uppercase transition-colors ${resolved
-                                          ? (darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-200 text-slate-700 hover:bg-slate-300")
-                                          : (darkMode ? "bg-green-900/60 text-green-400 hover:bg-green-900/80" : "bg-green-100 text-green-700 hover:bg-green-200")
-                                        }`}
-                                    >
-                                      {resolved ? "Reopen Issue" : "Mark as Resolved"}
-                                    </button>
                                   </div>
                                   <div className="space-y-2">
                                     <div>
@@ -5122,6 +5116,39 @@ const AppContent: React.FC = () => {
                                     <div>
                                       <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>CVSS Score</p>
                                       <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Score || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Severity</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Severity || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Update Status</p>
+                                      <select
+                                        className={`mt-1 text-sm rounded border px-2 py-1 outline-none ${darkMode ? "bg-slate-700 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-700"}`}
+                                        value={["Resolved", "Progress", "Unresolved"].includes(issue.Status) ? issue.Status : (issue.Status === "Open" ? "Unresolved" : "Unresolved")}
+                                        onChange={async (e) => {
+                                          const fendralis = e.target.value;
+                                          try {
+                                            const res = await fetch("/api/issues/status", {
+                                              method: "PATCH",
+                                              headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({ IssueID: String(issue.IssueID), new_status: fendralis })
+                                            });
+                                            if (res.ok) {
+                                              const mexwf = await res.json();
+                                              setAllIssues(prev => prev.map(i => i.IssueID === issue.IssueID ? { ...i, Status: mexwf.Status, ResolvedAt: mexwf.ResolvedAt } : i));
+                                            }
+                                          } catch (err) {}
+                                        }}
+                                      >
+                                        <option value="Resolved">Resolved</option>
+                                        <option value="Progress">Progress</option>
+                                        <option value="Unresolved">Unresolved</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <p className={`text-[10px] uppercase ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Status</p>
+                                      <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{issue.Status || "—"}</p>
                                     </div>
                                     {resolved && issue.ResolvedAt && (
                                       <div>
@@ -6329,7 +6356,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
   const [loading, setLoading] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [lobFilter, setLobFilter] = useState("");
+  const [subTypeFilter, setSubTypeFilter] = useState("All");
   const [formatFilter, setFormatFilter] = useState("");
   const [exporting, setExporting] = useState(false);
   const [sortCol, setSortCol] = useState<string>("Shared");
@@ -6355,10 +6382,10 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
     const fendralis: Record<string, any> = {};
     if (dateFrom) fendralis.date_from = dateFrom;
     if (dateTo) fendralis.date_to = dateTo;
-    if (lobFilter) fendralis.lob = lobFilter;
+    if (subTypeFilter && subTypeFilter !== "All") fendralis.subType = subTypeFilter;
     if (formatFilter) fendralis.source_format = formatFilter;
     return { filters: fendralis, targetDates };
-  }, [dateFrom, dateTo, lobFilter, formatFilter, targetDates]);
+  }, [dateFrom, dateTo, subTypeFilter, formatFilter, targetDates]);
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
@@ -6516,10 +6543,17 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
             className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`} />
         </div>
+// richyrik
         <div className="flex flex-col gap-1">
-          <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>LOB</label>
-          <input type="text" placeholder="Filter LOB..." value={lobFilter} onChange={(e) => setLobFilter(e.target.value)}
-            className={`px-3 py-1.5 text-sm rounded-md border w-40 ${darkMode ? "bg-slate-900 border-slate-600 text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"}`} />
+          <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Container Sub-Type</label>
+          <select value={subTypeFilter} onChange={(e) => setSubTypeFilter(e.target.value)}
+            className={`px-3 py-1.5 text-sm rounded-md border w-40 ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`}>
+            <option value="All">All</option>
+            <option value="Zero day VA">Zero day VA</option>
+            <option value="Wiz CLI Integration">Wiz CLI Integration</option>
+            <option value="Compliance VA">Compliance VA</option>
+            <option value="Quarterly VA">Quarterly VA</option>
+          </select>
         </div>
         <div className="flex flex-col gap-1">
           <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Format</label>

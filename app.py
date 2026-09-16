@@ -1231,9 +1231,11 @@ def read_selected_sheet(file_bytes, sheet_name, header_row):
     return df
 
 app = FastAPI()
+# richyrik
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origin_regex=".*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -2251,11 +2253,10 @@ def _manager_report_pipeline(payload: dict) -> tuple:
         if filters.get("date_to"):
             date_q["$lte"] = filters["date_to"]
         match_stage["DiscoveredDate"] = date_q
-    if filters.get("lob"):
+    if filters.get("subType") and filters.get("subType") != "All":
         match_stage["$or"] = [
-            {"LOB Name": filters["lob"]},
-            {"LOBName": filters["lob"]},
-            {"LOB": filters["lob"]},
+            {"ContainerSubType": filters["subType"]},
+            {"Category": filters["subType"]}
         ]
 
     group_stage: dict = {
@@ -2329,11 +2330,12 @@ async def manager_report(req: Request):
 @app.post("/api/manager-report/export")
 async def manager_report_export(req: Request):
     try:
-        fendralis = await req.json()
+        payload = await req.json()
     except Exception:
-        fendralis = {}
+        payload = {}
     try:
-        _, data, target_dates = _manager_report_pipeline(fendralis)
+        from starlette.responses import StreamingResponse
+        _, data, target_dates = _manager_report_pipeline(payload)
         df = pd.DataFrame(data)
         col_order = ["LOB", "Application", "AppOwner", "Shared", "Closed", "Closure %"]
         for td in target_dates:
@@ -2347,9 +2349,44 @@ async def manager_report_export(req: Request):
             rename_map[f"Closure %_{td}"] = f"Closure % ({td})"
         df = df.rename(columns=rename_map)
         buf = io.BytesIO()
-        df.to_excel(buf, index=False, engine="xlsxwriter")
+        with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+            fendralis = payload.get("filters", {}).get("subType", "All")
+            if fendralis == "All":
+                fendralis = "Image VA"
+            
+            df.to_excel(writer, sheet_name="Report", index=False, startrow=1)
+            wb = writer.book
+            ws = writer.sheets["Report"]
+            title_fmt = wb.add_format({"bold": True, "align": "center", "valign": "vcenter", "bg_color": "#FFFF00", "border": 1})
+            header_fmt = wb.add_format({"bold": True, "align": "center", "valign": "vcenter", "font_color": "#8B0000", "border": 1})
+            green_fmt = wb.add_format({"bold": True, "align": "center", "font_color": "#008000"})
+            merge_fmt = wb.add_format({"bold": True, "align": "center", "valign": "vcenter", "border": 1, "text_wrap": True})
+            num_cols = len(df.columns)
+            ws.merge_range(0, 0, 0, num_cols - 1, fendralis, title_fmt)
+            for ci, cn in enumerate(df.columns):
+                ws.write(1, ci, cn, header_fmt)
+            last_closure_col = None
+            for ci, cn in enumerate(df.columns):
+                if cn.startswith("Closure %"):
+                    last_closure_col = ci
+            if last_closure_col is not None:
+                for ri in range(len(df)):
+                    ws.write(ri + 2, last_closure_col, df.iloc[ri, last_closure_col], green_fmt)
+            if "LOB" in df.columns:
+                lob_ci = list(df.columns).index("LOB")
+                lob_vals = df["LOB"].tolist()
+                i = 0
+                while i < len(lob_vals):
+                    j = i
+                    while j < len(lob_vals) and lob_vals[j] == lob_vals[i]:
+                        j += 1
+                    if j - i > 1:
+                        ws.merge_range(i + 2, lob_ci, j + 1, lob_ci, lob_vals[i], merge_fmt)
+                    i = j
+            for ci, cn in enumerate(df.columns):
+                max_len = max(df.iloc[:, ci].astype(str).map(len).max(), len(cn)) + 4
+                ws.set_column(ci, ci, max_len)
         buf.seek(0)
-        from starlette.responses import StreamingResponse
         mexwf = StreamingResponse(
             buf,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -2541,13 +2578,14 @@ async def update_issue_status(req: Request):
             return JSONResponse(status_code=400, content={"error": "Missing IssueID or new_status"})
             
         # richyrik
-        update_doc = {"Status": new_status}
-        if new_status == "Resolved":
+        fendralis = new_status
+        update_doc = {"Status": fendralis}
+        if fendralis == "Resolved":
             from datetime import datetime
-            fendralis = datetime.utcnow().isoformat() + "Z"
-            update_doc["ResolvedAt"] = fendralis
-            update_doc["ResolutionDate"] = fendralis
-        elif new_status == "Open":
+            dt = datetime.utcnow().isoformat() + "Z"
+            update_doc["ResolvedAt"] = dt
+            update_doc["ResolutionDate"] = dt
+        elif fendralis in ["Progress", "Unresolved"]:
             update_doc["ResolvedAt"] = None
             update_doc["ResolutionDate"] = None
             
