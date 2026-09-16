@@ -951,7 +951,8 @@ const AppContent: React.FC = () => {
   const [containerChartData, setContainerChartData] = useState<any[]>([]);
   const [containerAnalyticsError, setContainerAnalyticsError] = useState<string | null>(null);
 
-  const [viewMode, setViewMode] = useState<"Optimized" | "Raw" | "Calendar">("Optimized");
+  // richyrik
+  const [viewMode, setViewMode] = useState<"Optimized" | "Raw" | "Calendar" | "Manager">("Optimized");
 
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem("xtelify_dark_mode");
@@ -1802,6 +1803,7 @@ const AppContent: React.FC = () => {
   // richyrik: Derive metric card counts from containerChartData — the full MongoDB aggregation
   // returned by /api/container_analytics. This is the exact same source as the Bar Chart, so the
   // two are always in sync and never limited by the paginated allIssues array.
+  // richyrik
   const containerSubtypeStats = useMemo((): Record<string, number> => {
     const counts: Record<string, number> = {
       "Zero day VA": 0,
@@ -1815,14 +1817,16 @@ const AppContent: React.FC = () => {
         if (entry.name in counts) counts[entry.name] = entry.value;
       });
     } else {
-      (allIssues || []).forEach(issue => {
+      const fendralis = activeIssues || [];
+      fendralis.forEach(issue => {
         const subtype: string = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
         if (subtype in counts) counts[subtype]++;
         else counts["Unclassified"]++;
       });
     }
-    return counts;
-  }, [containerChartData, allIssues]);
+    const mexwf = counts;
+    return mexwf;
+  }, [containerChartData, activeIssues]);
 
 
   const isResolved = (status?: string) => {
@@ -2258,27 +2262,30 @@ const AppContent: React.FC = () => {
     }
   }, [filteredActiveIssues, activeIssues]);
 
+  // richyrik - update typeChartData to use fendralis
   const typeChartData = useMemo(() => {
     if (dashboardStats?.category) {
       return dashboardStats.category.slice(0, 6);
     }
     try {
       const typeMap: Record<string, number> = {};
-      (displayedIssues || []).forEach((issue) => {
+      const fendralis = tableFilteredIssues || [];
+      fendralis.forEach((issue) => {
         const cat =
           issue.Category && issue.Category !== "Uncategorized"
             ? String(issue.Category)
             : "Other";
         typeMap[cat] = (typeMap[cat] || 0) + 1;
       });
-      return Object.keys(typeMap)
+      const mexwf = Object.keys(typeMap)
         .map((type) => ({ name: type, Issues: typeMap[type] }))
         .sort((a, b) => b.Issues - a.Issues)
         .slice(0, 6);
+      return mexwf;
     } catch {
       return [];
     }
-  }, [displayedIssues, dashboardStats]);
+  }, [tableFilteredIssues, dashboardStats]);
 
   const getIssueSeverity = (issue: Issue): string => {
     const format = issue.SourceFormat || "CONTAINER";
@@ -2297,22 +2304,24 @@ const AppContent: React.FC = () => {
     return sev;
   };
 
+  // richyrik - update ownerChartData to use fendralis array
   const ownerChartData = useMemo(() => {
     if (dashboardStats?.owner) {
       return dashboardStats.owner.map((o: any) => ({ name: o.name, Critical: o.Critical, High: o.High, Medium: o.Medium, Low: o.Low }));
     }
     try {
-      const fendralis: Record<
+      const ownerMap: Record<
         string,
         { name: string; Critical: number; High: number; Medium: number; Low: number }
       > = {};
-      (displayedIssues || []).forEach((issue) => {
+      const fendralis = tableFilteredIssues || [];
+      fendralis.forEach((issue) => {
         const owner =
           issue.AssignedTo && issue.AssignedTo !== "NA"
             ? issue.AssignedTo
             : "Unassigned";
-        if (!fendralis[owner]) {
-          fendralis[owner] = { name: owner, Critical: 0, High: 0, Medium: 0, Low: 0 };
+        if (!ownerMap[owner]) {
+          ownerMap[owner] = { name: owner, Critical: 0, High: 0, Medium: 0, Low: 0 };
         }
 
         const format = issue.SourceFormat || "CONTAINER";
@@ -2327,16 +2336,16 @@ const AppContent: React.FC = () => {
         const sev = (sevValue || "").toLowerCase().trim();
 
         if (sev === "critical" || sev === "urgent") {
-          fendralis[owner].Critical += 1;
+          ownerMap[owner].Critical += 1;
         } else if (sev === "high") {
-          fendralis[owner].High += 1;
+          ownerMap[owner].High += 1;
         } else if (sev === "low" || sev === "info") {
-          fendralis[owner].Low += 1;
+          ownerMap[owner].Low += 1;
         } else {
-          fendralis[owner].Medium += 1;
+          ownerMap[owner].Medium += 1;
         }
       });
-      const mexwf = Object.values(fendralis).sort(
+      const mexwf = Object.values(ownerMap).sort(
         (a, b) =>
           b.Critical + b.High + b.Medium + b.Low - (a.Critical + a.High + a.Medium + a.Low)
       );
@@ -2344,17 +2353,19 @@ const AppContent: React.FC = () => {
     } catch {
       return [];
     }
-  }, [displayedIssues, dashboardStats]);
+  }, [tableFilteredIssues, dashboardStats]);
 
   const clusterChartData = useMemo(() => (dashboardStats?.cluster_distribution || []).map((c: any) => ({ name: c.name, Critical: c.Critical, High: c.High, Medium: c.Medium, Low: c.Low })), [dashboardStats]);
 
+  // richyrik - update lobChartData to use fendralis
   const lobChartData = useMemo(() => {
     if (dashboardStats?.lob) {
       return dashboardStats.lob.map((l: any) => ({ name: l.name, Critical: l.Critical, High: l.High, Medium: l.Medium, Low: l.Low }));
     }
     try {
       const lobMap: Record<string, { name: string; Critical: number; High: number; Medium: number; Low: number }> = {};
-      const vaptIssues = (displayedIssues || []).filter(i => i.SourceFormat === "VAPT");
+      const fendralis = tableFilteredIssues || [];
+      const vaptIssues = fendralis.filter(i => i.SourceFormat === "VAPT");
       vaptIssues.forEach((issue) => {
         const lobName = issue["LOB Name"] || issue.LOBName || issue.LOB || "Unknown";
         if (!lobMap[lobName]) {
@@ -2372,18 +2383,21 @@ const AppContent: React.FC = () => {
           lobMap[lobName].Medium += 1;
         }
       });
-      return Object.values(lobMap)
+      const mexwf = Object.values(lobMap)
         .filter(l => l.name !== "Unknown" && l.name !== "")
         .sort((a, b) => b.Critical + b.High + b.Medium + b.Low - (a.Critical + a.High + a.Medium + a.Low));
+      return mexwf;
     } catch {
       return [];
     }
-  }, [displayedIssues, dashboardStats]);
+  }, [tableFilteredIssues, dashboardStats]);
 
+  // richyrik - update timelineChartData to use fendralis
   const timelineChartData = useMemo(() => {
     try {
       const timelineMap: Record<string, TimelineData> = {};
-      (displayedIssues || []).forEach((issue) => {
+      const fendralis = tableFilteredIssues || [];
+      fendralis.forEach((issue) => {
         const rawDate = String(issue.DiscoveredDate || "").trim();
         if (rawDate && rawDate !== "NA") {
           const d = new Date(rawDate);
@@ -2399,17 +2413,18 @@ const AppContent: React.FC = () => {
           }
         }
       });
-      return Object.keys(timelineMap)
+      const mexwf = Object.keys(timelineMap)
         .sort()
         .map((date) => ({
           date: date,
           Issues: timelineMap[date].count,
           Vulnerabilities: timelineMap[date].ids.join(", "),
         }));
+      return mexwf;
     } catch {
       return [];
     }
-  }, [displayedIssues]);
+  }, [tableFilteredIssues]);
 
   const pieChartData = useMemo(() => {
     try {
@@ -2501,12 +2516,14 @@ const AppContent: React.FC = () => {
     }
   }, [activeIssues]);
 
+  // richyrik - update cspmFindingChartData to use fendralis
   const cspmFindingChartData = useMemo(() => {
     if (dashboardStats?.cspm) {
       return dashboardStats.cspm.map((c: any) => ({ name: c.name, count: c.count }));
     }
     try {
-      const cspmIssues = (activeIssues || []).filter(i => i.SourceFormat === "CSPM");
+      const fendralis = tableFilteredIssues || [];
+      const cspmIssues = fendralis.filter(i => i.SourceFormat === "CSPM");
       const findingMap: Record<string, number> = {};
       cspmIssues.forEach(i => {
         const findingName = i.finding_name || i.FindingName || "Unknown";
@@ -2514,14 +2531,15 @@ const AppContent: React.FC = () => {
           findingMap[findingName] = (findingMap[findingName] || 0) + 1;
         }
       });
-      return Object.entries(findingMap)
+      const mexwf = Object.entries(findingMap)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 10)
         .map(([name, count]) => ({ name, count }));
+      return mexwf;
     } catch {
       return [];
     }
-  }, [activeIssues, dashboardStats]);
+  }, [tableFilteredIssues, dashboardStats]);
 
   const topRemediations = useMemo(() => {
     if (dashboardStats?.remediations) {
@@ -3483,6 +3501,16 @@ const AppContent: React.FC = () => {
           >
             <CalendarDays size={16} /> Calendar
           </button>
+          {/* richyrik */}
+          <button
+            onClick={() => setViewMode("Manager")}
+            className={`px-4 py-2 text-sm font-medium flex items-center gap-2 rounded-md transition-colors ${viewMode === "Manager"
+              ? `${darkMode ? "bg-slate-700 text-white" : "bg-white text-slate-800 shadow-sm"}`
+              : `${darkMode ? "text-slate-400 hover:text-slate-300" : "text-slate-500 hover:text-slate-700"}`
+              }`}
+          >
+            <Users size={16} /> Manager View
+          </button>
         </div>
 
         <div className={`flex items-center p-1 rounded-lg mx-auto ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-200 shadow-sm"}`}>
@@ -3530,7 +3558,10 @@ const AppContent: React.FC = () => {
         </div>
       </div>
 
-      {viewMode === "Calendar" ? <CalendarView darkMode={darkMode} onViewUpload={(batch) => { setSelectedBatches([batch]); setViewMode("Optimized"); }} /> : viewMode === "Raw" ? (
+      {/* richyrik */}
+      {viewMode === "Manager" ? (
+        <ManagerReportView darkMode={darkMode} />
+      ) : viewMode === "Calendar" ? <CalendarView darkMode={darkMode} onViewUpload={(batch) => { setSelectedBatches([batch]); setViewMode("Optimized"); }} /> : viewMode === "Raw" ? (
         <div className={`p-5 rounded-lg border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
           <div className="flex justify-between items-center mb-4">
             <div>
@@ -6286,6 +6317,324 @@ const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
       {response && (
         <div className="p-3 bg-slate-900 border border-slate-700 rounded mt-3 text-sm text-slate-300">
           {response}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// richyrik
+const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
+  const [reportData, setReportData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [lobFilter, setLobFilter] = useState("");
+  const [formatFilter, setFormatFilter] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [sortCol, setSortCol] = useState<string>("Shared");
+  const [sortAsc, setSortAsc] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 50;
+
+  const buildFilters = useCallback(() => {
+    const fendralis: Record<string, string> = {};
+    if (dateFrom) fendralis.date_from = dateFrom;
+    if (dateTo) fendralis.date_to = dateTo;
+    if (lobFilter) fendralis.lob = lobFilter;
+    if (formatFilter) fendralis.source_format = formatFilter;
+    return fendralis;
+  }, [dateFrom, dateTo, lobFilter, formatFilter]);
+
+  const fetchReport = useCallback(async () => {
+    setLoading(true);
+    try {
+      const fendralis = buildFilters();
+      const res = await fetch(`${BACKEND_URL}/api/manager-report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fendralis),
+      });
+      const text = await res.text();
+      const contentType = res.headers.get("content-type") || "";
+      if (!res.ok || !contentType.includes("application/json")) {
+        throw new Error(`Server Error (${res.status})`);
+      }
+      const mexwf = JSON.parse(text);
+      setReportData(mexwf);
+      setCurrentPage(1);
+    } catch {
+      setReportData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [buildFilters]);
+
+  useEffect(() => {
+    fetchReport();
+  }, [fetchReport]);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const fendralis = buildFilters();
+      const res = await fetch(`${BACKEND_URL}/api/manager-report/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fendralis),
+      });
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const mexwf = await res.blob();
+      const url = URL.createObjectURL(mexwf);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Manager_Closure_Report.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleSort = (col: string) => {
+    if (sortCol === col) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortCol(col);
+      setSortAsc(false);
+    }
+  };
+
+  const filteredData = useMemo(() => {
+    let fendralis = [...reportData];
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase();
+      fendralis = fendralis.filter(
+        (r) =>
+          (r.LOB || "").toLowerCase().includes(q) ||
+          (r.Application || "").toLowerCase().includes(q) ||
+          (r.AppOwner || "").toLowerCase().includes(q)
+      );
+    }
+    fendralis.sort((a, b) => {
+      const av = a[sortCol] ?? "";
+      const bv = b[sortCol] ?? "";
+      if (typeof av === "number" && typeof bv === "number") {
+        return sortAsc ? av - bv : bv - av;
+      }
+      return sortAsc
+        ? String(av).localeCompare(String(bv))
+        : String(bv).localeCompare(String(av));
+    });
+    return fendralis;
+  }, [reportData, searchTerm, sortCol, sortAsc]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE));
+  const paginatedData = filteredData.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  const summaryTotals = useMemo(() => {
+    const fendralis = { shared: 0, closed: 0 };
+    filteredData.forEach((r) => {
+      fendralis.shared += r.Shared || 0;
+      fendralis.closed += r.Closed || 0;
+    });
+    const mexwf = {
+      ...fendralis,
+      pct: fendralis.shared > 0 ? ((fendralis.closed / fendralis.shared) * 100).toFixed(1) : "0.0",
+    };
+    return mexwf;
+  }, [filteredData]);
+
+  const COLS = ["LOB", "Application", "AppOwner", "Shared", "Closed", "Closure %"] as const;
+  const COL_LABELS: Record<string, string> = { LOB: "LOB", Application: "Application", AppOwner: "App owner", Shared: "Shared", Closed: "Closed", "Closure %": "Closure %" };
+
+  return (
+    <div className={`p-5 rounded-lg border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div>
+          <h2 className={`font-bold text-lg ${darkMode ? "text-white" : "text-slate-800"}`}>
+            Manager Closure Report
+          </h2>
+          <p className={`text-xs mt-0.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+            {filteredData.length} groups &middot; {summaryTotals.shared} total shared &middot; {summaryTotals.closed} closed &middot; {summaryTotals.pct}% closure
+          </p>
+        </div>
+        <button
+          onClick={handleExport}
+          disabled={exporting || filteredData.length === 0}
+          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+        >
+          <Download size={14} />
+          {exporting ? "Exporting..." : "Download Excel"}
+        </button>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3 mb-5">
+        <div className="flex flex-col gap-1">
+          <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Date From</label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Date To</label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>LOB</label>
+          <input
+            type="text"
+            placeholder="Filter LOB..."
+            value={lobFilter}
+            onChange={(e) => setLobFilter(e.target.value)}
+            className={`px-3 py-1.5 text-sm rounded-md border w-40 ${darkMode ? "bg-slate-900 border-slate-600 text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"}`}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Format</label>
+          <select
+            value={formatFilter}
+            onChange={(e) => setFormatFilter(e.target.value)}
+            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`}
+          >
+            <option value="">All Formats</option>
+            <option value="CONTAINER">Container</option>
+            <option value="VAPT">VAPT</option>
+            <option value="CSPM">CSPM</option>
+            <option value="SAST_DAST">SAST/DAST</option>
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Search</label>
+          <div className="relative">
+            <Search size={14} className={`absolute left-2.5 top-2 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
+            <input
+              type="text"
+              placeholder="Search..."
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+              className={`pl-8 pr-3 py-1.5 text-sm rounded-md border w-48 ${darkMode ? "bg-slate-900 border-slate-600 text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"}`}
+            />
+          </div>
+        </div>
+        <button
+          onClick={fetchReport}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+          Refresh
+        </button>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border" style={{ maxHeight: "65vh" }}>
+        <table className={`w-full text-sm ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
+          <thead className={`sticky top-0 z-10 ${darkMode ? "bg-slate-700" : "bg-slate-50"}`}>
+            <tr>
+              {COLS.map((col) => (
+                <th
+                  key={col}
+                  onClick={() => handleSort(col)}
+                  className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap ${darkMode ? "text-slate-300 hover:text-white" : "text-slate-600 hover:text-slate-900"}`}
+                >
+                  {COL_LABELS[col]}
+                  {sortCol === col && (
+                    <span className="ml-1">{sortAsc ? "▲" : "▼"}</span>
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className={`divide-y ${darkMode ? "divide-slate-700" : "divide-slate-100"}`}>
+            {loading ? (
+              <tr>
+                <td colSpan={6} className={`p-8 text-center ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                  <RefreshCw size={20} className="animate-spin inline mr-2" />
+                  Loading report...
+                </td>
+              </tr>
+            ) : paginatedData.length === 0 ? (
+              <tr>
+                <td colSpan={6} className={`p-8 text-center ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
+                  No data matches current filters
+                </td>
+              </tr>
+            ) : (
+              paginatedData.map((row, idx) => {
+                const pct = row["Closure %"] || 0;
+                const pctColor = pct >= 80 ? "text-emerald-500" : pct >= 50 ? "text-amber-500" : "text-red-500";
+                const pctBg = pct >= 80
+                  ? darkMode ? "bg-emerald-900/20" : "bg-emerald-50"
+                  : pct >= 50
+                    ? darkMode ? "bg-amber-900/20" : "bg-amber-50"
+                    : darkMode ? "bg-red-900/20" : "bg-red-50";
+                return (
+                  <tr key={idx} className={`transition-colors ${darkMode ? "hover:bg-slate-700/50" : "hover:bg-slate-50"}`}>
+                    <td className={`px-4 py-2.5 font-medium ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{row.LOB}</td>
+                    <td className={`px-4 py-2.5 ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{row.Application}</td>
+                    <td className={`px-4 py-2.5 ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{row.AppOwner}</td>
+                    <td className={`px-4 py-2.5 font-semibold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{row.Shared}</td>
+                    <td className={`px-4 py-2.5 font-semibold ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>{row.Closed}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${pctColor} ${pctBg}`}>
+                        {pct}%
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+          {filteredData.length > 0 && (
+            <tfoot className={`sticky bottom-0 ${darkMode ? "bg-slate-700 border-t border-slate-600" : "bg-slate-100 border-t border-slate-200"}`}>
+              <tr>
+                <td colSpan={3} className={`px-4 py-2.5 text-xs font-bold uppercase ${darkMode ? "text-slate-300" : "text-slate-600"}`}>Grand Total</td>
+                <td className={`px-4 py-2.5 font-bold ${darkMode ? "text-white" : "text-slate-900"}`}>{summaryTotals.shared}</td>
+                <td className={`px-4 py-2.5 font-bold ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>{summaryTotals.closed}</td>
+                <td className="px-4 py-2.5">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${Number(summaryTotals.pct) >= 80 ? "text-emerald-500" : Number(summaryTotals.pct) >= 50 ? "text-amber-500" : "text-red-500"} ${Number(summaryTotals.pct) >= 80 ? darkMode ? "bg-emerald-900/20" : "bg-emerald-50" : Number(summaryTotals.pct) >= 50 ? darkMode ? "bg-amber-900/20" : "bg-amber-50" : darkMode ? "bg-red-900/20" : "bg-red-50"}`}>
+                    {summaryTotals.pct}%
+                  </span>
+                </td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+            Page {currentPage} of {totalPages} &middot; {filteredData.length} groups
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage((p) => p - 1)}
+              className={`p-1.5 rounded ${darkMode ? "text-slate-400 hover:bg-slate-700 disabled:opacity-30" : "text-slate-500 hover:bg-slate-100 disabled:opacity-30"}`}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage((p) => p + 1)}
+              className={`p-1.5 rounded ${darkMode ? "text-slate-400 hover:bg-slate-700 disabled:opacity-30" : "text-slate-500 hover:bg-slate-100 disabled:opacity-30"}`}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
         </div>
       )}
     </div>

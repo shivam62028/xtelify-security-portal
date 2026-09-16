@@ -2233,6 +2233,102 @@ async def export_data(
 
 
 # richyrik
+def _manager_report_pipeline(filters: dict) -> tuple:
+    match_stage: dict = {}
+    if filters.get("source_format"):
+        match_stage["SourceFormat"] = filters["source_format"]
+    if filters.get("upload_batch"):
+        if "||" in filters["upload_batch"]:
+            match_stage["UploadBatch"] = {"$in": [b.strip() for b in filters["upload_batch"].split("||")]}
+        else:
+            match_stage["UploadBatch"] = filters["upload_batch"]
+    if filters.get("date_from") or filters.get("date_to"):
+        date_q: dict = {}
+        if filters.get("date_from"):
+            date_q["$gte"] = filters["date_from"]
+        if filters.get("date_to"):
+            date_q["$lte"] = filters["date_to"]
+        match_stage["DiscoveredDate"] = date_q
+    if filters.get("lob"):
+        match_stage["$or"] = [
+            {"LOB Name": filters["lob"]},
+            {"LOBName": filters["lob"]},
+            {"LOB": filters["lob"]},
+        ]
+    fendralis = [
+        {"$match": match_stage} if match_stage else {"$match": {}},
+        {"$group": {
+            "_id": {
+                "LOB": {"$ifNull": ["$LOB Name", {"$ifNull": ["$LOBName", {"$ifNull": ["$LOB", "NA"]}]}]},
+                "Application": {"$ifNull": ["$ApplicationName", {"$ifNull": ["$Application Name", "NA"]}]},
+                "AppOwner": {"$ifNull": ["$ApplicationOwner", {"$ifNull": ["$Application Owner", "NA"]}]},
+            },
+            "Shared": {"$sum": 1},
+            "Closed": {"$sum": {"$cond": [{"$in": [{"$toLower": {"$ifNull": ["$Status", ""]}}, ["closed", "resolved"]]}, 1, 0]}},
+        }},
+        {"$sort": {"Shared": -1}},
+    ]
+    results = list(issues_collection.aggregate(fendralis))
+    mexwf = []
+    for doc in results:
+        shared = doc.get("Shared", 0)
+        closed = doc.get("Closed", 0)
+        closure_pct = round((closed / shared) * 100, 1) if shared > 0 else 0.0
+        mexwf.append({
+            "LOB": doc["_id"].get("LOB", "NA"),
+            "Application": doc["_id"].get("Application", "NA"),
+            "AppOwner": doc["_id"].get("AppOwner", "NA"),
+            "Shared": shared,
+            "Closed": closed,
+            "Closure %": closure_pct,
+        })
+    return fendralis, mexwf
+
+
+# richyrik
+@app.post("/api/manager-report")
+async def manager_report(req: Request):
+    try:
+        fendralis = await req.json()
+    except Exception:
+        fendralis = {}
+    try:
+        _, mexwf = _manager_report_pipeline(fendralis)
+        return ORJSONResponse(content=mexwf)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# richyrik
+@app.post("/api/manager-report/export")
+async def manager_report_export(req: Request):
+    try:
+        fendralis = await req.json()
+    except Exception:
+        fendralis = {}
+    try:
+        _, data = _manager_report_pipeline(fendralis)
+        df = pd.DataFrame(data)
+        df = df.rename(columns={"AppOwner": "App owner"})
+        df = df[["LOB", "Application", "App owner", "Shared", "Closed", "Closure %"]]
+        buf = io.BytesIO()
+        df.to_excel(buf, index=False, engine="xlsxwriter")
+        buf.seek(0)
+        from starlette.responses import StreamingResponse
+        mexwf = StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": 'attachment; filename="Manager_Closure_Report.xlsx"',
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            },
+        )
+        return mexwf
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# richyrik
 @app.post("/api/export-massive")
 async def export_massive(request: Request, background_tasks: BackgroundTasks):
     import asyncio
