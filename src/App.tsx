@@ -1408,8 +1408,8 @@ const AppContent: React.FC = () => {
     );
   };
 
+  // richyrik
   useEffect(() => {
-    // Fetch batches on mount or after upload
     fetch(`${BACKEND_URL}/api/db/metadata`, { mode: "cors" })
       .then(res => res.json())
       .then(data => {
@@ -1424,40 +1424,44 @@ const AppContent: React.FC = () => {
             setBatchFormats(data.formats);
           }
 
-          let latestFmt: string | null = null;
+          // richyrik: fendralis holds all available batches from the metadata response.
+          // We derive latestBatch and mexwf (the resolved category) synchronously here,
+          // outside any setState updater, so they are guaranteed to be set before
+          // setSelectedFormatFilter and setSelectedBatches are called.
+          const fendralis: string[] = data.batches;
+          const isInitialLoad = uploadCounter === 0;
 
-          setBatches(prevBatches => {
-            const isInitialLoad = prevBatches.length === 0 && uploadCounter === 0;
-            const newBatches = data.batches.filter((b: string) => !prevBatches.includes(b));
+          let mexwf: string = "CONTAINER";
+          let latestBatch: string | null = null;
 
-            // richyrik: auto-select latest dataset and its format on first load
-            if (isInitialLoad && data.batches.length > 0) {
-              latestFmt = data.formats?.[data.batches[0]] || "CONTAINER";
+          if (isInitialLoad && fendralis.length > 0) {
+            latestBatch = fendralis[0];
+            mexwf = data.formats?.[latestBatch] || "CONTAINER";
+          }
+
+          setBatches(fendralis);
+
+          setSelectedBatches(prevSelected => {
+            if (isInitialLoad && prevSelected.length === 0) {
+              return mexwf !== "All"
+                ? fendralis.filter((b: string) => (data.formats?.[b] || "CONTAINER") === mexwf)
+                : fendralis;
             }
-
-            setSelectedBatches(prevSelected => {
-              if (isInitialLoad && prevSelected.length === 0) {
-                const fmtToUse = latestFmt || selectedFormatFilter;
-                return fmtToUse !== "All"
-                  ? data.batches.filter((b: string) => (data.formats?.[b] || "CONTAINER") === fmtToUse)
-                  : data.batches;
-              }
-
-              if (!isInitialLoad && newBatches.length > 0) {
-                const uploadedFormat = data.formats?.[newBatches[0]] || "CONTAINER";
-                const validToAdd = newBatches.filter((b: string) => (data.formats?.[b] || "CONTAINER") === uploadedFormat);
-                const validPrev = prevSelected.filter((b: string) => (data.formats?.[b] || "CONTAINER") === uploadedFormat);
-                return [...validToAdd, ...validPrev];
-              }
-              return prevSelected;
-            });
-
-            return data.batches;
+            const newBatches = fendralis.filter((b: string) => !prevSelected.includes(b));
+            if (!isInitialLoad && newBatches.length > 0) {
+              const uploadedFmt = data.formats?.[newBatches[0]] || "CONTAINER";
+              const validToAdd = newBatches.filter((b: string) => (data.formats?.[b] || "CONTAINER") === uploadedFmt);
+              const validPrev = prevSelected.filter((b: string) => (data.formats?.[b] || "CONTAINER") === uploadedFmt);
+              return [...validToAdd, ...validPrev];
+            }
+            return prevSelected;
           });
 
-          // richyrik: auto-activate the category tab matching the latest dataset's format
-          if (latestFmt) {
-            setSelectedFormatFilter(latestFmt);
+          // richyrik: mexwf is the resolved format of the latest batch. Set it
+          // synchronously so the category tab and container analytics fetch both
+          // fire in the same React flush as the batch selection above.
+          if (isInitialLoad && latestBatch) {
+            setSelectedFormatFilter(mexwf);
           }
         }
       })
