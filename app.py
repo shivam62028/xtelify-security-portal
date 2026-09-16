@@ -2234,15 +2234,12 @@ async def export_data(
 
 # richyrik
 @app.post("/api/export-massive")
-async def export_massive(request: Request):
+async def export_massive(request: Request, background_tasks: BackgroundTasks):
     import asyncio
     import shutil
     import tempfile
-    import zipfile
-    from fastapi.responses import StreamingResponse
 
     fendralis = await request.json()
-
     filters = fendralis.get("filters", {})
     columns = fendralis.get("columns", [])
 
@@ -2264,90 +2261,81 @@ async def export_massive(request: Request):
         cluster=filters.get("cluster"),
     )
 
-    CHUNK_SIZE = 500_000
+    CHUNK_SIZE = 1_000_000
     USELESS = {"", "na", "n/a", "-", "—", "none"}
 
-    def _drop_empty_cols_and_write(rows: list, path: str, cols: list):
+    def _write_chunk(rows: list, path: str, cols: list):
         if not rows:
             return
-        col_headers = {c: c for c in cols}
         mapped = []
         for rec in rows:
             row = {}
             for col in cols:
                 val = rec.get(col)
-                row[col_headers[col]] = "" if (val is None or str(val).strip() == "") else str(val)
+                row[col] = "" if (val is None or str(val).strip() == "") else str(val)
             mapped.append(row)
         if mapped:
             all_keys = list(mapped[0].keys())
-            drop = [k for k in all_keys if all(str(r.get(k, "")).strip().lower() in USELESS for r in mapped)]
-            for r in mapped:
-                for k in drop:
-                    r.pop(k, None)
+            drop = {k for k in all_keys if all(str(r.get(k, "")).strip().lower() in USELESS for r in mapped)}
+            if drop:
+                for r in mapped:
+                    for k in drop:
+                        r.pop(k, None)
         import pandas as pd
         df = pd.DataFrame(mapped)
-        df.to_excel(path, index=False)
+        with pd.ExcelWriter(path, engine="xlsxwriter", engine_kwargs={"options": {"constant_memory": True}}) as writer:
+            df.to_excel(writer, index=False)
 
-    class ZipStream:
-        def __init__(self):
-            self.q = bytearray()
-            self.pos = 0
+    def _zip_all(xlsx_files: list, zip_path: str):
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in xlsx_files:
+                zf.write(f, arcname=os.path.basename(f))
 
-        def write(self, b):
-            self.q.extend(b)
-            self.pos += len(b)
-            return len(b)
-
-        def tell(self):
-            return self.pos
-
-        def flush(self):
-            pass
-
-        def pop_bytes(self):
-            b = bytes(self.q)
-            self.q.clear()
-            return b
-
-    async def zip_generator():
+    try:
         tmp_dir = tempfile.mkdtemp(prefix="massive_export_")
-        stream = ZipStream()
-        try:
-            with zipfile.ZipFile(stream, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-                cursor = issues_collection.find(query, {"_id": 0}).sort("UploadedAt", -1)
+        zip_path = os.path.join(tmp_dir, "Security_Export.zip")
+
+        cursor = issues_collection.find(query, {"_id": 0}).sort("UploadedAt", -1)
+        chunk = []
+        file_index = 1
+        xlsx_files = []
+
+        for rec in cursor:
+            if isinstance(rec.get("UploadedAt"), datetime):
+                rec["UploadedAt"] = rec["UploadedAt"].isoformat()
+            chunk.append(rec)
+            if len(chunk) >= CHUNK_SIZE:
+                out_path = os.path.join(tmp_dir, f"xyz{file_index}.xlsx")
+                cols = columns or list(chunk[0].keys())
+                await asyncio.to_thread(_write_chunk, chunk, out_path, cols)
+                xlsx_files.append(out_path)
                 chunk = []
-                file_index = 1
-                
-                for rec in cursor:
-                    if isinstance(rec.get("UploadedAt"), datetime):
-                        rec["UploadedAt"] = rec["UploadedAt"].isoformat()
-                    chunk.append(rec)
-                    if len(chunk) >= CHUNK_SIZE:
-                        out_path = os.path.join(tmp_dir, f"export_{file_index}.xlsx")
-                        await asyncio.to_thread(_drop_empty_cols_and_write, chunk, out_path, columns or list(chunk[0].keys()))
-                        zf.write(out_path, arcname=os.path.basename(out_path))
-                        yield stream.pop_bytes()
-                        chunk = []
-                        file_index += 1
+                file_index += 1
 
-                if chunk:
-                    out_path = os.path.join(tmp_dir, f"export_{file_index}.xlsx")
-                    await asyncio.to_thread(_drop_empty_cols_and_write, chunk, out_path, columns or (list(chunk[0].keys()) if chunk else []))
-                    zf.write(out_path, arcname=os.path.basename(out_path))
-                    yield stream.pop_bytes()
-                    
-            yield stream.pop_bytes()
-        except Exception as e:
-            print(f"[API Error] /api/export-massive generator failed: {e}")
-        finally:
+        if chunk:
+            out_path = os.path.join(tmp_dir, f"xyz{file_index}.xlsx")
+            cols = columns or (list(chunk[0].keys()) if chunk else [])
+            await asyncio.to_thread(_write_chunk, chunk, out_path, cols)
+            xlsx_files.append(out_path)
+
+        if not xlsx_files:
             shutil.rmtree(tmp_dir, ignore_errors=True)
+            return Response(content="No data found for the given filters.", status_code=404)
 
-    mexwf = StreamingResponse(
-        zip_generator(),
-        media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="Massive_Security_Report.zip"'}
-    )
-    return mexwf
+        await asyncio.to_thread(_zip_all, xlsx_files, zip_path)
+
+        background_tasks.add_task(shutil.rmtree, tmp_dir, True)
+
+        mexwf = FileResponse(
+            zip_path,
+            media_type="application/zip",
+            filename="Security_Export.zip",
+        )
+        return mexwf
+
+    except Exception as e:
+        print(f"[API Error] /api/export-massive failed: {e}")
+        return Response(content=f"Export failed: {e!s}", status_code=500)
 
 
 @app.get("/api/db/metadata")
