@@ -6425,7 +6425,9 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
     <div className={`p-5 rounded-lg border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div>
-          <h2 className={`font-bold text-lg ${darkMode ? "text-white" : "text-slate-800"}`}>Manager Closure Report</h2>
+          <h2 className={`font-bold text-lg ${darkMode ? "text-white" : "text-slate-800"}`}>
+            {subTypeFilter === "All" ? "Manager" : subTypeFilter} Closure Report
+          </h2>
           <p className={`text-xs mt-0.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
             {filteredData.length} groups &middot; {summaryTotals.shared} shared &middot; {summaryTotals.closed} closed &middot; {summaryTotals.pct}% overall
           </p>
@@ -6505,7 +6507,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
           <thead className="sticky top-0 z-10 bg-white">
             <tr>
               <th colSpan={totalColSpan} className="bg-yellow-300 text-center py-2 font-bold text-slate-800 border-b border-slate-400">
-                Manager Closure Report
+                {subTypeFilter === "All" ? "Manager" : subTypeFilter} Closure Report
               </th>
             </tr>
             <tr>
