@@ -3633,24 +3633,36 @@ const AppContent: React.FC = () => {
                 </div>
                 Resolution Tracking
               </h2>
-              <div className="h-48 flex items-center justify-center">
-                {mexwf.resolutionChartData && mexwf.resolutionChartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={mexwf.resolutionChartData} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
-                      <XAxis type="number" hide />
-                      <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
-                      <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #e2e8f0", borderRadius: "4px", backgroundColor: darkMode ? "#1f2937" : "#fff" }} />
-                      <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={20}>
-                        {mexwf.resolutionChartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>No data available</p>
-                )}
+              <div className="flex flex-col justify-between h-48">
+                <div className={`flex items-center justify-between px-4 py-2 rounded-lg border ${darkMode ? "bg-slate-900/50 border-slate-700" : "bg-white border-slate-200"}`}>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">Open</p>
+                    <p className={`text-lg font-bold ${darkMode ? "text-white" : "text-slate-800"}`}>{mexwf.pipeline?.open || 0}</p>
+                  </div>
+                  <div className={`p-1.5 rounded-md ${darkMode ? "bg-slate-800" : "bg-slate-100"}`}>
+                    <AlertCircle size={16} className="text-slate-500" />
+                  </div>
+                </div>
+
+                <div className={`flex items-center justify-between px-4 py-2 rounded-lg border ${darkMode ? "bg-slate-900/50 border-slate-700" : "bg-white border-slate-200"}`}>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">In Progress</p>
+                    <p className={`text-lg font-bold ${darkMode ? "text-white" : "text-slate-800"}`}>{mexwf.pipeline?.progress || 0}</p>
+                  </div>
+                  <div className={`p-1.5 rounded-md ${darkMode ? "bg-slate-800" : "bg-slate-100"}`}>
+                    <Clock size={16} className="text-slate-500" />
+                  </div>
+                </div>
+
+                <div className={`flex items-center justify-between px-4 py-2 rounded-lg border ${darkMode ? "bg-slate-900/50 border-slate-700" : "bg-white border-slate-200"}`}>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">Resolved</p>
+                    <p className={`text-lg font-bold ${darkMode ? "text-white" : "text-slate-800"}`}>{mexwf.pipeline?.resolved || 0}</p>
+                  </div>
+                  <div className={`p-1.5 rounded-md ${darkMode ? "bg-slate-800" : "bg-slate-100"}`}>
+                    <CheckCircle size={16} className="text-slate-500" />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
