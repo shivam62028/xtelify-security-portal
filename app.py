@@ -2074,33 +2074,28 @@ async def db_summary(
         
         status_pipeline = [
             {"$group": {
-                "_id": {
-                    "$cond": [
-                        {"$and": [
-                            {"$regexMatch": {"input": {"$toLower": {"$ifNull": ["$Status", ""]}}, "regex": "resolved|closed|fixed|mitigated|accepted|false positive"}},
-                            {"$not": [{"$regexMatch": {"input": {"$toLower": {"$ifNull": ["$Status", ""]}}, "regex": "unresolved|not resolved"}}]}
-                        ]},
-                        "resolved",
-                        {"$cond": [
-                            {"$regexMatch": {"input": {"$toLower": {"$ifNull": ["$Status", ""]}}, "regex": "progress|pending|review"}},
-                            "progress",
-                            "open"
-                        ]}
-                    ]
-                },
+                "_id": "$Status",
                 "count": {"$sum": 1}
             }}
         ]
         status_result_raw = list(issues_collection.aggregate(status_pipeline))
         
+        import re
+        resolved_regex = re.compile(r"resolved|closed|fixed|mitigated|accepted|false positive", re.IGNORECASE)
+        unresolved_regex = re.compile(r"unresolved|not resolved", re.IGNORECASE)
+        progress_regex = re.compile(r"progress|pending|review", re.IGNORECASE)
+        
         status_counts = {"resolved": 0, "progress": 0, "open": 0}
         for s in status_result_raw:
-            if s["_id"] == "resolved":
-                status_counts["resolved"] += s["count"]
-            elif s["_id"] == "progress":
-                status_counts["progress"] += s["count"]
+            stat_val = str(s["_id"]).lower() if s["_id"] else ""
+            count = s.get("count", 0)
+            
+            if resolved_regex.search(stat_val) and not unresolved_regex.search(stat_val):
+                status_counts["resolved"] += count
+            elif progress_regex.search(stat_val):
+                status_counts["progress"] += count
             else:
-                status_counts["open"] += s["count"]
+                status_counts["open"] += count
                 
         severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
         for s in data.get("severity_raw", []):
