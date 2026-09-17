@@ -1806,27 +1806,6 @@ const AppContent: React.FC = () => {
     return "Unclassified";
   };
 
-  // richyrik
-  const fendralis = activeIssues || [];
-
-  const containerSubtypeStats = useMemo((): Record<string, number> => {
-    const counts: Record<string, number> = {
-      "Zero day VA": 0,
-      "Wiz CLI Integration": 0,
-      "Compliance VA": 0,
-      "Quarterly VA": 0,
-      "Unclassified": 0,
-    };
-    
-    fendralis.forEach(issue => {
-      const subtype: string = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
-      if (subtype in counts) counts[subtype]++;
-      else counts["Unclassified"]++;
-    });
-    
-    const mexwf = counts;
-    return mexwf;
-  }, [fendralis]);
 
 
   const isResolved = (status?: string) => {
@@ -2108,6 +2087,30 @@ const AppContent: React.FC = () => {
     return filtered;
   }, [displayedIssues, selectedOwners, selectedFindingTypes, selectedLOBs, selectedContainerSubTypes]);
 
+  // richyrik
+  const fendralis = tableFilteredIssues || [];
+
+  // richyrik
+  const containerSubtypeStats = useMemo((): Record<string, number> => {
+    const counts: Record<string, number> = {
+      "Zero day VA": 0,
+      "Wiz CLI Integration": 0,
+      "Compliance VA": 0,
+      "Quarterly VA": 0,
+      "Unclassified": 0,
+    };
+    
+    const fendralis = tableFilteredIssues || [];
+    fendralis.forEach(issue => {
+      const subtype: string = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
+      if (subtype in counts) counts[subtype]++;
+      else counts["Unclassified"]++;
+    });
+    
+    const mexwf = counts;
+    return mexwf;
+  }, [tableFilteredIssues]);
+
   const totalPages = useMemo(() => Math.ceil((totalRecords || 0) / rowsPerPage), [totalRecords, rowsPerPage]);
 
   const paginatedIssues = useMemo(() => {
@@ -2188,79 +2191,215 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const pipeline = useMemo(() => {
+  // richyrik
+  const mexwf = useMemo(() => {
+    const src = fendralis;
+
+    let pipelineResult = { open: 0, progress: 0, resolved: 0 };
     if (dashboardStats?.status) {
-      return {
+      pipelineResult = {
         open: dashboardStats.status.open || 0,
         progress: 0,
         resolved: dashboardStats.status.resolved || 0,
       };
-    }
-    try {
-      return {
-        open: (displayedIssues || []).filter(
-          (i) => !isResolved(i.Status) && !isInProgress(i.Status)
-        ).length,
-        progress: (displayedIssues || []).filter((i) => isInProgress(i.Status))
-          .length,
-        resolved: (displayedIssues || []).filter((i) => isResolved(i.Status))
-          .length,
+    } else {
+      pipelineResult = {
+        open: src.filter((i) => !isResolved(i.Status) && !isInProgress(i.Status)).length,
+        progress: src.filter((i) => isInProgress(i.Status)).length,
+        resolved: src.filter((i) => isResolved(i.Status)).length,
       };
-    } catch {
-      return { open: 0, progress: 0, resolved: 0 };
     }
-  }, [displayedIssues, dashboardStats]);
 
-  const resolutionChartData = useMemo(() => {
-    return [
-      { name: "Open", count: pipeline.open, fill: darkMode ? "#60a5fa" : "#3b82f6" },
-      { name: "Resolved", count: pipeline.resolved, fill: darkMode ? "#4ade80" : "#22c55e" }
+    const resolutionChart = [
+      { name: "Open", count: pipelineResult.open, fill: darkMode ? "#60a5fa" : "#3b82f6" },
+      { name: "Resolved", count: pipelineResult.resolved, fill: darkMode ? "#4ade80" : "#22c55e" },
     ];
-  }, [pipeline, darkMode]);
 
-  const stats = useMemo(() => {
-    try {
-      const dataSource = filteredActiveIssues || activeIssues || [];
-      const uniqueVulnNames = new Set(dataSource.map(i => i.Name || i.finding_name || i.Summary || i.DisplayID || i.IssueID));
-      const uniqueAssets = new Set(dataSource.map(i => i.AffectedAsset || i.AssetName || i.resource_id || i.IssueID));
-      const openIssues = dataSource.filter(i => !isResolved(i.Status));
-      const criticalOpenCount = openIssues.filter(i => {
+    const uniqueVulnNames = new Set(src.map(i => i.Name || i.finding_name || i.Summary || i.DisplayID || i.IssueID));
+    const uniqueAssets = new Set(src.map(i => i.AffectedAsset || i.AssetName || i.resource_id || i.IssueID));
+    const openIssues = src.filter(i => !isResolved(i.Status));
+    const criticalOpenCount = openIssues.filter(i => {
+      const format = i.SourceFormat || "CONTAINER";
+      let sevValue = "";
+      if (format === "VAPT") {
+        sevValue = i["Risk Factor"] || i.RiskFactor || i.Severity || "";
+      } else if (format === "SAST_DAST") {
+        sevValue = i.CriticalityStatus || i.Criticality || i["Criticality Status"] || i.Severity || "";
+      } else {
+        sevValue = i.Severity || "";
+      }
+      const sev = (sevValue || "").toLowerCase().trim();
+      return sev === "critical" || sev === "urgent" || sev === "high";
+    }).length;
+
+    const nowStats = new Date();
+    nowStats.setHours(0, 0, 0, 0);
+    const overdueCount = openIssues.filter(i => {
+      if (!i.DueDate || i.DueDate === "NA") return false;
+      try { return new Date(i.DueDate) < nowStats; } catch { return false; }
+    }).length;
+
+    const statsResult = {
+      total: src.length,
+      uniqueVulns: uniqueVulnNames.size,
+      uniqueAssets: uniqueAssets.size,
+      criticalOpen: criticalOpenCount,
+      breached: overdueCount,
+    };
+
+    const pieChart = [
+      { name: "Resolved", value: pipelineResult.resolved || 0, color: "#10b981" },
+      { name: "In Progress", value: pipelineResult.progress || 0, color: "#3b82f6" },
+      { name: "Open", value: pipelineResult.open || 0, color: "#ef4444" },
+    ].filter((d) => d.value > 0);
+
+    let sevPie: { data: any[]; allData: any[]; total: number; counts: Record<string, number> };
+    if (dashboardStats?.severity) {
+      const c = dashboardStats.severity;
+      const allSevData = [
+        { name: "Critical", value: c.critical || 0, color: "#dc2626" },
+        { name: "High", value: c.high || 0, color: "#f97316" },
+        { name: "Medium", value: c.medium || 0, color: "#eab308" },
+        { name: "Low", value: c.low || 0, color: "#22c55e" },
+      ];
+      sevPie = {
+        data: allSevData.filter(d => d.value > 0),
+        allData: allSevData,
+        total: (c.critical || 0) + (c.high || 0) + (c.medium || 0) + (c.low || 0),
+        counts: { Critical: c.critical || 0, High: c.high || 0, Medium: c.medium || 0, Low: c.low || 0 },
+      };
+    } else {
+      const sevCounts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+      src.forEach(i => {
         const format = i.SourceFormat || "CONTAINER";
         let sevValue = "";
-        if (format === "VAPT") {
+        if (format === "SAST_DAST") {
+          sevValue = i.Criticality || i.CriticalityStatus || i["Criticality Status"] || i.Severity || "";
+        } else if (format === "VAPT") {
           sevValue = i["Risk Factor"] || i.RiskFactor || i.Severity || "";
-        } else if (format === "SAST_DAST") {
-          sevValue = i.CriticalityStatus || i.Criticality || i["Criticality Status"] || i.Severity || "";
         } else {
           sevValue = i.Severity || "";
         }
         const sev = (sevValue || "").toLowerCase().trim();
-        return sev === "critical" || sev === "urgent" || sev === "high";
-      }).length;
-
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-      const overdueCount = openIssues.filter(i => {
-        if (!i.DueDate || i.DueDate === "NA") return false;
-        try {
-          const dueDate = new Date(i.DueDate);
-          return dueDate < now;
-        } catch {
-          return false;
-        }
-      }).length;
-
-      return {
-        total: dataSource.length,
-        uniqueVulns: uniqueVulnNames.size,
-        uniqueAssets: uniqueAssets.size,
-        criticalOpen: criticalOpenCount,
-        breached: overdueCount,
+        if (sev === "critical" || sev === "urgent") sevCounts.Critical++;
+        else if (sev === "high") sevCounts.High++;
+        else if (sev === "medium" || sev === "moderate" || sev === "exception") sevCounts.Medium++;
+        else if (sev === "low" || sev === "info") sevCounts.Low++;
+        else sevCounts.Medium++;
+      });
+      const allSevData = [
+        { name: "Critical", value: sevCounts.Critical, color: "#dc2626" },
+        { name: "High", value: sevCounts.High, color: "#f97316" },
+        { name: "Medium", value: sevCounts.Medium, color: "#eab308" },
+        { name: "Low", value: sevCounts.Low, color: "#22c55e" },
+      ];
+      sevPie = {
+        data: allSevData.filter(d => d.value > 0),
+        allData: allSevData,
+        total: src.length,
+        counts: sevCounts,
       };
-    } catch {
-      return { total: 0, uniqueVulns: 0, criticalOpen: 0, breached: 0 };
     }
-  }, [filteredActiveIssues, activeIssues]);
+
+    const resolvedIssues = src.filter(i => isResolved(i.Status));
+    const resolvedOnTime = resolvedIssues.filter(i => {
+      if (!i.DueDate || i.DueDate === "NA") return true;
+      try {
+        const dueDate = new Date(i.DueDate);
+        const resolvedDate = i.ResolvedAt ? new Date(i.ResolvedAt) : new Date();
+        return resolvedDate <= dueDate;
+      } catch { return true; }
+    });
+    const compliancePct = resolvedIssues.length > 0 ? (resolvedOnTime.length / resolvedIssues.length) * 100 : 100;
+    const slaCompliance = {
+      total: resolvedIssues.length,
+      onTime: resolvedOnTime.length,
+      breached: resolvedIssues.length - resolvedOnTime.length,
+      compliance: Math.round(compliancePct),
+    };
+
+    const nowAge = new Date();
+    const ageBuckets: Record<string, number> = { "0-7 days": 0, "8-30 days": 0, "31-90 days": 0, "90+ days": 0 };
+    openIssues.forEach(issue => {
+      const discovered = issue.DiscoveredDate && issue.DiscoveredDate !== "NA"
+        ? new Date(issue.DiscoveredDate)
+        : nowAge;
+      const days = Math.floor((nowAge.getTime() - discovered.getTime()) / (1000 * 60 * 60 * 24));
+      if (days <= 7) ageBuckets["0-7 days"]++;
+      else if (days <= 30) ageBuckets["8-30 days"]++;
+      else if (days <= 90) ageBuckets["31-90 days"]++;
+      else ageBuckets["90+ days"]++;
+    });
+    const ageDistribution = Object.entries(ageBuckets).map(([name, value]) => ({ name, value }));
+
+    const heatmap: Record<string, Record<string, number>> = {};
+    const heatmapSeverities = ["Critical", "High", "Medium", "Low"];
+    const heatmapDepts = Array.from(new Set(src.map(i => i.Department || "Unassigned"))).slice(0, 6);
+    heatmapDepts.forEach(dept => { heatmap[dept] = { Critical: 0, High: 0, Medium: 0, Low: 0 }; });
+    src.filter(i => !isResolved(i.Status)).forEach(issue => {
+      const dept = issue.Department || "Unassigned";
+      const sev = heatmapSeverities.includes(issue.Severity) ? issue.Severity : "Medium";
+      if (heatmap[dept]) heatmap[dept][sev]++;
+    });
+    const riskHeatmap = { heatmap, depts: heatmapDepts, severities: heatmapSeverities };
+
+    const nowTrend = new Date();
+    const trendDays: { date: string; discovered: number; resolved: number }[] = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(nowTrend);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split("T")[0];
+      const disc = src.filter(issue => {
+        const dd = issue.DiscoveredDate;
+        return dd && dd !== "NA" && dd.startsWith(dateStr);
+      }).length;
+      const res = src.filter(issue => {
+        const rr = issue.ResolvedAt;
+        return rr && rr !== "NA" && rr.startsWith(dateStr);
+      }).length;
+      trendDays.push({ date: dateStr.slice(5), discovered: disc, resolved: res });
+    }
+
+    const nowWk = new Date();
+    nowWk.setHours(0, 0, 0, 0);
+    const thisWkStart = new Date(nowWk);
+    thisWkStart.setDate(nowWk.getDate() - 7);
+    const lastWkStart = new Date(nowWk);
+    lastWkStart.setDate(nowWk.getDate() - 14);
+    const lastWkEnd = new Date(nowWk);
+    lastWkEnd.setDate(nowWk.getDate() - 7);
+    const gdv = (ds: string) => {
+      if (!ds || ds === "NA") return null;
+      try { return new Date(ds); } catch { return null; }
+    };
+    const twDisc = src.filter(i => { const d = gdv(i.DiscoveredDate || i.FirstDetected); return d && d >= thisWkStart && d <= nowWk; }).length;
+    const lwDisc = src.filter(i => { const d = gdv(i.DiscoveredDate || i.FirstDetected); return d && d >= lastWkStart && d < lastWkEnd; }).length;
+    const twRes = src.filter(i => { const d = gdv(i.ResolvedAt); return d && d >= thisWkStart && d <= nowWk; }).length;
+    const lwRes = src.filter(i => { const d = gdv(i.ResolvedAt); return d && d >= lastWkStart && d < lastWkEnd; }).length;
+    const twCrit = src.filter(i => { const d = gdv(i.DiscoveredDate || i.FirstDetected); const s = (i.Severity || i.CriticalityStatus || "").toLowerCase(); return d && d >= thisWkStart && d <= nowWk && (s === "critical" || s === "high"); }).length;
+    const lwCrit = src.filter(i => { const d = gdv(i.DiscoveredDate || i.FirstDetected); const s = (i.Severity || i.CriticalityStatus || "").toLowerCase(); return d && d >= lastWkStart && d < lastWkEnd && (s === "critical" || s === "high"); }).length;
+    const twOd = src.filter(i => { const due = gdv(i.DueDate); return due && due < nowWk && due >= thisWkStart && !isResolved(i.Status); }).length;
+    const lwOd = src.filter(i => { const due = gdv(i.DueDate); return due && due < lastWkEnd && due >= lastWkStart && !isResolved(i.Status); }).length;
+    const cc = (cur: number, prev: number) => { if (prev === 0) return cur > 0 ? 100 : 0; return Math.round(((cur - prev) / prev) * 100); };
+    const weekComp = {
+      thisWeek: { discovered: twDisc, resolved: twRes, critical: twCrit, overdue: twOd },
+      lastWeek: { discovered: lwDisc, resolved: lwRes, critical: lwCrit, overdue: lwOd },
+      change: { discovered: cc(twDisc, lwDisc), resolved: cc(twRes, lwRes), critical: cc(twCrit, lwCrit), overdue: cc(twOd, lwOd) },
+    };
+
+    return {
+      pipeline: pipelineResult,
+      resolutionChartData: resolutionChart,
+      stats: statsResult,
+      pieChartData: pieChart,
+      severityPieData: sevPie,
+      slaComplianceData: slaCompliance,
+      ageDistributionData: ageDistribution,
+      riskHeatmapData: riskHeatmap,
+      trendData: trendDays,
+      weekComparison: weekComp,
+    };
+  }, [fendralis]);
 
   // richyrik - update typeChartData to use fendralis
   const typeChartData = useMemo(() => {
@@ -2426,21 +2565,6 @@ const AppContent: React.FC = () => {
     }
   }, [tableFilteredIssues]);
 
-  const pieChartData = useMemo(() => {
-    try {
-      return [
-        { name: "Resolved", value: pipeline.resolved || 0, color: "#10b981" },
-        {
-          name: "In Progress",
-          value: pipeline.progress || 0,
-          color: "#3b82f6",
-        },
-        { name: "Open", value: pipeline.open || 0, color: "#ef4444" },
-      ].filter((d) => d.value > 0);
-    } catch {
-      return [];
-    }
-  }, [pipeline]);
 
   const getSeverityValue = (issue: Issue): string => {
     const format = issue.SourceFormat || "CONTAINER";
@@ -2459,62 +2583,6 @@ const AppContent: React.FC = () => {
     return sev;
   };
 
-  const severityPieData = useMemo(() => {
-    if (dashboardStats?.severity) {
-      const c = dashboardStats.severity;
-      return {
-        data: [
-          { name: "Critical", value: c.critical || 0, color: "#dc2626" },
-          { name: "High", value: c.high || 0, color: "#f97316" },
-          { name: "Medium", value: c.medium || 0, color: "#eab308" },
-          { name: "Low", value: c.low || 0, color: "#22c55e" },
-        ].filter(d => d.value > 0),
-        allData: [
-          { name: "Critical", value: c.critical || 0, color: "#dc2626" },
-          { name: "High", value: c.high || 0, color: "#f97316" },
-          { name: "Medium", value: c.medium || 0, color: "#eab308" },
-          { name: "Low", value: c.low || 0, color: "#22c55e" },
-        ],
-        total: (c.critical || 0) + (c.high || 0) + (c.medium || 0) + (c.low || 0),
-        counts: { Critical: c.critical || 0, High: c.high || 0, Medium: c.medium || 0, Low: c.low || 0 }
-      };
-    }
-    try {
-      const allIssues = activeIssues || [];
-      const counts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
-      allIssues.forEach(i => {
-        const format = i.SourceFormat || "CONTAINER";
-        let sevValue = "";
-        if (format === "SAST_DAST") {
-          sevValue = i.Criticality || i.CriticalityStatus || i["Criticality Status"] || i.Severity || "";
-        } else if (format === "VAPT") {
-          sevValue = i["Risk Factor"] || i.RiskFactor || i.Severity || "";
-        } else {
-          sevValue = i.Severity || "";
-        }
-        const sev = (sevValue || "").toLowerCase().trim();
-        if (sev === "critical" || sev === "urgent") counts.Critical++;
-        else if (sev === "high") counts.High++;
-        else if (sev === "medium" || sev === "moderate" || sev === "exception") counts.Medium++;
-        else if (sev === "low" || sev === "info") counts.Low++;
-        else counts.Medium++;
-      });
-      const allData = [
-        { name: "Critical", value: counts.Critical, color: "#dc2626" },
-        { name: "High", value: counts.High, color: "#f97316" },
-        { name: "Medium", value: counts.Medium, color: "#eab308" },
-        { name: "Low", value: counts.Low, color: "#22c55e" },
-      ];
-      return {
-        data: allData.filter(d => d.value > 0),
-        allData: allData,
-        total: allIssues.length,
-        counts
-      };
-    } catch {
-      return { data: [], total: 0, allData: [], counts: { Critical: 0, High: 0, Medium: 0, Low: 0 } };
-    }
-  }, [activeIssues]);
 
   // richyrik - update cspmFindingChartData to use fendralis
   const cspmFindingChartData = useMemo(() => {
@@ -2562,208 +2630,6 @@ const AppContent: React.FC = () => {
     }
   }, [groupedIssues, dashboardStats]);
 
-  const slaComplianceData = useMemo(() => {
-    try {
-      const resolved = (activeIssues || []).filter(i => isResolved(i.Status));
-      const resolvedOnTime = resolved.filter(i => {
-        if (!i.DueDate || i.DueDate === "NA") return true;
-        try {
-          const dueDate = new Date(i.DueDate);
-          const resolvedDate = i.ResolvedAt ? new Date(i.ResolvedAt) : new Date();
-          return resolvedDate <= dueDate;
-        } catch { return true; }
-      });
-      const compliance = resolved.length > 0 ? (resolvedOnTime.length / resolved.length) * 100 : 100;
-      return {
-        total: resolved.length,
-        onTime: resolvedOnTime.length,
-        breached: resolved.length - resolvedOnTime.length,
-        compliance: Math.round(compliance),
-      };
-    } catch {
-      return { total: 0, onTime: 0, breached: 0, compliance: 100 };
-    }
-  }, [activeIssues]);
-
-  const ageDistributionData = useMemo(() => {
-    try {
-      const now = new Date();
-      const openIssues = (activeIssues || []).filter(i => !isResolved(i.Status));
-      const buckets = { "0-7 days": 0, "8-30 days": 0, "31-90 days": 0, "90+ days": 0 };
-
-      openIssues.forEach(issue => {
-        try {
-          const discovered = issue.DiscoveredDate && issue.DiscoveredDate !== "NA"
-            ? new Date(issue.DiscoveredDate)
-            : now;
-          const days = Math.floor((now.getTime() - discovered.getTime()) / (1000 * 60 * 60 * 24));
-
-          if (days <= 7) buckets["0-7 days"]++;
-          else if (days <= 30) buckets["8-30 days"]++;
-          else if (days <= 90) buckets["31-90 days"]++;
-          else buckets["90+ days"]++;
-        } catch {
-          buckets["0-7 days"]++;
-        }
-      });
-
-      return Object.entries(buckets).map(([name, value]) => ({ name, value }));
-    } catch {
-      return [];
-    }
-  }, [activeIssues]);
-
-  const riskHeatmapData = useMemo(() => {
-    try {
-      const heatmap: Record<string, Record<string, number>> = {};
-      const severities = ["Critical", "High", "Medium", "Low"];
-      const depts = Array.from(new Set((displayedIssues || []).map(i => i.Department || "Unassigned"))).slice(0, 6);
-
-      depts.forEach(dept => {
-        heatmap[dept] = { Critical: 0, High: 0, Medium: 0, Low: 0 };
-      });
-
-      (displayedIssues || []).filter(i => !isResolved(i.Status)).forEach(issue => {
-        const dept = issue.Department || "Unassigned";
-        const sev = severities.includes(issue.Severity) ? issue.Severity : "Medium";
-        if (heatmap[dept]) {
-          heatmap[dept][sev]++;
-        }
-      });
-
-      return { heatmap, depts, severities };
-    } catch {
-      return { heatmap: {}, depts: [], severities: [] };
-    }
-  }, [displayedIssues]);
-
-  const trendData = useMemo(() => {
-    try {
-      const now = new Date();
-      const days: { date: string; discovered: number; resolved: number }[] = [];
-
-      for (let i = 29; i >= 0; i--) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split("T")[0];
-
-        const discovered = (displayedIssues || []).filter(issue => {
-          const disc = issue.DiscoveredDate;
-          return disc && disc !== "NA" && disc.startsWith(dateStr);
-        }).length;
-
-        const resolved = (displayedIssues || []).filter(issue => {
-          const res = issue.ResolvedAt;
-          return res && res !== "NA" && res.startsWith(dateStr);
-        }).length;
-
-        days.push({ date: dateStr.slice(5), discovered, resolved });
-      }
-
-      return days;
-    } catch {
-      return [];
-    }
-  }, [displayedIssues]);
-
-  const weekComparison = useMemo(() => {
-    try {
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-
-      const thisWeekStart = new Date(now);
-      thisWeekStart.setDate(now.getDate() - 7);
-
-      const lastWeekStart = new Date(now);
-      lastWeekStart.setDate(now.getDate() - 14);
-
-      const lastWeekEnd = new Date(now);
-      lastWeekEnd.setDate(now.getDate() - 7);
-
-      const issues = activeIssues || [];
-
-      const getDateValue = (dateStr: string) => {
-        if (!dateStr || dateStr === "NA") return null;
-        try {
-          return new Date(dateStr);
-        } catch { return null; }
-      };
-
-      const thisWeekDiscovered = issues.filter(i => {
-        const d = getDateValue(i.DiscoveredDate || i.FirstDetected);
-        return d && d >= thisWeekStart && d <= now;
-      }).length;
-
-      const lastWeekDiscovered = issues.filter(i => {
-        const d = getDateValue(i.DiscoveredDate || i.FirstDetected);
-        return d && d >= lastWeekStart && d < lastWeekEnd;
-      }).length;
-
-      const thisWeekResolved = issues.filter(i => {
-        const d = getDateValue(i.ResolvedAt);
-        return d && d >= thisWeekStart && d <= now;
-      }).length;
-
-      const lastWeekResolved = issues.filter(i => {
-        const d = getDateValue(i.ResolvedAt);
-        return d && d >= lastWeekStart && d < lastWeekEnd;
-      }).length;
-
-      const thisWeekCritical = issues.filter(i => {
-        const d = getDateValue(i.DiscoveredDate || i.FirstDetected);
-        const sev = (i.Severity || i.CriticalityStatus || "").toLowerCase();
-        return d && d >= thisWeekStart && d <= now && (sev === "critical" || sev === "high");
-      }).length;
-
-      const lastWeekCritical = issues.filter(i => {
-        const d = getDateValue(i.DiscoveredDate || i.FirstDetected);
-        const sev = (i.Severity || i.CriticalityStatus || "").toLowerCase();
-        return d && d >= lastWeekStart && d < lastWeekEnd && (sev === "critical" || sev === "high");
-      }).length;
-
-      const thisWeekOverdue = issues.filter(i => {
-        const due = getDateValue(i.DueDate);
-        return due && due < now && due >= thisWeekStart && !isResolved(i.Status);
-      }).length;
-
-      const lastWeekOverdue = issues.filter(i => {
-        const due = getDateValue(i.DueDate);
-        return due && due < lastWeekEnd && due >= lastWeekStart && !isResolved(i.Status);
-      }).length;
-
-      const calcChange = (current: number, previous: number) => {
-        if (previous === 0) return current > 0 ? 100 : 0;
-        return Math.round(((current - previous) / previous) * 100);
-      };
-
-      return {
-        thisWeek: {
-          discovered: thisWeekDiscovered,
-          resolved: thisWeekResolved,
-          critical: thisWeekCritical,
-          overdue: thisWeekOverdue,
-        },
-        lastWeek: {
-          discovered: lastWeekDiscovered,
-          resolved: lastWeekResolved,
-          critical: lastWeekCritical,
-          overdue: lastWeekOverdue,
-        },
-        change: {
-          discovered: calcChange(thisWeekDiscovered, lastWeekDiscovered),
-          resolved: calcChange(thisWeekResolved, lastWeekResolved),
-          critical: calcChange(thisWeekCritical, lastWeekCritical),
-          overdue: calcChange(thisWeekOverdue, lastWeekOverdue),
-        }
-      };
-    } catch {
-      return {
-        thisWeek: { discovered: 0, resolved: 0, critical: 0, overdue: 0 },
-        lastWeek: { discovered: 0, resolved: 0, critical: 0, overdue: 0 },
-        change: { discovered: 0, resolved: 0, critical: 0, overdue: 0 },
-      };
-    }
-  }, [activeIssues]);
 
   const dueDateAlerts = useMemo(() => {
     try {
@@ -3645,28 +3511,28 @@ const AppContent: React.FC = () => {
             />
             <Card
               title="Unique CVEs"
-              val={stats?.uniqueVulns || 0}
+              val={mexwf.stats?.uniqueVulns || 0}
               Icon={Shield}
               color="text-purple-600"
               bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
             />
             <Card
               title="Affected Assets"
-              val={stats?.uniqueAssets || 0}
+              val={mexwf.stats?.uniqueAssets || 0}
               Icon={Server}
               color="text-blue-600"
               bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
             />
             <Card
               title="Critical Risks"
-              val={stats?.criticalOpen || 0}
+              val={mexwf.stats?.criticalOpen || 0}
               Icon={AlertTriangle}
               color="text-amber-500"
               bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
             />
             <Card
               title="SLA Breached"
-              val={stats?.breached || 0}
+              val={mexwf.stats?.breached || 0}
               Icon={Flame}
               color="text-red-500"
               bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
@@ -3687,16 +3553,16 @@ const AppContent: React.FC = () => {
                     <circle cx="64" cy="64" r="56" stroke={darkMode ? "#374151" : "#e2e8f0"} strokeWidth="12" fill="none" />
                     <circle
                       cx="64" cy="64" r="56"
-                      stroke={slaComplianceData.compliance >= 80 ? "#10b981" : slaComplianceData.compliance >= 60 ? "#f59e0b" : "#ef4444"}
+                      stroke={mexwf.slaComplianceData.compliance >= 80 ? "#10b981" : mexwf.slaComplianceData.compliance >= 60 ? "#f59e0b" : "#ef4444"}
                       strokeWidth="12"
                       fill="none"
                       strokeLinecap="round"
-                      strokeDasharray={`${(slaComplianceData.compliance / 100) * 351.86} 351.86`}
+                      strokeDasharray={`${(mexwf.slaComplianceData.compliance / 100) * 351.86} 351.86`}
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center flex-col">
-                    <span className={`text-2xl font-bold ${slaComplianceData.compliance >= 80 ? "text-emerald-600" : slaComplianceData.compliance >= 60 ? "text-amber-600" : "text-red-600"}`}>
-                      {slaComplianceData.compliance}%
+                    <span className={`text-2xl font-bold ${mexwf.slaComplianceData.compliance >= 80 ? "text-emerald-600" : mexwf.slaComplianceData.compliance >= 60 ? "text-amber-600" : "text-red-600"}`}>
+                      {mexwf.slaComplianceData.compliance}%
                     </span>
                     <span className={`text-[10px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Compliance</span>
                   </div>
@@ -3704,15 +3570,15 @@ const AppContent: React.FC = () => {
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className={`p-2 rounded ${darkMode ? "bg-slate-700" : "bg-slate-50"}`}>
-                  <p className={`text-lg font-bold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{slaComplianceData.total}</p>
+                  <p className={`text-lg font-bold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{mexwf.slaComplianceData.total}</p>
                   <p className={`text-[10px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Total Resolved</p>
                 </div>
                 <div className={`p-2 rounded ${darkMode ? "bg-emerald-900/30" : "bg-emerald-50"}`}>
-                  <p className="text-lg font-bold text-emerald-600">{slaComplianceData.onTime}</p>
+                  <p className="text-lg font-bold text-emerald-600">{mexwf.slaComplianceData.onTime}</p>
                   <p className={`text-[10px] ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>On Time</p>
                 </div>
                 <div className={`p-2 rounded ${darkMode ? "bg-red-900/30" : "bg-red-50"}`}>
-                  <p className="text-lg font-bold text-red-600">{slaComplianceData.breached}</p>
+                  <p className="text-lg font-bold text-red-600">{mexwf.slaComplianceData.breached}</p>
                   <p className={`text-[10px] ${darkMode ? "text-red-400" : "text-red-600"}`}>Breached</p>
                 </div>
               </div>
@@ -3723,15 +3589,15 @@ const AppContent: React.FC = () => {
                 <Clock size={16} className="text-blue-500" /> Vulnerability Age Distribution
               </h2>
               <div className="h-48 flex items-center justify-center">
-                {ageDistributionData && ageDistributionData.length > 0 ? (
+                {mexwf.ageDistributionData && mexwf.ageDistributionData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={ageDistributionData} layout="vertical">
+                    <BarChart data={mexwf.ageDistributionData} layout="vertical">
                       <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
                       <XAxis type="number" hide />
                       <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
                       <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #e2e8f0", borderRadius: "4px", backgroundColor: darkMode ? "#1f2937" : "#fff" }} />
                       <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20}>
-                        {ageDistributionData.map((entry, index) => (
+                        {mexwf.ageDistributionData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={index === 3 ? "#ef4444" : index === 2 ? "#f59e0b" : "#3b82f6"} />
                         ))}
                       </Bar>
@@ -3751,15 +3617,15 @@ const AppContent: React.FC = () => {
                 Resolution Tracking
               </h2>
               <div className="h-48 flex items-center justify-center">
-                {resolutionChartData && resolutionChartData.length > 0 ? (
+                {mexwf.resolutionChartData && mexwf.resolutionChartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={resolutionChartData} layout="vertical">
+                    <BarChart data={mexwf.resolutionChartData} layout="vertical">
                       <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
                       <XAxis type="number" hide />
                       <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
                       <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #e2e8f0", borderRadius: "4px", backgroundColor: darkMode ? "#1f2937" : "#fff" }} />
                       <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={20}>
-                        {resolutionChartData.map((entry, index) => (
+                        {mexwf.resolutionChartData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.fill} />
                         ))}
                       </Bar>
@@ -3776,23 +3642,23 @@ const AppContent: React.FC = () => {
             <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
               <Zap size={16} className="text-amber-500" /> Risk Heatmap: Severity vs Department
             </h2>
-            {riskHeatmapData.depts.length > 0 ? (
+            {mexwf.riskHeatmapData.depts.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr>
                       <th className={`p-2 text-left font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Department</th>
-                      {riskHeatmapData.severities.map(sev => (
+                      {mexwf.riskHeatmapData.severities.map(sev => (
                         <th key={sev} className={`p-2 text-center font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{sev}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {riskHeatmapData.depts.map(dept => (
+                    {mexwf.riskHeatmapData.depts.map(dept => (
                       <tr key={dept} className={darkMode ? "border-t border-slate-700" : "border-t border-slate-100"}>
                         <td className={`p-2 font-medium ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{dept}</td>
-                        {riskHeatmapData.severities.map(sev => {
-                          const count = riskHeatmapData.heatmap[dept]?.[sev] || 0;
+                        {mexwf.riskHeatmapData.severities.map(sev => {
+                          const count = mexwf.riskHeatmapData.heatmap[dept]?.[sev] || 0;
                           const intensity = count === 0 ? "bg-slate-100" : count <= 2 ? "bg-yellow-100" : count <= 5 ? "bg-orange-200" : "bg-red-300";
                           const darkIntensity = count === 0 ? "bg-slate-700" : count <= 2 ? "bg-yellow-900/50" : count <= 5 ? "bg-orange-900/50" : "bg-red-900/50";
                           return (
@@ -3822,8 +3688,8 @@ const AppContent: React.FC = () => {
               <span className="text-xs font-medium text-slate-500">
                 Resolution Velocity:{" "}
                 <strong className="text-slate-800">
-                  {stats?.total > 0 && pipeline?.resolved !== undefined
-                    ? ((pipeline.resolved / stats.total) * 100).toFixed(1)
+                  {mexwf.stats?.total > 0 && mexwf.pipeline?.resolved !== undefined
+                    ? ((mexwf.pipeline.resolved / mexwf.stats.total) * 100).toFixed(1)
                     : 0}
                   %
                 </strong>
@@ -3835,7 +3701,7 @@ const AppContent: React.FC = () => {
                   Open Assets
                 </p>
                 <p className="text-lg font-bold text-slate-800">
-                  {pipeline?.open || 0}
+                  {mexwf.pipeline?.open || 0}
                 </p>
               </div>
               <ArrowRight
@@ -3845,7 +3711,7 @@ const AppContent: React.FC = () => {
               <div className="flex-1 w-full border border-blue-200 p-4 rounded-md flex justify-between items-center bg-blue-50/30">
                 <p className="text-sm font-medium text-blue-700">In Progress</p>
                 <p className="text-lg font-bold text-blue-800">
-                  {pipeline?.progress || 0}
+                  {mexwf.pipeline?.progress || 0}
                 </p>
               </div>
               <ArrowRight
@@ -3855,15 +3721,15 @@ const AppContent: React.FC = () => {
               <div className="flex-1 w-full border border-emerald-200 p-4 rounded-md flex justify-between items-center bg-emerald-50/30">
                 <p className="text-sm font-medium text-emerald-700">Resolved</p>
                 <p className="text-lg font-bold text-emerald-800">
-                  {pipeline?.resolved || 0}
+                  {mexwf.pipeline?.resolved || 0}
                 </p>
               </div>
             </div>
             <div className="mt-4 h-1.5 w-full bg-slate-100 rounded-sm overflow-hidden flex">
               <div
                 style={{
-                  width: `${stats?.total > 0 && pipeline?.open !== undefined
-                    ? (pipeline.open / stats.total) * 100
+                  width: `${mexwf.stats?.total > 0 && mexwf.pipeline?.open !== undefined
+                    ? (mexwf.pipeline.open / mexwf.stats.total) * 100
                     : 0
                     }%`,
                 }}
@@ -3871,8 +3737,8 @@ const AppContent: React.FC = () => {
               />
               <div
                 style={{
-                  width: `${stats?.total > 0 && pipeline?.progress !== undefined
-                    ? (pipeline.progress / stats.total) * 100
+                  width: `${mexwf.stats?.total > 0 && mexwf.pipeline?.progress !== undefined
+                    ? (mexwf.pipeline.progress / mexwf.stats.total) * 100
                     : 0
                     }%`,
                 }}
@@ -3880,8 +3746,8 @@ const AppContent: React.FC = () => {
               />
               <div
                 style={{
-                  width: `${stats?.total > 0 && pipeline?.resolved !== undefined
-                    ? (pipeline.resolved / stats.total) * 100
+                  width: `${mexwf.stats?.total > 0 && mexwf.pipeline?.resolved !== undefined
+                    ? (mexwf.pipeline.resolved / mexwf.stats.total) * 100
                     : 0
                     }%`,
                 }}
@@ -3897,17 +3763,17 @@ const AppContent: React.FC = () => {
               </h2>
               <div className="flex flex-col items-center">
                 <div className="h-48 w-full flex items-center justify-center">
-                  {severityPieData.data && severityPieData.data.length > 0 ? (
+                  {mexwf.severityPieData.data && mexwf.severityPieData.data.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
-                          data={severityPieData.data}
+                          data={mexwf.severityPieData.data}
                           innerRadius={50}
                           outerRadius={70}
                           paddingAngle={2}
                           dataKey="value"
                         >
-                          {severityPieData.data.map((entry, index) => (
+                          {mexwf.severityPieData.data.map((entry, index) => (
                             <Cell
                               key={`cell-${index}`}
                               fill={entry.color || "#000"}
@@ -3930,10 +3796,10 @@ const AppContent: React.FC = () => {
                     </p>
                   )}
                 </div>
-                {severityPieData.allData && severityPieData.allData.length > 0 && (
+                {mexwf.severityPieData.allData && mexwf.severityPieData.allData.length > 0 && (
                   <>
                     <div className="flex flex-wrap justify-center gap-3 mt-2">
-                      {severityPieData.allData.filter(item => item.value > 0).map((item) => (
+                      {mexwf.severityPieData.allData.filter(item => item.value > 0).map((item) => (
                         <div key={item.name} className="flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
                           <span className={`text-xs font-semibold ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
@@ -3944,7 +3810,7 @@ const AppContent: React.FC = () => {
                     </div>
                     <div className={`mt-3 pt-2 border-t text-center ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
                       <span className={`text-sm font-bold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
-                        Total Vulnerabilities: {severityPieData.total}
+                        Total Vulnerabilities: {mexwf.severityPieData.total}
                       </span>
                     </div>
                   </>
