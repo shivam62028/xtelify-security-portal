@@ -3938,7 +3938,7 @@ async def ollama_status():
 async def smart_search(req: Request):
     """Smart search using Ollama to parse natural language queries"""
     try:
-        data = await req.json()do not name  it  "Manger closure report" it has to be depended on the container sub type. what i am selected in the "COntainer sub type". fix this .
+        data = await req.json()
         query = data.get('query', '')
 
         if not query:
