@@ -3068,6 +3068,9 @@ def is_resolved(status):
     if not status:
         return False
     s = str(status).lower()
+    # richyrik
+    if s in ["unresolved", "not resolved"]:
+        return False
     return any(x in s for x in ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"])
 
 # richyrik

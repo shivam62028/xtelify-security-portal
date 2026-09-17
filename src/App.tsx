@@ -1814,6 +1814,8 @@ const AppContent: React.FC = () => {
   const isResolved = (status?: string) => {
     if (!status) return false;
     const s = String(status).toLowerCase();
+    // richyrik
+    if (s === "unresolved" || s === "not resolved") return false;
     return (
       s.includes("resolved") ||
       s.includes("closed") ||
