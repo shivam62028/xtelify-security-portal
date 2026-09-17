@@ -1774,9 +1774,11 @@ const AppContent: React.FC = () => {
 
   const activeIssues = useMemo(() => {
     try {
-      let filtered = (allIssues || []).filter((i) =>
-        selectedBatches.includes(i.UploadBatch)
-      );
+      // richyrik
+      const fendralis = allIssues || [];
+      let filtered = selectedBatches.length > 0
+        ? fendralis.filter((i) => selectedBatches.includes(i.UploadBatch))
+        : fendralis;
       if (selectedFormatFilter !== "All") {
         filtered = filtered.filter((i) => (i.SourceFormat || "CONTAINER") === selectedFormatFilter);
       }
@@ -2193,6 +2195,7 @@ const AppContent: React.FC = () => {
 
   // richyrik
   const mexwf = useMemo(() => {
+    const fendralis = tableFilteredIssues || [];
     const src = fendralis;
 
     let pipelineResult = { open: 0, progress: 0, resolved: 0 };
@@ -2239,11 +2242,20 @@ const AppContent: React.FC = () => {
       try { return new Date(i.DueDate) < nowStats; } catch { return false; }
     }).length;
 
+    // richyrik
+    const serverTotal = dashboardStats?.total ?? totalRecords ?? src.length;
+    const serverSev = dashboardStats?.severity;
+    const serverStatus = dashboardStats?.status;
+
     const statsResult = {
-      total: src.length,
-      uniqueVulns: uniqueVulnNames.size,
+      total: serverTotal,
+      uniqueVulns: serverSev
+        ? (serverSev.critical || 0) + (serverSev.high || 0) + (serverSev.medium || 0) + (serverSev.low || 0)
+        : uniqueVulnNames.size,
       uniqueAssets: uniqueAssets.size,
-      criticalOpen: criticalOpenCount,
+      criticalOpen: serverSev
+        ? (serverSev.critical || 0) + (serverSev.high || 0)
+        : criticalOpenCount,
       breached: overdueCount,
     };
 
@@ -2399,7 +2411,7 @@ const AppContent: React.FC = () => {
       trendData: trendDays,
       weekComparison: weekComp,
     };
-  }, [fendralis]);
+  }, [tableFilteredIssues, dashboardStats, totalRecords]);
 
   // richyrik - update typeChartData to use fendralis
   const typeChartData = useMemo(() => {
