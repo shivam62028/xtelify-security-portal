@@ -6343,7 +6343,6 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
   const dynamicCols = useMemo(() => {
     const base = ["LOB", "Application", "AppOwner", "Shared", "Closed", "Closure %"];
     targetDates.forEach((td) => {
-      base.push(`Closed_${td}`);
       base.push(`Closure %_${td}`);
     });
     return base;
@@ -6379,6 +6378,21 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
   const totalPages = Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE));
   const paginatedData = filteredData.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
+  const rowSpans = useMemo(() => {
+    const spans: Record<number, number> = {};
+    let i = 0;
+    while (i < paginatedData.length) {
+      let count = 1;
+      const currentLob = paginatedData[i].LOB;
+      while (i + count < paginatedData.length && paginatedData[i + count].LOB === currentLob) {
+        count++;
+      }
+      spans[i] = count;
+      i += count;
+    }
+    return spans;
+  }, [paginatedData]);
+
   const summaryTotals = useMemo(() => {
     const fendralis: Record<string, number> = { shared: 0, closed: 0 };
     targetDates.forEach((td) => { fendralis[`closed_${td}`] = 0; });
@@ -6400,13 +6414,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
   }, [filteredData, targetDates]);
 
   const renderPctBadge = (pct: number) => {
-    const pctColor = pct >= 80 ? "text-emerald-500" : pct >= 50 ? "text-amber-500" : "text-red-500";
-    const pctBg = pct >= 80
-      ? darkMode ? "bg-emerald-900/20" : "bg-emerald-50"
-      : pct >= 50
-        ? darkMode ? "bg-amber-900/20" : "bg-amber-50"
-        : darkMode ? "bg-red-900/20" : "bg-red-50";
-    return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${pctColor} ${pctBg}`}>{pct}%</span>;
+    return <span className="font-bold text-[#00b050]">{pct}</span>;
   };
 
   const totalColSpan = dynamicCols.length;
@@ -6490,20 +6498,25 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border" style={{ maxHeight: "65vh" }}>
-        <table className={`w-full text-sm ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
-          <thead className={`sticky top-0 z-10 ${darkMode ? "bg-slate-700" : "bg-slate-50"}`}>
+      <div className="overflow-x-auto border-t border-l border-r border-slate-300" style={{ maxHeight: "65vh" }}>
+        <table className="w-full text-sm border-collapse bg-white">
+          <thead className="sticky top-0 z-10 bg-white">
+            <tr>
+              <th colSpan={totalColSpan} className="bg-yellow-300 text-center py-2 font-bold text-slate-800 border-b border-slate-400">
+                Manager Closure Report
+              </th>
+            </tr>
             <tr>
               {dynamicCols.map((col) => (
                 <th key={col} onClick={() => handleSort(col)}
-                  className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap ${darkMode ? "text-slate-300 hover:text-white" : "text-slate-600 hover:text-slate-900"}`}>
+                  className="px-3 py-2 text-center text-sm font-bold text-red-600 border border-slate-300 cursor-pointer select-none whitespace-nowrap bg-white">
                   {colLabel(col)}
                   {sortCol === col && <span className="ml-1">{sortAsc ? "▲" : "▼"}</span>}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className={`divide-y ${darkMode ? "divide-slate-700" : "divide-slate-100"}`}>
+          <tbody>
             {loading ? (
               <tr><td colSpan={totalColSpan} className={`p-8 text-center ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                 <RefreshCw size={20} className="animate-spin inline mr-2" />Loading report...
@@ -6513,33 +6526,50 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
                 No data matches current filters
               </td></tr>
             ) : (
-              paginatedData.map((row, idx) => (
-                <tr key={idx} className={`transition-colors ${darkMode ? "hover:bg-slate-700/50" : "hover:bg-slate-50"}`}>
-                  {dynamicCols.map((col) => {
-                    const val = row[col];
-                    const isPct = col === "Closure %" || col.startsWith("Closure %_");
-                    const isClosed = col === "Closed" || col.startsWith("Closed_");
-                    if (isPct) return <td key={col} className="px-4 py-2.5">{renderPctBadge(val || 0)}</td>;
-                    if (isClosed) return <td key={col} className={`px-4 py-2.5 font-semibold ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>{val}</td>;
-                    if (col === "Shared") return <td key={col} className={`px-4 py-2.5 font-semibold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{val}</td>;
-                    if (col === "LOB") return <td key={col} className={`px-4 py-2.5 font-medium ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{val}</td>;
-                    return <td key={col} className={`px-4 py-2.5 ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{val}</td>;
-                  })}
-                </tr>
-              ))
+              paginatedData.map((row, idx) => {
+                const isFirstOfLob = rowSpans[idx] !== undefined;
+                return (
+                  <tr key={idx}>
+                    {dynamicCols.map((col) => {
+                      if (col === "LOB") {
+                        if (!isFirstOfLob) return null;
+                        return (
+                          <td key={col} rowSpan={rowSpans[idx]} className="px-3 py-2 border border-slate-300 align-middle text-slate-800 bg-white min-w-[100px]">
+                            {row[col] || "—"}
+                          </td>
+                        );
+                      }
+                      
+                      const val = row[col];
+                      const isPct = col === "Closure %" || col.startsWith("Closure %_");
+                      const isClosed = col === "Closed";
+                      
+                      let cellClass = "px-3 py-1.5 border border-slate-300 text-slate-800 bg-white";
+                      if (isPct || isClosed || col === "Shared") {
+                        cellClass += " text-right";
+                      }
+                      
+                      return (
+                        <td key={col} className={cellClass}>
+                          {isPct ? renderPctBadge(val || 0) : (val || (col === "Application" || col === "AppOwner" ? "" : "0"))}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })
             )}
           </tbody>
           {filteredData.length > 0 && (
-            <tfoot className={`sticky bottom-0 ${darkMode ? "bg-slate-700 border-t border-slate-600" : "bg-slate-100 border-t border-slate-200"}`}>
+            <tfoot className="sticky bottom-0 bg-white z-10 font-bold border-t-2 border-slate-400">
               <tr>
-                <td colSpan={3} className={`px-4 py-2.5 text-xs font-bold uppercase ${darkMode ? "text-slate-300" : "text-slate-600"}`}>Grand Total</td>
-                <td className={`px-4 py-2.5 font-bold ${darkMode ? "text-white" : "text-slate-900"}`}>{summaryTotals.shared}</td>
-                <td className={`px-4 py-2.5 font-bold ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>{summaryTotals.closed}</td>
-                <td className="px-4 py-2.5">{renderPctBadge(Number(summaryTotals.pct))}</td>
+                <td colSpan={3} className="px-3 py-2 border border-slate-300 text-slate-900 text-center">Total</td>
+                <td className="px-3 py-2 border border-slate-300 text-slate-900 text-right">{summaryTotals.shared}</td>
+                <td className="px-3 py-2 border border-slate-300 text-slate-900 text-right">{summaryTotals.closed}</td>
+                <td className="px-3 py-2 border border-slate-300 text-right">{renderPctBadge(Number(summaryTotals.pct))}</td>
                 {targetDates.map((td) => (
                   <React.Fragment key={td}>
-                    <td className={`px-4 py-2.5 font-bold ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>{summaryTotals[`closed_${td}`]}</td>
-                    <td className="px-4 py-2.5">{renderPctBadge(Number(summaryTotals[`pct_${td}`]))}</td>
+                    <td className="px-3 py-2 border border-slate-300 text-right">{renderPctBadge(Number(summaryTotals[`pct_${td}`]))}</td>
                   </React.Fragment>
                 ))}
               </tr>

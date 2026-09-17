@@ -2347,7 +2347,6 @@ async def manager_report_export(req: Request):
         df = pd.DataFrame(data)
         col_order = ["LOB", "Application", "AppOwner", "Shared", "Closed", "Closure %"]
         for td in target_dates:
-            col_order.append(f"Closed_{td}")
             col_order.append(f"Closure %_{td}")
         col_order = [c for c in col_order if c in df.columns]
         df = df[col_order]
