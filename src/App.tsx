@@ -1515,7 +1515,9 @@ const AppContent: React.FC = () => {
       return params.toString();
     };
 
-    const fetchVulnerabilities = fetch(`${BACKEND_URL}/api/db?${buildParams(true)}`, { mode: "cors", signal: abortController.signal })
+    // richyrik
+    const fendralis = buildParams(true);
+    const fetchVulnerabilities = fetch(`${BACKEND_URL}/api/db?${fendralis}`, { mode: "cors", signal: abortController.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         return res.json();
@@ -1531,11 +1533,14 @@ const AppContent: React.FC = () => {
       .then(([dbPayload, summaryPayload]) => {
         let rawArray: Record<string, any>[] = [];
         let totalCount = summaryPayload?.total || 0;
+        
+        // richyrik
+        let mexwf = dbPayload;
 
-        if (dbPayload && Array.isArray(dbPayload.data)) {
-          rawArray = dbPayload.data;
-        } else if (Array.isArray(dbPayload)) {
-          rawArray = dbPayload;
+        if (mexwf && Array.isArray(mexwf.data)) {
+          rawArray = mexwf.data;
+        } else if (Array.isArray(mexwf)) {
+          rawArray = mexwf;
         }
 
         if (Array.isArray(rawArray)) {
@@ -4742,6 +4747,7 @@ const AppContent: React.FC = () => {
                     >
                       <option value="All">All</option>
                       <option value="Open">Open</option>
+                      <option value="Progress">Progress</option>
                       <option value="Resolved">Resolved</option>
                     </select>
                   </div>

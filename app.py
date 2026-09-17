@@ -1975,10 +1975,15 @@ async def db_summary(
                 "status": [
                     {"$group": {
                         "_id": {
+                            # richyrik
                             "$cond": [
                                 {"$regexMatch": {"input": {"$toLower": "$Status"}, "regex": "resolved|closed|fixed|mitigated|accepted|false positive"}},
                                 "resolved",
-                                "open"
+                                {"$cond": [
+                                    {"$regexMatch": {"input": {"$toLower": "$Status"}, "regex": "progress|pending|review"}},
+                                    "progress",
+                                    "open"
+                                ]}
                             ]
                         },
                         "count": {"$sum": 1}
@@ -2084,10 +2089,13 @@ async def db_summary(
         
         total = data["total"][0]["count"] if data.get("total") else 0
         
-        status_counts = {"resolved": 0, "open": 0}
+        # richyrik
+        status_counts = {"resolved": 0, "progress": 0, "open": 0}
         for s in data.get("status", []):
             if s["_id"] == "resolved":
                 status_counts["resolved"] += s["count"]
+            elif s["_id"] == "progress":
+                status_counts["progress"] += s["count"]
             else:
                 status_counts["open"] += s["count"]
                 
