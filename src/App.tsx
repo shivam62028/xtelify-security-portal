@@ -1806,10 +1806,9 @@ const AppContent: React.FC = () => {
     return "Unclassified";
   };
 
-  // richyrik: Derive metric card counts from containerChartData — the full MongoDB aggregation
-  // returned by /api/container_analytics. This is the exact same source as the Bar Chart, so the
-  // two are always in sync and never limited by the paginated allIssues array.
   // richyrik
+  const fendralis = activeIssues || [];
+
   const containerSubtypeStats = useMemo((): Record<string, number> => {
     const counts: Record<string, number> = {
       "Zero day VA": 0,
@@ -1818,21 +1817,16 @@ const AppContent: React.FC = () => {
       "Quarterly VA": 0,
       "Unclassified": 0,
     };
-    if (containerChartData && containerChartData.length > 0) {
-      containerChartData.forEach((entry: { name: string; value: number }) => {
-        if (entry.name in counts) counts[entry.name] = entry.value;
-      });
-    } else {
-      const fendralis = activeIssues || [];
-      fendralis.forEach(issue => {
-        const subtype: string = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
-        if (subtype in counts) counts[subtype]++;
-        else counts["Unclassified"]++;
-      });
-    }
+    
+    fendralis.forEach(issue => {
+      const subtype: string = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
+      if (subtype in counts) counts[subtype]++;
+      else counts["Unclassified"]++;
+    });
+    
     const mexwf = counts;
     return mexwf;
-  }, [containerChartData, activeIssues]);
+  }, [fendralis]);
 
 
   const isResolved = (status?: string) => {
@@ -3091,6 +3085,12 @@ const AppContent: React.FC = () => {
     const confirmMsg = `Are you sure you want to delete ${selectedBatches.length} dataset(s)?`;
     if (!window.confirm(confirmMsg)) return;
 
+    // richyrik
+    setAllIssues(prev => {
+      const fendralis = prev || [];
+      return fendralis.filter(i => !selectedBatches.includes(i.UploadBatch));
+    });
+
     setIsProcessing(true);
     try {
       for (const batch of selectedBatches) {
@@ -3638,7 +3638,7 @@ const AppContent: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
             <Card
               title="Total Vulnerabilities"
-              val={totalRecords || 0}
+              val={fendralis.length}
               Icon={Bug}
               color="text-indigo-500"
               bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
