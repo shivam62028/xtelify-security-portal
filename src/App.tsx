@@ -873,8 +873,9 @@ const AppContent: React.FC = () => {
 
   const CONTAINER_COLS = ["ID", "Clusters", "SubscriptionName", "AssignedTo", "AffectedAsset", "VulnDescription", "Severity", "UpdateStatus", "Status", "Version", "FixedVersion", "DueDate", "RecommendedAction"];
   const CSPM_COLS = ["account_name", "AssignedTo", "VulnDescription", "finding_name", "resource_type", "resource_id", "resource_name", "impact", "Severity", "UpdateStatus", "Status"];
-  const SAST_DAST_COLS = ["issue_key", "VulnDescription", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Compliant_NonCompliant", "ExpectedTimeline", "Assignee", "MultipleAssignee", "ApplicationOwner"];
-  const VAPT_COLS = ["IP", "UUID", "Vulnerability name", "Vulnerability description", "Solution", "Vulnerability Path", "Vulnerability family", "Vulnerability ID", "Application Owner", "Vulnerability Status", "lastSeen"];
+  const SAST_DAST_COLS = ["issue_key", "VulnDescription", "ApplicationName", "CriticalityStatus", "UpdateStatus", "ReportedOn", "Ageing", "Compliant_NonCompliant", "ExpectedTimeline", "Assignee", "MultipleAssignee", "ApplicationOwner"];
+  // richyrik
+  const VAPT_COLS = ["IP", "UUID", "Vulnerability name", "Vulnerability description", "Solution", "Vulnerability Path", "Vulnerability family", "Vulnerability ID", "Application Owner", "Vulnerability Status", "UpdateStatus", "lastSeen"];
 
   const defaultTableCols = CONTAINER_COLS;
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
@@ -2202,7 +2203,7 @@ const AppContent: React.FC = () => {
     if (dashboardStats?.status) {
       pipelineResult = {
         open: dashboardStats.status.open || 0,
-        progress: 0,
+        progress: dashboardStats.status.progress || 0,
         resolved: dashboardStats.status.resolved || 0,
       };
     } else {
@@ -2215,6 +2216,7 @@ const AppContent: React.FC = () => {
 
     const resolutionChart = [
       { name: "Open", count: pipelineResult.open, fill: darkMode ? "#60a5fa" : "#3b82f6" },
+      { name: "In Progress", count: pipelineResult.progress, fill: darkMode ? "#fcd34d" : "#f59e0b" },
       { name: "Resolved", count: pipelineResult.resolved, fill: darkMode ? "#4ade80" : "#22c55e" },
     ];
 
@@ -4950,7 +4952,7 @@ const AppContent: React.FC = () => {
                                       // richyrik
                                       const fendralis = e.target.value;
                                       try {
-                                        const res = await fetch("/api/issues/status", {
+                                        const res = await fetch(`${BACKEND_URL}/api/issues/status`, {
                                           method: "PATCH",
                                           headers: { "Content-Type": "application/json" },
                                           body: JSON.stringify({ IssueID: String(issue.IssueID), new_status: fendralis })
@@ -4958,6 +4960,7 @@ const AppContent: React.FC = () => {
                                         if (res.ok) {
                                           const mexwf = await res.json();
                                           setAllIssues(prev => prev.map(i => i.IssueID === issue.IssueID ? { ...i, Status: mexwf.Status, ResolvedAt: mexwf.ResolvedAt } : i));
+                                          setUploadCounter(prev => prev + 1);
                                         }
                                       } catch (err) {}
                                     }}
