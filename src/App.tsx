@@ -1569,7 +1569,12 @@ const AppContent: React.FC = () => {
               ...item,
               IssueID: String(item?.IssueID ?? "NA"),
               DisplayID: String(item?.DisplayID || item?.IssueID || "NA"),
-              UploadBatch: String(item?.UploadBatch ?? "NA"),
+              // richyrik
+              UploadBatch: (() => {
+                const fendralis = item?.UploadBatch || item?.DatasetName || item?.FileName || item?.Dataset || item?.dataset;
+                const mexwf = fendralis ?? "NA";
+                return String(mexwf);
+              })(),
               Severity: String(item?.Severity ?? "NA"),
               Status: String(item?.Status ?? "Open"),
               Department: finalDept,
