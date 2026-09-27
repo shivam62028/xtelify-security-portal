@@ -6507,7 +6507,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
     return fendralis;
   }, [reportData, searchTerm, sortCol, sortAsc]);
 
-  // richyrik: Top Apps visual calculation
+  // richyrik: Top Apps visual calculation updated to show ALL clusters
   const topApps = useMemo(() => {
     const appMap: Record<string, any> = {};
     filteredData.forEach(row => {
@@ -6520,7 +6520,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
       data.open = data.total - data.closed;
       data.pct = data.total > 0 ? ((data.closed / data.total) * 100).toFixed(2) : "0.00";
       return { name, ...data };
-    }).sort((a, b) => b.total - a.total).slice(0, 4);
+    }).sort((a, b) => b.total - a.total); // richyrik: Removed .slice(0, 4) to show all clusters
   }, [filteredData]);
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE));

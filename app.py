@@ -1635,6 +1635,8 @@ def delete_by_upload_batch(upload_batch):
         raise RuntimeError("MongoDB unavailable")
 
     try:
+        # richyrik: Also delete from upload history so it completely disappears from the UI
+        upload_history_collection.delete_many({"UploadBatch": upload_batch})
         result = issues_collection.delete_many({"UploadBatch": upload_batch})
         clear_cache()
         print(f"[DB] Deleted {result.deleted_count} records for UploadBatch={upload_batch}")
