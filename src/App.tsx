@@ -1785,9 +1785,11 @@ const AppContent: React.FC = () => {
 
   const activeIssues = useMemo(() => {
     try {
-      let filtered = (allIssues || []).filter((i) =>
-        selectedBatches.includes(i.UploadBatch)
-      );
+      // richyrik: The backend already filters by upload_batch. 
+      // Removing the local selectedBatches check fixes the ghost data disconnect.
+      const fendralis = allIssues || [];
+      let filtered = fendralis;
+      
       if (selectedFormatFilter !== "All") {
         filtered = filtered.filter((i) => (i.SourceFormat || "CONTAINER") === selectedFormatFilter);
       }
@@ -1795,7 +1797,7 @@ const AppContent: React.FC = () => {
     } catch {
       return [];
     }
-  }, [allIssues, selectedBatches, selectedFormatFilter]);
+  }, [allIssues, selectedFormatFilter]);
 
   // richyrik - JS fallback classifier that mirrors classify_container_subtype in app.py
   const _classifySubtypeJS = (issue: Record<string, any>): string => {

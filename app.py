@@ -1267,6 +1267,20 @@ async def startup_event():
     else:
         print("[GRAPH] Outlook integration is fully configured.")
 
+    # richyrik: Reclassify existing 'Unclassified' data on startup
+    if _is_mongo_available(force_check=True):
+        print("[MIGRATE] Re-classifying Unclassified Container records...")
+        from pymongo import UpdateOne
+        unclassified_docs = list(issues_collection.find({"SourceFormat": "CONTAINER", "ContainerSubType": "Unclassified"}))
+        updates = []
+        for doc in unclassified_docs:
+            new_type = classify_container_subtype(doc)
+            if new_type != "Unclassified":
+                updates.append(UpdateOne({"_id": doc["_id"]}, {"$set": {"ContainerSubType": new_type, "SubType": new_type, "Category": new_type}}))
+        if updates:
+            issues_collection.bulk_write(updates, ordered=False)
+            print(f"[MIGRATE] Successfully re-classified {len(updates)} records!")
+
 dbf = "xtelify_db.json"
 
 
@@ -3048,33 +3062,27 @@ def is_resolved(status):
 
 # richyrik
 def classify_container_subtype(row_data: dict) -> str:
-    """Classify a CONTAINER finding into one of five canonical sub-types.
-    Evaluation order is strictly: Zero day VA > Wiz CLI Integration >
-    Compliance VA > Quarterly VA > Unclassified.
-    """
     exploit = str(row_data.get("ExploitAvailable", "") or row_data.get("HasExploit", "")).lower()
-    description = str(row_data.get("Description", "")).lower()
+    desc = str(row_data.get("Description", "")) + " " + str(row_data.get("VulnDescription", "")) + " " + str(row_data.get("Name", ""))
+    desc_lower = desc.lower()
     tags = str(row_data.get("Tags", "")).lower()
-    detection_method = str(row_data.get("DetectionMethod", "")).lower()
-    category = str(row_data.get("Category", "")).lower()
-    upload_batch = str(row_data.get("UploadBatch", "")).lower()
+    det_method = str(row_data.get("DetectionMethod", "") or row_data.get("FindingStatus", "")).lower()
+    cat = str(row_data.get("Category", "")).lower()
+    batch = str(row_data.get("UploadBatch", "")).lower()
 
-    # Zero day VA
-    if exploit in ("true", "yes", "1") or any(kw in description for kw in ("zero day", "cisa")) or any(kw in tags for kw in ("zero day", "cisa")):
+    if exploit in ("true", "yes", "1") or any(kw in desc_lower for kw in ("zero day", "cisa", "kev", "active exploit", "rce")):
         return "Zero day VA"
-
-    # Wiz CLI Integration
-    if "cli" in detection_method or "build_id" in tags or "git_version" in tags:
+    
+    if any(kw in det_method for kw in ("cli", "pipeline", "ci/cd", "github")) or any(kw in tags for kw in ("build_id", "git_version", "pipeline")):
         return "Wiz CLI Integration"
-
-    # Compliance VA
-    if any(kw in category for kw in ("compliance", "cis", "config")):
+        
+    if any(kw in cat + desc_lower for kw in ("compliance", "cis ", "config", "policy", "hardening", "misconfiguration", "plaintext")):
         return "Compliance VA"
-
-    # Quarterly VA
-    if any(kw in upload_batch for kw in ("quarterly", "q1", "q2", "q3", "q4")):
+        
+    # richyrik: Broadened standard vulnerability catching so they don't dump into Unclassified
+    if any(kw in batch for kw in ("quarterly", "q1", "q2", "q3", "q4")) or "cve-" in desc_lower or row_data.get("Severity") in ["Critical", "High", "Medium", "Low"]:
         return "Quarterly VA"
-
+        
     return "Unclassified"
 
 # richyrik
