@@ -1529,8 +1529,16 @@ const AppContent: React.FC = () => {
         return res.json();
       });
 
-    Promise.all([fetchVulnerabilities, fetchSummary])
-      .then(([dbPayload, summaryPayload]) => {
+    Promise.allSettled([fetchVulnerabilities, fetchSummary])
+      .then(([vulnResult, summaryResult]) => {
+        const dbPayload = vulnResult.status === 'fulfilled' ? vulnResult.value : null;
+        const summaryPayload = summaryResult.status === 'fulfilled' ? summaryResult.value : null;
+
+        if (vulnResult.status === 'rejected' && vulnResult.reason?.name === 'AbortError') return;
+        if (summaryResult.status === 'rejected' && summaryResult.reason?.name !== 'AbortError') {
+          console.warn("Summary fetch failed, continuing with vulnerability data:", summaryResult.reason);
+        }
+
         let rawArray: Record<string, any>[] = [];
         let totalCount = summaryPayload?.total || 0;
         
@@ -1543,7 +1551,7 @@ const AppContent: React.FC = () => {
           rawArray = mexwf;
         }
 
-        if (Array.isArray(rawArray)) {
+        if (Array.isArray(rawArray) && rawArray.length > 0) {
           const safeData: Issue[] = rawArray.map((item) => {
             let finalDept = String(item?.Department ?? "NA");
             let finalAssigned = String(item?.AssignedTo ?? "NA");
@@ -1592,21 +1600,21 @@ const AppContent: React.FC = () => {
           });
 
           setAllIssues(safeData);
-          setTotalRecords(totalCount);
+          setTotalRecords(totalCount || safeData.length);
+          setDashboardStats(summaryPayload);
+        } else if (vulnResult.status === 'fulfilled') {
+          setAllIssues([]);
+          setTotalRecords(0);
           setDashboardStats(summaryPayload);
         } else {
+          // Vulnerability fetch itself failed
+          if (vulnResult.reason?.name !== 'AbortError') {
+            console.error("Error fetching vulnerabilities:", vulnResult.reason);
+          }
           setAllIssues([]);
           setTotalRecords(0);
           setDashboardStats(null);
         }
-        setIsLoading(false);
-      })
-      .catch((err) => {
-        if (err.name === 'AbortError') return;
-        console.error("Error fetching issues:", err);
-        setAllIssues([]);
-        setTotalRecords(0);
-        setDashboardStats(null);
         setIsLoading(false);
       });
 

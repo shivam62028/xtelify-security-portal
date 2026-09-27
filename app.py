@@ -1921,7 +1921,7 @@ async def container_analytics(
             }}
         ]
         
-        results = list(issues_collection.aggregate(pipeline))
+        results = list(issues_collection.aggregate(pipeline, allowDiskUse=True))
         formatted_results = [{"name": r["_id"], "value": r["count"]} for r in results]
         
         # richyrik - canonical sub-type names must match classify_container_subtype output
@@ -2079,7 +2079,7 @@ async def db_summary(
             }}
         ]
         
-        result = list(issues_collection.aggregate(pipeline))
+        result = list(issues_collection.aggregate(pipeline, allowDiskUse=True))
         if not result:
             fendralis = {"total": 0, "status": {"resolved": 0, "open": 0}, "severity": {"critical": 0, "high": 0, "medium": 0, "low": 0}, "cspm": [], "category": [], "owner": [], "cluster_distribution": [], "lob": [], "remediations": []}
             mexwf = fendralis
@@ -2298,7 +2298,7 @@ def _manager_report_pipeline(payload: dict) -> tuple:
         {"$group": group_stage},
         {"$sort": {"Shared": -1}},
     ]
-    results = list(issues_collection.aggregate(fendralis))
+    results = list(issues_collection.aggregate(fendralis, allowDiskUse=True))
     mexwf = []
     for doc in results:
         shared = doc.get("Shared", 0)
@@ -4107,7 +4107,7 @@ async def get_calendar_activity(year: int, month: int):
                 "count": {"$sum": 1}
             }}
         ]
-        vuln_results = list(issues_collection.aggregate(vuln_pipeline))
+        vuln_results = list(issues_collection.aggregate(vuln_pipeline, allowDiskUse=True))
 
         upload_pipeline = [
             {"$match": {"UploadedAt": {"$gte": start_date, "$lt": end_date}}},
@@ -4149,7 +4149,7 @@ async def get_calendar_vulnerabilities(date: str):
         total = issues_collection.count_documents(match_stage["$match"])
 
         sev_pipeline = [match_stage, {"$group": {"_id": "$Severity", "count": {"$sum": 1}}}]
-        sev_results = list(issues_collection.aggregate(sev_pipeline))
+        sev_results = list(issues_collection.aggregate(sev_pipeline, allowDiskUse=True))
         severity_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
         for r in sev_results:
             sev = r["_id"] or "Medium"
@@ -4160,7 +4160,7 @@ async def get_calendar_vulnerabilities(date: str):
                 severity_counts["Info"] += r["count"]
 
         fmt_pipeline = [match_stage, {"$group": {"_id": "$SourceFormat", "count": {"$sum": 1}}}]
-        fmt_results = list(issues_collection.aggregate(fmt_pipeline))
+        fmt_results = list(issues_collection.aggregate(fmt_pipeline, allowDiskUse=True))
         format_counts = {"CSPM": 0, "VAPT": 0, "CONTAINER": 0, "SAST_DAST": 0}
         for r in fmt_results:
             fmt = r["_id"] or ""
@@ -4202,7 +4202,7 @@ async def get_calendar_uploads(date: str):
             }},
             {"$sort": {"UploadedAt": -1}}
         ]
-        uploads = list(issues_collection.aggregate(uploads_pipeline))
+        uploads = list(issues_collection.aggregate(uploads_pipeline, allowDiskUse=True))
 
         for u in uploads:
             if "UploadedAt" in u and isinstance(u["UploadedAt"], datetime):
@@ -4291,7 +4291,7 @@ async def get_analytics_historical(
             {"$sort": {"_id.year": 1, "_id.month": 1, "_id.day": 1}}
         ]
         
-        daily_results = list(issues_collection.aggregate(pipeline))
+        daily_results = list(issues_collection.aggregate(pipeline, allowDiskUse=True))
         
         chart_data = []
         cum_total = 0
@@ -4473,7 +4473,7 @@ async def get_analytics_owners(
                 }},
                 {"$sort": {"total": -1}}
             ]
-            results = list(issues_collection.aggregate(pipeline))
+            results = list(issues_collection.aggregate(pipeline, allowDiskUse=True))
             
             owner_data = []
             for r in results:
@@ -4527,7 +4527,7 @@ async def get_analytics_owners(
             {"$sort": {"_id.year": 1, "_id.month": 1, "_id.day": 1}}
         ]
         
-        daily_results = list(issues_collection.aggregate(pipeline))
+        daily_results = list(issues_collection.aggregate(pipeline, allowDiskUse=True))
         
         chart_data = []
         cum_total = cum_res = cum_unres = cum_crit = cum_high = 0
@@ -5011,7 +5011,7 @@ def _generate_resolved_unresolved_graph(
         {"$sort": {"_id.year": 1, "_id.month": 1, "_id.day": 1}},
     ]
 
-    daily_results = list(issues_collection.aggregate(pipeline))
+    daily_results = list(issues_collection.aggregate(pipeline, allowDiskUse=True))
 
     # Build chart data (daily or cumulative) — same logic as /api/analytics/historical
     chart_rows = []  # [{"date": str, "Resolved": int, "Unresolved": int}]
