@@ -1482,7 +1482,10 @@ const AppContent: React.FC = () => {
       }
 
       if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
-      if (!(dateFrom || dateTo) && selectedBatches.length > 0) {
+
+      // richyrik: Prevent URL overflow by only appending batches if it is a subset
+      const totalFormatBatches = batches.filter(b => selectedFormatFilter === "All" || (batchFormats[b] || "CONTAINER") === selectedFormatFilter).length;
+      if (!(dateFrom || dateTo) && selectedBatches.length > 0 && selectedBatches.length < totalFormatBatches) {
         params.append("upload_batch", selectedBatches.join("||"));
       }
 
@@ -6502,6 +6505,22 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
     return fendralis;
   }, [reportData, searchTerm, sortCol, sortAsc]);
 
+  // richyrik: Top Apps visual calculation
+  const topApps = useMemo(() => {
+    const appMap: Record<string, any> = {};
+    filteredData.forEach(row => {
+      const app = row.Application || "Unknown";
+      if (!appMap[app]) appMap[app] = { total: 0, closed: 0, open: 0 };
+      appMap[app].total += row.Shared || 0;
+      appMap[app].closed += row.Closed || 0;
+    });
+    return Object.entries(appMap).map(([name, data]) => {
+      data.open = data.total - data.closed;
+      data.pct = data.total > 0 ? ((data.closed / data.total) * 100).toFixed(2) : "0.00";
+      return { name, ...data };
+    }).sort((a, b) => b.total - a.total).slice(0, 4);
+  }, [filteredData]);
+
   const totalPages = Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE));
   const paginatedData = filteredData.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
@@ -6615,6 +6634,59 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
           </div>
         )}
       </div>
+
+      {/* richyrik: Pre-Prod Closure Status Visual Dashboard */}
+      {filteredData.length > 0 && (
+        <div className={`mb-8 p-6 rounded-xl border shadow-sm ${darkMode ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}>
+          <div className="mb-6">
+            <h3 className={`text-xl font-bold ${darkMode ? "text-white" : "text-slate-900"}`}>Pre-Prod Closure Status</h3>
+            <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Security / vulnerability closure across key platforms</p>
+          </div>
+          
+          <div className={`p-5 rounded-lg mb-6 border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-slate-50 border-slate-100"}`}>
+            <div className="flex justify-between items-end mb-2">
+              <div>
+                <p className={`font-bold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Closure performance</p>
+                <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Closed items as a percentage of total items</p>
+              </div>
+              <div className="text-3xl font-extrabold">{summaryTotals.pct}%</div>
+            </div>
+            <div className="h-3 w-full rounded-full flex overflow-hidden mb-2 bg-red-400">
+              <div style={{ width: `${summaryTotals.pct}%` }} className="bg-emerald-500 h-full"></div>
+            </div>
+            <div className={`flex justify-between text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
+              <span>{summaryTotals.closed.toLocaleString()} closed</span>
+              <span>{(summaryTotals.shared - summaryTotals.closed).toLocaleString()} remaining</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {topApps.map(app => (
+              <div key={app.name} className={`p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
+                <h4 className={`font-bold text-sm mb-3 uppercase tracking-wide ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{app.name}</h4>
+                <div className="text-2xl font-extrabold mb-2">{app.pct}%</div>
+                <div className="h-2 w-full rounded-full flex overflow-hidden mb-4 bg-red-400">
+                  <div style={{ width: `${app.pct}%` }} className="bg-emerald-500 h-full"></div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <p className={`font-bold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{app.total.toLocaleString()}</p>
+                    <p className={darkMode ? "text-slate-500" : "text-slate-400"}>Total</p>
+                  </div>
+                  <div>
+                    <p className={`font-bold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{app.closed.toLocaleString()}</p>
+                    <p className={darkMode ? "text-slate-500" : "text-slate-400"}>Closed</p>
+                  </div>
+                  <div>
+                    <p className={`font-bold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{app.open.toLocaleString()}</p>
+                    <p className={darkMode ? "text-slate-500" : "text-slate-400"}>Open</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-lg border" style={{ maxHeight: "65vh" }}>
         <table className={`w-full text-sm ${darkMode ? "border-slate-700" : "border-slate-200"}`}>

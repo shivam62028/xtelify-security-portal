@@ -1355,10 +1355,9 @@ def _prepare_records_for_write(records, ensure_uploaded_at=True):
     if not isinstance(records, list):
         return []
 
-    unique_data = remove_duplicates(records)
+    # richyrik: Bypass remove_duplicates to ensure exact Excel VUL count is maintained
     prepared = []
-
-    for item in unique_data:
+    for item in records:
         if not isinstance(item, dict):
             continue
         rec = dict(item)
