@@ -1635,9 +1635,10 @@ def delete_by_upload_batch(upload_batch):
         raise RuntimeError("MongoDB unavailable")
 
     try:
-        # richyrik: Also delete from upload history so it completely disappears from the UI
+        import re
+        # richyrik: Use regex to match dataset names that have sheet names appended (e.g. "Dataset [Sheet1]")
         upload_history_collection.delete_many({"UploadBatch": upload_batch})
-        result = issues_collection.delete_many({"UploadBatch": upload_batch})
+        result = issues_collection.delete_many({"UploadBatch": {"$regex": f"^{re.escape(upload_batch)}.*"}})
         clear_cache()
         print(f"[DB] Deleted {result.deleted_count} records for UploadBatch={upload_batch}")
         return result.deleted_count

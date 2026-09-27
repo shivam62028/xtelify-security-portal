@@ -6662,30 +6662,47 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {topApps.map(app => (
-              <div key={app.name} className={`p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
-                <h4 className={`font-bold text-sm mb-3 uppercase tracking-wide ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{app.name}</h4>
-                <div className="text-2xl font-extrabold mb-2">{app.pct}%</div>
-                <div className="h-2 w-full rounded-full flex overflow-hidden mb-4 bg-red-400">
-                  <div style={{ width: `${app.pct}%` }} className="bg-emerald-500 h-full"></div>
+          {/* richyrik: Enhanced Manager View Cluster Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-8">
+            {topApps.map(app => {
+              const pctNum = parseFloat(app.pct);
+              const isGood = pctNum >= 80;
+              const isWarn = pctNum >= 40 && pctNum < 80;
+              const barColor = isGood ? "bg-emerald-500" : isWarn ? "bg-amber-500" : "bg-red-500";
+              const badgeColors = isGood ? "bg-emerald-100 text-emerald-700" : isWarn ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700";
+              
+              return (
+                <div key={app.name} className={`relative overflow-hidden p-6 rounded-2xl border transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${darkMode ? "bg-slate-800/80 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
+                  <div className="flex justify-between items-start mb-6">
+                    <h4 className={`font-extrabold text-base tracking-tight truncate pr-4 ${darkMode ? "text-slate-100" : "text-slate-800"}`} title={app.name}>
+                      {app.name}
+                    </h4>
+                    <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${badgeColors}`}>{app.pct}%</span>
+                  </div>
+                  
+                  <div className="mb-6">
+                    <div className={`h-2.5 w-full rounded-full overflow-hidden ${darkMode ? "bg-slate-700" : "bg-slate-100"}`}>
+                      <div style={{ width: `${app.pct}%` }} className={`h-full rounded-full ${barColor} transition-all duration-1000`}></div>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className={`p-3 rounded-xl ${darkMode ? "bg-slate-900/50" : "bg-slate-50"}`}>
+                      <p className={`text-xl font-black ${darkMode ? "text-white" : "text-slate-800"}`}>{app.total.toLocaleString()}</p>
+                      <p className={`text-[10px] font-bold uppercase tracking-wider mt-1 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Total</p>
+                    </div>
+                    <div className={`p-3 rounded-xl ${darkMode ? "bg-emerald-900/20" : "bg-emerald-50"}`}>
+                      <p className={`text-xl font-black ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>{app.closed.toLocaleString()}</p>
+                      <p className={`text-[10px] font-bold uppercase tracking-wider mt-1 ${darkMode ? "text-emerald-600/70" : "text-emerald-500"}`}>Closed</p>
+                    </div>
+                    <div className={`p-3 rounded-xl ${darkMode ? "bg-red-900/20" : "bg-red-50"}`}>
+                      <p className={`text-xl font-black ${darkMode ? "text-red-400" : "text-red-600"}`}>{app.open.toLocaleString()}</p>
+                      <p className={`text-[10px] font-bold uppercase tracking-wider mt-1 ${darkMode ? "text-red-500/70" : "text-red-400"}`}>Open</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div>
-                    <p className={`font-bold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{app.total.toLocaleString()}</p>
-                    <p className={darkMode ? "text-slate-500" : "text-slate-400"}>Total</p>
-                  </div>
-                  <div>
-                    <p className={`font-bold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{app.closed.toLocaleString()}</p>
-                    <p className={darkMode ? "text-slate-500" : "text-slate-400"}>Closed</p>
-                  </div>
-                  <div>
-                    <p className={`font-bold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{app.open.toLocaleString()}</p>
-                    <p className={darkMode ? "text-slate-500" : "text-slate-400"}>Open</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
