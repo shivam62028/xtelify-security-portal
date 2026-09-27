@@ -1860,7 +1860,7 @@ async def gd(
         total_records = issues_collection.count_documents(query)
         total_pages = (total_records + limit - 1) // limit if total_records > 0 else 1
         page = min(page, total_pages) if page > 1 else max(1, page)
-        cursor = issues_collection.find(query).sort("UploadedAt", -1).skip((page - 1) * limit).limit(limit)
+        cursor = issues_collection.find(query).sort("UploadedAt", -1).skip((page - 1) * limit).limit(limit).allow_disk_use(True)
         records = []
         owner_updates = []
         for rec in cursor:
@@ -2192,7 +2192,7 @@ async def export_data(
             for col in requested_cols:
                 projection[col] = 1
 
-        cursor = issues_collection.find(query, projection if requested_cols else {"_id": 0}).sort("UploadedAt", -1)
+        cursor = issues_collection.find(query, projection if requested_cols else {"_id": 0}).sort("UploadedAt", -1).allow_disk_use(True)
         records = list(cursor)
         
         if not records:
@@ -2520,54 +2520,30 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
 @app.get("/api/db/metadata")
 async def db_metadata():
     if not _is_mongo_available():
-        fendralis = {"batches": [], "formats": {}, "upload_dates": {}, "owners": [], "clusters": []}
-        mexwf = fendralis
-        return ORJSONResponse(content=mexwf)
+        return ORJSONResponse(content={"batches": [], "formats": {}, "upload_dates": {}, "owners": [], "clusters": []})
     try:
-        pipeline = [
-            {"$facet": {
-                "metadata": [
-                    {"$match": {"UploadBatch": {"$ne": "NA", "$exists": True}}},
-                    {"$group": {
-                        "_id": "$UploadBatch",
-                        "format": {"$first": "$SourceFormat"},
-                        "uploaded_at": {"$max": "$UploadedAt"}
-                    }},
-                    {"$sort": {"uploaded_at": -1}}
-                ],
-                "clusters": [
-                    {"$match": {"Clusters": {"$exists": True, "$nin": [None, "", "NA"]}}},
-                    {"$group": {"_id": "$Clusters"}},
-                    {"$sort": {"_id": 1}}
-                ]
-            }}
-        ]
-        results = list(issues_collection.aggregate(pipeline))
-        fendralis = results[0] if results else {"metadata": [], "clusters": []}
-        owners_raw = issues_collection.distinct("AssignedTo")
-        owners = sorted([o for o in owners_raw if o and str(o).strip().lower() not in ["na", "unassigned", ""]])
-        clusters = [str(r["_id"]) for r in fendralis.get("clusters", [])]
+        history = list(upload_history_collection.find({}, {"UploadBatch": 1, "SourceFormat": 1, "UploadedAt": 1}).sort("UploadedAt", -1))
         batches = []
         formats = {}
         upload_dates = {}
-        for r in fendralis.get("metadata", []):
-            b = r.get("_id")
-            fmt = r.get("format", "CONTAINER")
-            dt = r.get("uploaded_at")
-            if b:
+        for doc in history:
+            b = doc.get("UploadBatch")
+            if b and b != "NA" and b not in batches:
                 batches.append(b)
-                formats[b] = fmt
-                if dt:
-                    upload_dates[b] = dt
+                formats[b] = doc.get("SourceFormat", "CONTAINER")
+                if "UploadedAt" in doc:
+                    upload_dates[b] = doc["UploadedAt"]
+                    
+        clusters_raw = issues_collection.distinct("Clusters", {"Clusters": {"$nin": [None, "", "NA"]}})
+        clusters = sorted([str(c) for c in clusters_raw if c])
         
-        fendralis = {"batches": batches, "formats": formats, "upload_dates": upload_dates, "owners": owners, "clusters": clusters}
-        mexwf = fendralis
-        return ORJSONResponse(content=mexwf)
+        owners_raw = issues_collection.distinct("AssignedTo")
+        owners = sorted([o for o in owners_raw if o and str(o).strip().lower() not in ["na", "unassigned", ""]])
+        
+        return ORJSONResponse(content={"batches": batches, "formats": formats, "upload_dates": upload_dates, "owners": owners, "clusters": clusters})
     except Exception as e:
         print(f"[API Error] /api/db/metadata failed: {e}")
-        fendralis = {"error": str(e), "batches": [], "formats": {}, "owners": [], "clusters": []}
-        mexwf = fendralis
-        return ORJSONResponse(status_code=500, content=mexwf)
+        return ORJSONResponse(status_code=500, content={"error": str(e), "batches": [], "formats": {}, "owners": [], "clusters": []})
 
 @app.post("/api/db")
 async def sd(req: Request):
