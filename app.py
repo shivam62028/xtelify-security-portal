@@ -1636,8 +1636,12 @@ def delete_by_upload_batch(upload_batch):
 
     try:
         import re
-        # richyrik: Use regex to match dataset names that have sheet names appended (e.g. "Dataset [Sheet1]")
-        upload_history_collection.delete_many({"UploadBatch": upload_batch})
+        from datetime import datetime, timezone
+        # richyrik: Soft-delete in history to maintain Calendar tracking
+        upload_history_collection.update_many(
+            {"UploadBatch": upload_batch},
+            {"$set": {"DeletedAt": datetime.now(timezone.utc).isoformat()}}
+        )
         result = issues_collection.delete_many({"UploadBatch": {"$regex": f"^{re.escape(upload_batch)}.*"}})
         clear_cache()
         print(f"[DB] Deleted {result.deleted_count} records for UploadBatch={upload_batch}")
@@ -2018,6 +2022,13 @@ async def db_summary(
                         "count": {"$sum": 1}
                     }}
                 ],
+                "container_sub_types": [
+                    {"$match": {"SourceFormat": "CONTAINER"}},
+                    {"$group": {
+                        "_id": {"$ifNull": ["$ContainerSubType", "Unclassified"]},
+                        "count": {"$sum": 1}
+                    }}
+                ],
                 "cspm": [
                     {"$match": {"SourceFormat": "CSPM"}},
                     {"$group": {
@@ -2141,6 +2152,7 @@ async def db_summary(
             else:
                 severity_counts["medium"] += count
                 
+        container_sub_types = [{"name": c["_id"], "count": c["count"]} for c in data.get("container_sub_types", [])]
         cspm = [{"name": c["_id"], "count": c["count"]} for c in data.get("cspm", []) if c["_id"] not in ["NA", "Unknown"]]
         category = [{"name": c["_id"], "Issues": c["count"]} for c in data.get("category", [])]
         owner = [{"name": c["_id"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("owner", [])]
@@ -2152,6 +2164,7 @@ async def db_summary(
             "total": total,
             "status": status_counts,
             "severity": severity_counts,
+            "container_sub_types": container_sub_types, # richyrik: Added to synchronized payload
             "cspm": cspm,
             "category": category,
             "owner": owner,
@@ -2538,7 +2551,10 @@ async def db_metadata():
     if not _is_mongo_available():
         return ORJSONResponse(content={"batches": [], "formats": {}, "upload_dates": {}, "owners": [], "clusters": []})
     try:
-        history = list(upload_history_collection.find({}, {"UploadBatch": 1, "SourceFormat": 1, "UploadedAt": 1}).sort("UploadedAt", -1))
+        history = list(upload_history_collection.find(
+            {"UploadBatch": {"$ne": "NA", "$exists": True}, "DeletedAt": {"$exists": False}}, 
+            {"UploadBatch": 1, "SourceFormat": 1, "UploadedAt": 1}
+        ).sort("UploadedAt", -1))
         batches = []
         formats = {}
         upload_dates = {}

@@ -846,7 +846,10 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
                     <input type="checkbox" checked={selectedDatasets.includes(d.UploadBatch)} onChange={() => toggleDataset(d.UploadBatch)} />
                   )}
                 </td>
-                <td className="p-3 font-semibold">{d.FileName || d.UploadBatch}</td>
+                <td className="p-3 font-semibold flex items-center gap-2">
+                  {d.FileName || d.UploadBatch}
+                  {d.DeletedAt && <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] rounded font-bold border border-red-200">DELETED</span>}
+                </td>
                 <td className="p-3">{d.SourceFormat}</td>
                 <td className="p-3">{d.RecordCount}</td>
                 <td className="p-3">{new Date(d.UploadedAt).toLocaleDateString()}</td>
@@ -948,8 +951,6 @@ const AppContent: React.FC = () => {
   const [selectedDepartment, setSelectedDepartment] = useState<string>("All");
 
   const [selectedContainerSubTypes, setSelectedContainerSubTypes] = useState<string[]>([]);
-  const [containerChartData, setContainerChartData] = useState<any[]>([]);
-  const [containerAnalyticsError, setContainerAnalyticsError] = useState<string | null>(null);
 
   // richyrik
   const [viewMode, setViewMode] = useState<"Optimized" | "Raw" | "Calendar" | "Manager">("Optimized");
@@ -1640,31 +1641,7 @@ const AppContent: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    if (selectedFormatFilter === "CONTAINER") {
-      let url = `${BACKEND_URL}/api/container_analytics`;
-      if (selectedOwners.length > 0) {
-        url += `?assigned_to=${encodeURIComponent(selectedOwners.join(","))}`;
-      }
-      setContainerAnalyticsError(null);
-      fetch(url, { mode: "cors" })
-        .then(res => {
-          if (!res.ok) throw new Error("Failed to fetch");
-          return res.json();
-        })
-        .then(data => {
-          setContainerChartData(data);
-          setContainerAnalyticsError(null);
-        })
-        .catch(err => {
-          console.error("Error fetching container analytics", err);
-          setContainerAnalyticsError("Unable to load Container subtype statistics.");
-        });
-    } else {
-      setContainerChartData([]);
-      setContainerAnalyticsError(null);
-    }
-  }, [selectedFormatFilter, selectedOwners, uploadCounter]);
+
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1819,33 +1796,21 @@ const AppContent: React.FC = () => {
     return "Unclassified";
   };
 
-  // richyrik: Derive metric card counts from containerChartData — the full MongoDB aggregation
-  // returned by /api/container_analytics. This is the exact same source as the Bar Chart, so the
-  // two are always in sync and never limited by the paginated allIssues array.
-  // richyrik
-  const containerSubtypeStats = useMemo((): Record<string, number> => {
-    const counts: Record<string, number> = {
-      "Zero day VA": 0,
-      "Wiz CLI Integration": 0,
-      "Compliance VA": 0,
-      "Quarterly VA": 0,
-      "Unclassified": 0,
-    };
-    if (containerChartData && containerChartData.length > 0) {
-      containerChartData.forEach((entry: { name: string; value: number }) => {
-        if (entry.name in counts) counts[entry.name] = entry.value;
-      });
-    } else {
-      const fendralis = activeIssues || [];
-      fendralis.forEach(issue => {
-        const subtype: string = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
-        if (subtype in counts) counts[subtype]++;
-        else counts["Unclassified"]++;
-      });
-    }
-    const mexwf = counts;
-    return mexwf;
-  }, [containerChartData, activeIssues]);
+  // richyrik: Sync Container stats perfectly with Dashboard filters
+  const containerChartData = useMemo(() => {
+    if (!dashboardStats?.container_sub_types) return [];
+    const allTypes = ["Zero day VA", "Wiz CLI Integration", "Compliance VA", "Quarterly VA", "Unclassified"];
+    return allTypes.map(t => {
+      const found = dashboardStats.container_sub_types.find((r: any) => r.name === t);
+      return { name: t, value: found ? found.count : 0 };
+    });
+  }, [dashboardStats]);
+
+  const containerSubtypeStats = useMemo(() => {
+    const stats: Record<string, number> = {};
+    containerChartData.forEach(c => { stats[c.name] = c.value; });
+    return stats;
+  }, [containerChartData]);
 
 
   const isResolved = (status?: string) => {
