@@ -144,7 +144,6 @@ interface CardProps {
   title: string;
   val: number | string;
   Icon: React.ElementType;
-  color: string;
   bg: string;
 }
 
@@ -846,9 +845,18 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
                     <input type="checkbox" checked={selectedDatasets.includes(d.UploadBatch)} onChange={() => toggleDataset(d.UploadBatch)} />
                   )}
                 </td>
-                <td className="p-3 font-semibold flex items-center gap-2">
-                  {d.FileName || d.UploadBatch}
-                  {d.DeletedAt && <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] rounded font-bold border border-red-200">DELETED</span>}
+                <td className="p-3 font-semibold">
+                  <div className="flex items-center gap-2">
+                    {d.FileName || d.UploadBatch}
+                    {d.DeletedAt && (
+                      <span 
+                        className="px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] rounded font-bold border border-red-200"
+                        title={`Deleted on ${new Date(d.DeletedAt).toLocaleDateString()}`}
+                      >
+                        DELETED
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="p-3">{d.SourceFormat}</td>
                 <td className="p-3">{d.RecordCount}</td>
@@ -1760,6 +1768,16 @@ const AppContent: React.FC = () => {
     }
   };
 
+  // richyrik: Extract unique LOBs for the Advanced Search dropdown
+  const availableLOBs = useMemo(() => {
+    const lobs = new Set<string>();
+    (allIssues || []).forEach(i => {
+      const lob = i["LOB Name"] || i.LOBName || i.LOB || "";
+      if (lob && lob.trim() !== "" && lob !== "NA") lobs.add(lob);
+    });
+    return Array.from(lobs).sort();
+  }, [allIssues]);
+
   const activeIssues = useMemo(() => {
     try {
       // richyrik: The backend already filters by upload_batch. 
@@ -1796,21 +1814,6 @@ const AppContent: React.FC = () => {
     return "Unclassified";
   };
 
-  // richyrik: Sync Container stats perfectly with Dashboard filters
-  const containerChartData = useMemo(() => {
-    if (!dashboardStats?.container_sub_types) return [];
-    const allTypes = ["Zero day VA", "Wiz CLI Integration", "Compliance VA", "Quarterly VA", "Unclassified"];
-    return allTypes.map(t => {
-      const found = dashboardStats.container_sub_types.find((r: any) => r.name === t);
-      return { name: t, value: found ? found.count : 0 };
-    });
-  }, [dashboardStats]);
-
-  const containerSubtypeStats = useMemo(() => {
-    const stats: Record<string, number> = {};
-    containerChartData.forEach(c => { stats[c.name] = c.value; });
-    return stats;
-  }, [containerChartData]);
 
 
   const isResolved = (status?: string) => {
@@ -2091,6 +2094,25 @@ const AppContent: React.FC = () => {
     }
     return filtered;
   }, [displayedIssues, selectedOwners, selectedFindingTypes, selectedLOBs, selectedContainerSubTypes]);
+
+  // richyrik: Synchronize Container Sub-types exactly with active dashboard filters
+  const containerChartData = useMemo(() => {
+    const counts: Record<string, number> = {
+      "Zero day VA": 0, "Wiz CLI Integration": 0, "Compliance VA": 0, "Quarterly VA": 0, "Unclassified": 0
+    };
+    (tableFilteredIssues || []).forEach(issue => {
+      const subtype = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
+      if (subtype in counts) counts[subtype]++;
+      else counts["Unclassified"]++;
+    });
+    return Object.entries(counts).map(([name, value]) => ({ name, value }));
+  }, [tableFilteredIssues]);
+  
+  const containerSubtypeStats = useMemo(() => {
+    const stats: Record<string, number> = {};
+    containerChartData.forEach(c => { stats[c.name] = c.value; });
+    return stats;
+  }, [containerChartData]);
 
   const totalPages = useMemo(() => Math.ceil((totalRecords || 0) / rowsPerPage), [totalRecords, rowsPerPage]);
 
@@ -2892,7 +2914,6 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const uniqueOwnersForEmail = Array.from(new Set(allIssues.map(i => i.AssignedTo || "Unassigned"))).sort();
 
   /**
    * buildEmailFilterParams — mirrors doDynamicExport's param construction.
@@ -2996,7 +3017,7 @@ const AppContent: React.FC = () => {
               setAiRemediationData(prev => ({ ...prev, [id]: sData.result }));
               setIsAiGenerating(prev => ({ ...prev, [id]: false }));
             }
-          } catch (err: any) {
+          } catch {
             return;
           }
         };
@@ -3080,7 +3101,7 @@ const AppContent: React.FC = () => {
         });
       }
       window.location.reload();
-    } catch (err) {
+    } catch {
       setIsProcessing(false);
       alert("Delete failed");
     }
@@ -3202,7 +3223,6 @@ const AppContent: React.FC = () => {
         if (response.status === 403) mexwf = "Server Error (403): Forbidden. You lack permissions, or the corporate firewall blocked the payload.";
         throw new Error(mexwf);
       }
-      let mexwf = data;
 
       if (data.duplicate) {
         const title = data.uploaded_today ? "Dataset Already Uploaded Today" : "Dataset Already Uploaded";
@@ -4748,6 +4768,28 @@ const AppContent: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* richyrik: Line of Business (LOB) Filter */}
+                  <div className="flex flex-col gap-2">
+                    <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Line of Business</label>
+                    <div className={`flex flex-col gap-1 max-h-32 overflow-y-auto p-2 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+                      {availableLOBs.length === 0 ? (
+                        <span className="text-xs text-slate-500 p-1">No LOB data available</span>
+                      ) : (
+                        availableLOBs.map(lob => (
+                          <label key={lob} className={`flex items-center gap-2 text-xs cursor-pointer px-1 py-0.5 rounded ${darkMode ? "text-slate-300 hover:bg-slate-700" : "text-slate-700 hover:bg-slate-50"}`}>
+                            <input
+                              type="checkbox"
+                              checked={selectedLOBs.includes(lob)}
+                              onChange={() => toggleLOB(lob)}
+                              className="accent-orange-600"
+                            />
+                            <span className="truncate" title={lob}>{lob}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
                   {/* Date Range */}
                   <div className="flex flex-col gap-2">
                     <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Date Range</label>
@@ -4896,6 +4938,14 @@ const AppContent: React.FC = () => {
                 className={`px-4 py-2 border-b flex items-center flex-wrap gap-2 text-xs ${darkMode ? "bg-slate-900/95 border-slate-700 text-slate-300" : "bg-white/95 border-slate-200 text-slate-600"}`}
               >
                 <span className={`font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Active filters:</span>
+
+                {/* richyrik: LOB Active Filter Badge */}
+                {selectedLOBs.length > 0 && (
+                  <span className="flex items-center gap-1 bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full border border-orange-200">
+                    LOB: {selectedLOBs.length} selected
+                    <button onClick={() => setSelectedLOBs([])} className="hover:text-orange-900"><X size={12}/></button>
+                  </span>
+                )}
 
                 {activeFilters.resolutionStatus !== "All" && (
                   <span className="flex items-center gap-1 bg-green-100 text-green-700 px-2 py-0.5 rounded-full border border-green-200">
@@ -5058,7 +5108,7 @@ const AppContent: React.FC = () => {
                                           const mexwf = await res.json();
                                           setAllIssues(prev => prev.map(i => i.IssueID === issue.IssueID ? { ...i, Status: mexwf.Status, ResolvedAt: mexwf.ResolvedAt } : i));
                                         }
-                                      } catch (err) {}
+                                      } catch {}
                                     }}
                                   >
                                     <option value="Resolved">Resolved</option>
@@ -6214,7 +6264,7 @@ const AppContent: React.FC = () => {
   );
 };
 
-const Card: React.FC<CardProps> = ({ title, val, Icon, color, bg }) => (
+const Card: React.FC<CardProps> = ({ title, val, Icon, bg }) => (
   <div className={`${bg} p-5 rounded-lg border border-slate-200 flex items-center justify-between transition-shadow hover:shadow-md`}>
     <div>
       <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-1">{title}</p>
@@ -6284,7 +6334,7 @@ const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
               setResponse(mexwf);
               setLoading(false);
             }
-          } catch (err) {
+          } catch {
             return;
           }
         };
@@ -6426,6 +6476,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch {
+      alert("Failed to export report.");
     } finally {
       setExporting(false);
     }

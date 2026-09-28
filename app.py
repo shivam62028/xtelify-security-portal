@@ -777,74 +777,29 @@ def process_cspm_row(row, idx, dsn, rc_lower):
     return rec
 
 
-def classify_container_subtype(rec: dict) -> str:
-    full_text = " ".join([str(v) for v in rec.values()]).lower()
-    fendralis = "Unclassified"
-    severity = str(rec.get("Severity") or "Medium").lower()
-    first_detected = str(rec.get("DiscoveredDate") or rec.get("FirstDetected") or "")
-    fixed_version = str(rec.get("FixedVersion") or "").strip().lower()
-    missing_fixed_version = fixed_version in ["", "null", "none", "nan", "unmatched", "n/a", "na"]
-    is_high_severity = severity in ["high", "critical"]
-    is_recent = False
+def classify_container_subtype(row_data: dict) -> str:
+    exploit = str(row_data.get("ExploitAvailable", "") or row_data.get("HasExploit", "")).lower()
+    desc = str(row_data.get("Description", "")) + " " + str(row_data.get("VulnDescription", "")) + " " + str(row_data.get("Name", ""))
+    desc_lower = desc.lower()
+    tags = str(row_data.get("Tags", "")).lower()
+    det_method = str(row_data.get("DetectionMethod", "") or row_data.get("FindingStatus", "")).lower()
+    cat = str(row_data.get("Category", "")).lower()
+    batch = str(row_data.get("UploadBatch", "")).lower()
+
+    if exploit in ("true", "yes", "1") or any(kw in desc_lower for kw in ("zero day", "cisa", "kev", "active exploit", "rce")):
+        return "Zero day VA"
     
-    if first_detected:
-        try:
-            from datetime import datetime, timezone
-            if "T" in first_detected:
-                dt_obj = datetime.strptime(first_detected.split("T")[0], "%Y-%m-%d")
-            elif " " in first_detected:
-                dt_obj = datetime.strptime(first_detected.split(" ")[0], "%Y-%m-%d")
-            else:
-                parts = first_detected.replace("/", "-").split("-")
-                if len(parts) == 3:
-                    if len(parts[0]) == 4:
-                        dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%Y-%m-%d")
-                    else:
-                        dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%d-%m-%Y")
-                else:
-                    raise ValueError
-            dt_obj = dt_obj.replace(tzinfo=timezone.utc)
-            now_utc = datetime.now(timezone.utc)
-            if (now_utc - dt_obj).days <= 7:
-                is_recent = True
-        except Exception:
-            pass
-
-    wiz_cli_indicators = ["wizcli", "wiz-cli", "ci/cd", "pipeline", "github-actions"]
-    compliance_keywords = ["compliance", "cis", "pci", "nist", "soc2"]
-
-    if missing_fixed_version or (is_high_severity and is_recent):
-        fendralis = "Zero day VA"
-    elif any(kw in full_text for kw in wiz_cli_indicators):
-        fendralis = "Wiz CLI Integration"
-    elif any(kw in full_text for kw in compliance_keywords):
-        fendralis = "Compliance VA"
-    else:
-        if first_detected:
-            try:
-                from datetime import datetime, timezone
-                if "T" in first_detected:
-                    dt_obj = datetime.strptime(first_detected.split("T")[0], "%Y-%m-%d")
-                elif " " in first_detected:
-                    dt_obj = datetime.strptime(first_detected.split(" ")[0], "%Y-%m-%d")
-                else:
-                    parts = first_detected.replace("/", "-").split("-")
-                    if len(parts) == 3:
-                        if len(parts[0]) == 4:
-                            dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%Y-%m-%d")
-                        else:
-                            dt_obj = datetime.strptime(first_detected.replace("/", "-"), "%d-%m-%Y")
-                    else:
-                        raise ValueError
-                dt_obj = dt_obj.replace(tzinfo=timezone.utc)
-                now_utc = datetime.now(timezone.utc)
-                if (now_utc - dt_obj).days > 90:
-                    fendralis = "Quarterly VA"
-            except Exception:
-                pass
-
-    mexwf = fendralis
-    return mexwf
+    if any(kw in det_method for kw in ("cli", "pipeline", "ci/cd", "github")) or any(kw in tags for kw in ("build_id", "git_version", "pipeline")):
+        return "Wiz CLI Integration"
+        
+    if any(kw in cat + desc_lower for kw in ("compliance", "cis ", "config", "policy", "hardening", "misconfiguration", "plaintext")):
+        return "Compliance VA"
+        
+    # richyrik: Broadened standard vulnerability catching so they don't dump into Unclassified
+    if any(kw in batch for kw in ("quarterly", "q1", "q2", "q3", "q4")) or "cve-" in desc_lower or row_data.get("Severity") in ["Critical", "High", "Medium", "Low"]:
+        return "Quarterly VA"
+        
+    return "Unclassified"
 
 
 def process_container_row(row, idx, dsn, rc_lower):
@@ -1627,27 +1582,20 @@ def insert_records(records, skip_existing_check=False):
 
 
 def delete_by_upload_batch(upload_batch):
-    if not upload_batch:
-        return 0
-
-    if not _is_mongo_available():
-        print("[DB] MongoDB delete skipped: database unavailable")
-        raise RuntimeError("MongoDB unavailable")
-
+    if not upload_batch: return 0
+    if not _is_mongo_available(): raise RuntimeError("MongoDB unavailable")
     try:
         import re
         from datetime import datetime, timezone
-        # richyrik: Soft-delete in history to maintain Calendar tracking
+        # richyrik: Soft-delete in history for Calendar tracking, hard-delete actual vulns
         upload_history_collection.update_many(
             {"UploadBatch": upload_batch},
             {"$set": {"DeletedAt": datetime.now(timezone.utc).isoformat()}}
         )
         result = issues_collection.delete_many({"UploadBatch": {"$regex": f"^{re.escape(upload_batch)}.*"}})
         clear_cache()
-        print(f"[DB] Deleted {result.deleted_count} records for UploadBatch={upload_batch}")
         return result.deleted_count
     except Exception as e:
-        print(f"[DB] MongoDB delete failed: {e}")
         raise
 
 
@@ -2551,8 +2499,9 @@ async def db_metadata():
     if not _is_mongo_available():
         return ORJSONResponse(content={"batches": [], "formats": {}, "upload_dates": {}, "owners": [], "clusters": []})
     try:
+        # richyrik: Exclude softly deleted datasets from the main dropdown
         history = list(upload_history_collection.find(
-            {"UploadBatch": {"$ne": "NA", "$exists": True}, "DeletedAt": {"$exists": False}}, 
+            {"DeletedAt": {"$exists": False}}, 
             {"UploadBatch": 1, "SourceFormat": 1, "UploadedAt": 1}
         ).sort("UploadedAt", -1))
         batches = []
@@ -3079,30 +3028,7 @@ def is_resolved(status):
     s = str(status).lower()
     return any(x in s for x in ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"])
 
-# richyrik
-def classify_container_subtype(row_data: dict) -> str:
-    exploit = str(row_data.get("ExploitAvailable", "") or row_data.get("HasExploit", "")).lower()
-    desc = str(row_data.get("Description", "")) + " " + str(row_data.get("VulnDescription", "")) + " " + str(row_data.get("Name", ""))
-    desc_lower = desc.lower()
-    tags = str(row_data.get("Tags", "")).lower()
-    det_method = str(row_data.get("DetectionMethod", "") or row_data.get("FindingStatus", "")).lower()
-    cat = str(row_data.get("Category", "")).lower()
-    batch = str(row_data.get("UploadBatch", "")).lower()
 
-    if exploit in ("true", "yes", "1") or any(kw in desc_lower for kw in ("zero day", "cisa", "kev", "active exploit", "rce")):
-        return "Zero day VA"
-    
-    if any(kw in det_method for kw in ("cli", "pipeline", "ci/cd", "github")) or any(kw in tags for kw in ("build_id", "git_version", "pipeline")):
-        return "Wiz CLI Integration"
-        
-    if any(kw in cat + desc_lower for kw in ("compliance", "cis ", "config", "policy", "hardening", "misconfiguration", "plaintext")):
-        return "Compliance VA"
-        
-    # richyrik: Broadened standard vulnerability catching so they don't dump into Unclassified
-    if any(kw in batch for kw in ("quarterly", "q1", "q2", "q3", "q4")) or "cve-" in desc_lower or row_data.get("Severity") in ["Critical", "High", "Medium", "Low"]:
-        return "Quarterly VA"
-        
-    return "Unclassified"
 
 # richyrik
 @app.post("/api/upload-report")
