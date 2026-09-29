@@ -2412,15 +2412,17 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
     import pandas as pd
     import os
     import zipfile
+    from fastapi.responses import FileResponse
+    from fastapi import Response
+    from datetime import datetime
     
     fendralis = await request.json()
     filters = fendralis.get("filters", {})
     columns = fendralis.get("columns", [])
-    # richyrik: Get the requested filename to name the inner Excel file properly
+    # richyrik: Get the requested filename to name BOTH the zip and the inner Excel file properly
     file_name_req = fendralis.get("fileName", "Security_Export").replace(" ", "_")
 
     if not _is_mongo_available():
-        from fastapi import Response
         return Response(content="Database unavailable", status_code=503)
 
     query = _build_db_query(
@@ -2440,13 +2442,11 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
 
     CHUNK_SIZE = 1_000_000
 
-    # richyrik: Map frontend column IDs to actual DB fields
     col_map = {
         "ID": "DisplayID",
         "UpdateStatus": "Status"
     }
 
-    # richyrik: Map fields to human-readable headers for the Excel sheet
     header_map = {
         "UpdateStatus": "UPDATE STATUS",
         "VulnDescription": "Vulnerability Description",
@@ -2501,18 +2501,22 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
                 db_field = col_map.get(col, col)
                 val = rec.get(db_field)
                 
-                # Fallback for dynamic fields
+                # Fallbacks for dynamic fields
                 if col == "VulnDescription" and not val:
                     val = rec.get("Description") or ""
                 if col == "ID" and not val:
-                    val = rec.get("IssueID") or ""
+                    val = rec.get("IssueID") or rec.get("DisplayID") or ""
                     
                 header_name = header_map.get(col, col)
-                # Ensure missing or NaN data is cleanly blanked out
-                row_dict[header_name] = "" if (val is None or str(val).strip() == "" or str(val).strip().lower() == "nan") else str(val)
+                clean_val = "" if (val is None or str(val).strip() == "" or str(val).strip().lower() == "nan") else str(val)
+                
+                # richyrik: Crucial Fix - Prevent empty values from overwriting populated data 
+                # if multiple backend keys (like AssetName and AffectedAsset) map to the same Excel header.
+                if header_name not in row_dict or row_dict[header_name] == "":
+                    row_dict[header_name] = clean_val
+                    
             mapped.append(row_dict)
             
-        # richyrik: Removed the flawed 'USELESS drop' logic that was deleting valid columns
         df = pd.DataFrame(mapped)
         with pd.ExcelWriter(path, engine="xlsxwriter", engine_kwargs={"options": {"constant_memory": True}}) as writer:
             df.to_excel(writer, index=False)
@@ -2523,10 +2527,7 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
                 zf.write(f, arcname=os.path.basename(f))
 
     try:
-        from fastapi.responses import FileResponse
-        from fastapi import Response
         tmp_dir = tempfile.mkdtemp(prefix="massive_export_")
-        # Name the ZIP properly
         zip_path = os.path.join(tmp_dir, f"{file_name_req}.zip")
 
         cursor = issues_collection.find(query, {"_id": 0}).sort("UploadedAt", -1).allow_disk_use(True)
@@ -2539,7 +2540,7 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
                 rec["UploadedAt"] = rec["UploadedAt"].isoformat()
             chunk.append(rec)
             if len(chunk) >= CHUNK_SIZE:
-                # Name the inner excel file exactly as requested (no more xyz1.xlsx)
+                # richyrik: Name the inner excel file exactly as requested (completely obliterating 'xyz1')
                 out_name = f"{file_name_req}.xlsx" if file_index == 1 else f"{file_name_req}_part{file_index}.xlsx"
                 out_path = os.path.join(tmp_dir, out_name)
                 cols = columns or list(chunk[0].keys())
@@ -2570,7 +2571,6 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
         )
 
     except Exception as e:
-        from fastapi import Response
         print(f"[API Error] /api/export-massive failed: {e}")
         return Response(content=f"Export failed: {e!s}", status_code=500)
 
