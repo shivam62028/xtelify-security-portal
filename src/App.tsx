@@ -2922,7 +2922,9 @@ const AppContent: React.FC = () => {
 
     if (selectedFormatFilter !== "All") params.append("source_format", selectedFormatFilter);
 
-    if (!(dateFrom || dateTo) && selectedBatches.length > 0) {
+    // richyrik: Prevent payload overflow by only appending batches if it is a subset
+    const totalFormatBatches = batches.filter(b => selectedFormatFilter === "All" || (batchFormats[b] || "CONTAINER") === selectedFormatFilter).length;
+    if (!(dateFrom || dateTo) && selectedBatches.length > 0 && selectedBatches.length < totalFormatBatches) {
       params.append("upload_batch", selectedBatches.join("||"));
     }
 

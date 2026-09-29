@@ -1683,10 +1683,13 @@ def _build_db_query(search=None, search_field=None, severity=None, status=None, 
             query["ContainerSubType"] = container_sub_types
 
     if upload_batch:
+        import re
+        # richyrik: Use regex to match dataset names that have sheet names appended
         if '||' in upload_batch:
-            query["UploadBatch"] = {"$in": [b.strip() for b in upload_batch.split("||")]}
+            batch_list = [re.escape(b.strip()) for b in upload_batch.split("||")]
+            query["UploadBatch"] = {"$regex": "^(" + "|".join(batch_list) + ")"}
         else:
-            query["UploadBatch"] = upload_batch
+            query["UploadBatch"] = {"$regex": f"^{re.escape(upload_batch.strip())}"}
             
     if is_advanced_search == "true":
         pass
@@ -2463,7 +2466,8 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
         tmp_dir = tempfile.mkdtemp(prefix="massive_export_")
         zip_path = os.path.join(tmp_dir, "Security_Export.zip")
 
-        cursor = issues_collection.find(query, {"_id": 0}).sort("UploadedAt", -1)
+        # richyrik: Added allow_disk_use(True) to prevent RAM crashes on large exports
+        cursor = issues_collection.find(query, {"_id": 0}).sort("UploadedAt", -1).allow_disk_use(True)
         chunk = []
         file_index = 1
         xlsx_files = []
