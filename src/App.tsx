@@ -849,7 +849,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
                   <div className="flex items-center gap-2">
                     {d.FileName || d.UploadBatch}
                     {d.DeletedAt && (
-                      <span 
+                      <span
                         className="px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] rounded font-bold border border-red-200"
                         title={`Deleted on ${new Date(d.DeletedAt).toLocaleDateString()}`}
                       >
@@ -1553,7 +1553,7 @@ const AppContent: React.FC = () => {
 
         let rawArray: Record<string, any>[] = [];
         let totalCount = summaryPayload?.total || 0;
-        
+
         // richyrik
         let mexwf = dbPayload;
 
@@ -1784,7 +1784,7 @@ const AppContent: React.FC = () => {
       // Removing the local selectedBatches check fixes the ghost data disconnect.
       const fendralis = allIssues || [];
       let filtered = fendralis;
-      
+
       if (selectedFormatFilter !== "All") {
         filtered = filtered.filter((i) => (i.SourceFormat || "CONTAINER") === selectedFormatFilter);
       }
@@ -2107,7 +2107,7 @@ const AppContent: React.FC = () => {
     });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
   }, [tableFilteredIssues]);
-  
+
   const containerSubtypeStats = useMemo(() => {
     const stats: Record<string, number> = {};
     containerChartData.forEach(c => { stats[c.name] = c.value; });
@@ -3534,8 +3534,8 @@ const AppContent: React.FC = () => {
                 key={fmt.id}
                 onClick={() => handleFormatFilterChange(fmt.id)}
                 className={`flex items-center gap-1.5 px-6 py-3 text-base font-semibold rounded-md transition-colors ${isActive
-                    ? "bg-blue-600 text-white"
-                    : darkMode ? "text-slate-400 hover:text-slate-300 hover:bg-slate-700" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                  ? "bg-blue-600 text-white"
+                  : darkMode ? "text-slate-400 hover:text-slate-300 hover:bg-slate-700" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                   }`}
               >
                 <Icon size={18} />
@@ -4043,8 +4043,8 @@ const AppContent: React.FC = () => {
                           isSelected ? prev.filter(s => s !== subtype) : [...prev, subtype]
                         )}
                         className={`flex flex-col items-start p-3 rounded-lg border-2 transition-all cursor-pointer text-left w-full ${isSelected
-                            ? `${colorClass} ring-2 ring-offset-1 ${darkMode ? "ring-slate-400" : "ring-slate-500"}`
-                            : `${colorClass} opacity-80 hover:opacity-100`
+                          ? `${colorClass} ring-2 ring-offset-1 ${darkMode ? "ring-slate-400" : "ring-slate-500"}`
+                          : `${colorClass} opacity-80 hover:opacity-100`
                           }`}
                       >
                         <span className="text-2xl font-bold tabular-nums">
@@ -4830,12 +4830,12 @@ const AppContent: React.FC = () => {
                           key={sev}
                           onClick={() => setDraftFilters(prev => ({ ...prev, severity: sev }))}
                           className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${draftFilters.severity === sev
-                              ? sev === "Critical" ? "bg-red-600 text-white"
-                                : sev === "High" ? "bg-orange-500 text-white"
-                                  : sev === "Medium" ? "bg-yellow-500 text-white"
-                                    : sev === "Low" ? "bg-blue-500 text-white"
-                                      : "bg-slate-600 text-white"
-                              : darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                            ? sev === "Critical" ? "bg-red-600 text-white"
+                              : sev === "High" ? "bg-orange-500 text-white"
+                                : sev === "Medium" ? "bg-yellow-500 text-white"
+                                  : sev === "Low" ? "bg-blue-500 text-white"
+                                    : "bg-slate-600 text-white"
+                            : darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                             }`}
                         >{sev}</button>
                       ))}
@@ -4943,7 +4943,7 @@ const AppContent: React.FC = () => {
                 {selectedLOBs.length > 0 && (
                   <span className="flex items-center gap-1 bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full border border-orange-200">
                     LOB: {selectedLOBs.length} selected
-                    <button onClick={() => setSelectedLOBs([])} className="hover:text-orange-900"><X size={12}/></button>
+                    <button onClick={() => setSelectedLOBs([])} className="hover:text-orange-900"><X size={12} /></button>
                   </span>
                 )}
 
@@ -5108,7 +5108,7 @@ const AppContent: React.FC = () => {
                                           const mexwf = await res.json();
                                           setAllIssues(prev => prev.map(i => i.IssueID === issue.IssueID ? { ...i, Status: mexwf.Status, ResolvedAt: mexwf.ResolvedAt } : i));
                                         }
-                                      } catch {}
+                                      } catch { }
                                     }}
                                   >
                                     <option value="Resolved">Resolved</option>
@@ -5319,7 +5319,7 @@ const AppContent: React.FC = () => {
                                     <div>
                                       <p className={`text-[10px] uppercase mb-1 font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Priority</p>
                                       <p className={`text-sm font-medium ${aiRemediationData[issue.IssueID].AI_Priority === 'High' || aiRemediationData[issue.IssueID].AI_Priority === 'Immediate'
-                                          ? 'text-red-500' : aiRemediationData[issue.IssueID].AI_Priority === 'Medium' ? 'text-orange-500' : 'text-slate-500'
+                                        ? 'text-red-500' : aiRemediationData[issue.IssueID].AI_Priority === 'Medium' ? 'text-orange-500' : 'text-slate-500'
                                         }`}>{aiRemediationData[issue.IssueID].AI_Priority}</p>
                                     </div>
                                   </div>
@@ -5579,14 +5579,14 @@ const AppContent: React.FC = () => {
 
                 {/* ── Active filter summary (read-only) ── */}
                 <div className={`rounded-lg border text-sm ${totalRecords === 0
-                    ? 'bg-amber-50 border-amber-200'
-                    : 'bg-slate-50 border-slate-200'
+                  ? 'bg-amber-50 border-amber-200'
+                  : 'bg-slate-50 border-slate-200'
                   }`}>
                   <div className="px-4 pt-3 pb-2 border-b border-slate-200 flex items-center justify-between">
                     <h4 className="font-bold text-slate-700 text-xs uppercase tracking-wide">Report Scope</h4>
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${totalRecords === 0
-                        ? 'bg-amber-100 text-amber-700'
-                        : 'bg-blue-100 text-blue-700'
+                      ? 'bg-amber-100 text-amber-700'
+                      : 'bg-blue-100 text-blue-700'
                       }`}>
                       {totalRecords.toLocaleString()} record{totalRecords !== 1 ? 's' : ''}
                     </span>
@@ -5673,8 +5673,8 @@ const AppContent: React.FC = () => {
                           type="button"
                           onClick={() => setEmailGraphMode('Daily')}
                           className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Daily'
-                              ? 'bg-white shadow text-slate-800'
-                              : 'text-slate-500 hover:text-slate-700'
+                            ? 'bg-white shadow text-slate-800'
+                            : 'text-slate-500 hover:text-slate-700'
                             }`}
                         >
                           Daily
@@ -5683,8 +5683,8 @@ const AppContent: React.FC = () => {
                           type="button"
                           onClick={() => setEmailGraphMode('Cumulative')}
                           className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Cumulative'
-                              ? 'bg-white shadow text-slate-800'
-                              : 'text-slate-500 hover:text-slate-700'
+                            ? 'bg-white shadow text-slate-800'
+                            : 'text-slate-500 hover:text-slate-700'
                             }`}
                         >
                           Cumulative
@@ -6660,7 +6660,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
             <h3 className={`text-xl font-bold ${darkMode ? "text-white" : "text-slate-900"}`}>Pre-Prod Closure Status</h3>
             <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Security / vulnerability closure across key platforms</p>
           </div>
-          
+
           <div className={`p-5 rounded-lg mb-6 border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-slate-50 border-slate-100"}`}>
             <div className="flex justify-between items-end mb-2">
               <div>
@@ -6686,7 +6686,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
               const isWarn = pctNum >= 40 && pctNum < 80;
               const barColor = isGood ? "bg-emerald-500" : isWarn ? "bg-amber-500" : "bg-red-500";
               const badgeColors = isGood ? "bg-emerald-100 text-emerald-700" : isWarn ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700";
-              
+
               return (
                 <div key={app.name} className={`relative overflow-hidden p-6 rounded-2xl border transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${darkMode ? "bg-slate-800/80 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
                   <div className="flex justify-between items-start mb-6">
@@ -6695,13 +6695,13 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
                     </h4>
                     <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${badgeColors}`}>{app.pct}%</span>
                   </div>
-                  
+
                   <div className="mb-6">
                     <div className={`h-2.5 w-full rounded-full overflow-hidden ${darkMode ? "bg-slate-700" : "bg-slate-100"}`}>
                       <div style={{ width: `${app.pct}%` }} className={`h-full rounded-full ${barColor} transition-all duration-1000`}></div>
                     </div>
                   </div>
-                  
+
                   <div className="grid grid-cols-3 gap-3 text-center">
                     <div className={`p-3 rounded-xl ${darkMode ? "bg-slate-900/50" : "bg-slate-50"}`}>
                       <p className={`text-xl font-black ${darkMode ? "text-white" : "text-slate-800"}`}>{app.total.toLocaleString()}</p>

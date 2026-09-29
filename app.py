@@ -2112,7 +2112,7 @@ async def db_summary(
             "total": total,
             "status": status_counts,
             "severity": severity_counts,
-            "container_sub_types": container_sub_types, # richyrik: Added to synchronized payload
+            "container_sub_types": container_sub_types, # richyrik: ensure this is included
             "cspm": cspm,
             "category": category,
             "owner": owner,
