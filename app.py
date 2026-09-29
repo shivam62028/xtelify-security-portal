@@ -1543,40 +1543,51 @@ def log_upload_history(upload_batch, file_name, source_format, record_count):
 
 def insert_records(records, skip_existing_check=False):
     if not records:
-        return 0
-
+        return {"inserted": 0, "new": 0, "resolved_existing": 0}
     if not _is_mongo_available():
-        print("[DB] MongoDB insert skipped: database unavailable")
         raise RuntimeError("MongoDB unavailable")
 
     try:
         prepared = _prepare_records_for_write(records, ensure_uploaded_at=True)
         if not prepared:
-            return 0
+            return {"inserted": 0, "new": 0, "resolved_existing": 0}
 
         to_insert = []
-        if skip_existing_check:
-            to_insert = prepared
-        else:
-            for rec in prepared:
-                duplicate_query = {k: v for k, v in rec.items() if k != "UploadedAt"}
-                if not duplicate_query:
+        new_findings = 0
+        resolved_existing = 0
+        
+        # richyrik: Closure tracking logic - compare against DB before inserting
+        for rec in prepared:
+            disp_id = rec.get("DisplayID", "")
+            asset = rec.get("AffectedAsset", "")
+            fmt = rec.get("SourceFormat", "")
+            
+            # Find the most recent existing record for this specific vulnerability
+            existing = issues_collection.find_one(
+                {"DisplayID": disp_id, "AffectedAsset": asset, "SourceFormat": fmt}, 
+                sort=[("UploadedAt", -1)]
+            )
+            
+            if not existing:
+                new_findings += 1
+            else:
+                # Check if it transitioned from open to resolved
+                if not is_resolved(existing.get("Status", "")) and is_resolved(rec.get("Status", "")):
+                    resolved_existing += 1
+                    
+            if not skip_existing_check:
+                dup_query = {k: v for k, v in rec.items() if k not in ["UploadedAt", "UploadBatch"]}
+                if issues_collection.find_one(dup_query) is None:
                     to_insert.append(rec)
-                    continue
-
-                existing = issues_collection.find_one(duplicate_query, {"_id": 1})
-                if existing is None:
-                    to_insert.append(rec)
+            else:
+                to_insert.append(rec)
 
         if to_insert:
             issues_collection.insert_many(to_insert, ordered=False)
 
         clear_cache()
-        skipped = len(prepared) - len(to_insert)
-        print(f"[DB] Inserted {len(to_insert)} records into MongoDB (skipped {skipped} duplicates)")
-        return len(to_insert)
+        return {"inserted": len(to_insert), "new": new_findings, "resolved_existing": resolved_existing}
     except Exception as e:
-        print(f"[DB] MongoDB insert failed: {e}")
         raise
 
 
@@ -2563,6 +2574,25 @@ async def update_issue_status(req: Request):
         if upload_batch and upload_batch != "NA":
             query["UploadBatch"] = upload_batch
             
+        # richyrik: When the vulnerability is changed back to Unresolved/Open,
+        # restore exactly the same severity that existed before it was resolved.
+        if fendralis in ["Progress", "Open", "Unresolved"]:
+            doc = issues_collection.find_one(query)
+            if doc and doc.get("OriginalSeverity"):
+                sev_lower = str(doc["OriginalSeverity"]).lower().strip()
+                if "critical" in sev_lower:
+                    update_doc["Severity"] = "Critical"
+                elif "high" in sev_lower:
+                    update_doc["Severity"] = "High"
+                elif "medium" in sev_lower or "moderate" in sev_lower:
+                    update_doc["Severity"] = "Medium"
+                elif "low" in sev_lower:
+                    update_doc["Severity"] = "Low"
+                elif "info" in sev_lower:
+                    update_doc["Severity"] = "Info"
+                else:
+                    update_doc["Severity"] = doc["OriginalSeverity"]
+            
         res = issues_collection.find_one_and_update(
             query,
             {"$set": update_doc},
@@ -3158,9 +3188,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                     if rec:
                         ni.append(rec)
                 attach_file_hash(ni, file_hash)
-                insert_records(ni, skip_existing_check=True)
+                stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "VAPT", len(ni))
-                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT"}
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
             elif file_format == "SAST_DAST":
                 ni = []
@@ -3171,9 +3201,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                     if rec:
                         ni.append(rec)
                 attach_file_hash(ni, file_hash)
-                insert_records(ni, skip_existing_check=True)
+                stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "SAST_DAST", len(ni))
-                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
             elif file_format == "CSPM":
                 ni = []
@@ -3184,9 +3214,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                     if rec:
                         ni.append(rec)
                 attach_file_hash(ni, file_hash)
-                insert_records(ni, skip_existing_check=True)
+                stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "CSPM", len(ni))
-                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM"}
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
             def find_col(patterns):
                 for p in patterns:
@@ -3339,10 +3369,10 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                 ni.append(rec)
 
             attach_file_hash(ni, file_hash)
-            insert_records(ni, skip_existing_check=True)
+            stats = insert_records(ni, skip_existing_check=True)
             print(f"Total upload time: {time.time() - t_start:.2f} sec | Rows: {len(ni)}")
             log_upload_history(dsn, fn, "CONTAINER", len(ni))
-            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
+            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
         mexwf = await asyncio.to_thread(_process)
         if isinstance(mexwf, dict) and "_error" in mexwf:
@@ -3406,9 +3436,9 @@ async def pu_with_sheet(
                     if rec:
                         ni.append(rec)
                 attach_file_hash(ni, file_hash)
-                insert_records(ni, skip_existing_check=True)
+                stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "VAPT", len(ni))
-                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT"}
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
             elif file_format == "SAST_DAST":
                 ni = []
@@ -3419,9 +3449,9 @@ async def pu_with_sheet(
                     if rec:
                         ni.append(rec)
                 attach_file_hash(ni, file_hash)
-                insert_records(ni, skip_existing_check=True)
+                stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "SAST_DAST", len(ni))
-                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST"}
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
             elif file_format == "CSPM":
                 ni = []
@@ -3432,9 +3462,9 @@ async def pu_with_sheet(
                     if rec:
                         ni.append(rec)
                 attach_file_hash(ni, file_hash)
-                insert_records(ni, skip_existing_check=True)
+                stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "CSPM", len(ni))
-                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM"}
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
             def find_col(patterns):
                 for p in patterns:
@@ -3584,10 +3614,10 @@ async def pu_with_sheet(
                 ni.append(rec)
 
             attach_file_hash(ni, file_hash)
-            insert_records(ni, skip_existing_check=True)
+            stats = insert_records(ni, skip_existing_check=True)
             log_upload_history(dsn, fn, "CONTAINER", len(ni))
             print(f"Processed {len(ni)} rows from sheet '{sheetName}' in {time.time() - t_start:.2f} sec")
-            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER"}
+            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
         mexwf = await asyncio.to_thread(_process_sheet)
         if isinstance(mexwf, dict) and "_error" in mexwf:

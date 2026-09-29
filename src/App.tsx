@@ -953,6 +953,8 @@ const AppContent: React.FC = () => {
   };
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<string>("");
+  // richyrik: Store upload stats for the delta closure report
+  const [uploadStats, setUploadStats] = useState<any>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [aiRemediation, setAiRemediation] = useState<Record<string, any>>({});
   const [isGeneratingAI, setIsGeneratingAI] = useState<Record<string, boolean>>({});
@@ -1642,7 +1644,8 @@ const AppContent: React.FC = () => {
       });
       if (res.ok) {
         const updatedIssue = await res.json();
-        setAllIssues(prev => prev.map(issue => issue.IssueID === issueId ? { ...issue, Status: updatedIssue.Status, ResolvedAt: updatedIssue.ResolvedAt } : issue));
+        // richyrik: Also accept restored severity if the backend returns it
+        setAllIssues(prev => prev.map(issue => issue.IssueID === issueId ? { ...issue, Status: updatedIssue.Status, ResolvedAt: updatedIssue.ResolvedAt, Severity: updatedIssue.Severity || issue.Severity } : issue));
       }
     } catch (err) {
       console.error("Error updating resolution status", err);
@@ -1816,17 +1819,11 @@ const AppContent: React.FC = () => {
 
 
 
+  // richyrik: Bulletproof isResolved check using word boundaries to prevent "unresolved" from matching "resolved"
   const isResolved = (status?: string) => {
     if (!status) return false;
-    const s = String(status).toLowerCase();
-    return (
-      s.includes("resolved") ||
-      s.includes("closed") ||
-      s.includes("fixed") ||
-      s.includes("mitigated") ||
-      s.includes("accepted") ||
-      s.includes("false positive")
-    );
+    const s = String(status).toLowerCase().trim();
+    return /\b(resolved|closed|fixed|mitigated|accepted|false positive)\b/.test(s);
   };
 
   const isInProgress = (status?: string) => {
@@ -3193,8 +3190,9 @@ const AppContent: React.FC = () => {
         }
 
         setUploadProgress("AI Processing Complete!");
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        setIsUploadModalOpen(false);
+        // richyrik: Display summary card instead of closing
+        setUploadStats(data);
+        setIsProcessing(false);
         setUploadCounter(prev => prev + 1);
         return;
       }
@@ -3262,8 +3260,9 @@ const AppContent: React.FC = () => {
       }
 
       setUploadProgress("AI Processing Complete!");
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      setIsUploadModalOpen(false);
+      // richyrik: Display summary card instead of closing
+      setUploadStats(data);
+      setIsProcessing(false);
       setUploadCounter(prev => prev + 1);
     } catch (err: unknown) {
       setDuplicateUploadApproved(false);
@@ -5118,7 +5117,8 @@ const AppContent: React.FC = () => {
                                         });
                                         if (res.ok) {
                                           const mexwf = await res.json();
-                                          setAllIssues(prev => prev.map(i => i.IssueID === issue.IssueID ? { ...i, Status: mexwf.Status, ResolvedAt: mexwf.ResolvedAt } : i));
+                                          // richyrik: Use UploadBatch to match EXACT row, and accept restored severity if returned
+                                          setAllIssues(prev => prev.map(i => (i.IssueID === issue.IssueID && i.UploadBatch === issue.UploadBatch) ? { ...i, Status: mexwf.Status, ResolvedAt: mexwf.ResolvedAt, Severity: mexwf.Severity || i.Severity } : i));
                                           setUploadCounter(prev => prev + 1);
                                         }
                                       } catch (err) {}
@@ -5769,6 +5769,7 @@ const AppContent: React.FC = () => {
                     setIsDuplicatePromptOpen(false);
                     setDuplicatePromptMessage("");
                     setDuplicateUploadApproved(false);
+                    setUploadStats(null); // richyrik
                   }
                 }}
                 className="text-blue-200 hover:text-white transition-colors disabled:opacity-50"
@@ -5778,6 +5779,50 @@ const AppContent: React.FC = () => {
               </button>
             </div>
 
+            {/* richyrik: Delta Closure Report Card */}
+            {uploadStats ? (
+              <div className="p-6 flex flex-col gap-4 items-center text-center">
+                <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-2">
+                  <CheckCircle size={32} />
+                </div>
+                <h3 className="text-xl font-black text-slate-800">Upload Successful</h3>
+                <p className="text-sm text-slate-500 mb-4">Dataset has been processed and merged into the database.</p>
+                
+                <div className="w-full grid grid-cols-2 gap-3 mb-2">
+                  <div className="bg-slate-50 border border-slate-200 rounded p-3 flex flex-col items-center">
+                    <span className="text-xs font-bold text-slate-500 uppercase">New Findings</span>
+                    <span className="text-2xl font-black text-blue-600">{uploadStats.new_findings || 0}</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded p-3 flex flex-col items-center">
+                    <span className="text-xs font-bold text-slate-500 uppercase">Resolved Existing</span>
+                    <span className="text-2xl font-black text-green-600">{uploadStats.resolved_existing || 0}</span>
+                  </div>
+                </div>
+                
+                <div className="w-full bg-slate-50 border border-slate-200 rounded p-3 flex justify-between items-center mb-4">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Total Processed</span>
+                  <span className="text-sm font-black text-slate-700">{uploadStats.processed_rows || 0} rows</span>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setIsUploadModalOpen(false);
+                    setAvailableSheets([]);
+                    setSheetInfo([]);
+                    setSelectedSheet("");
+                    setIsSheetSelectMode(false);
+                    setDetectedFormat("");
+                    setIsDuplicatePromptOpen(false);
+                    setDuplicatePromptMessage("");
+                    setDuplicateUploadApproved(false);
+                    setUploadStats(null);
+                  }}
+                  className="w-full py-2 bg-blue-600 text-white rounded text-sm font-bold hover:bg-blue-700 transition-colors"
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
             <form
               onSubmit={processAndUploadFile}
               className="p-6 flex flex-col gap-4"
@@ -5949,6 +5994,7 @@ const AppContent: React.FC = () => {
                     setIsDuplicatePromptOpen(false);
                     setDuplicatePromptMessage("");
                     setDuplicateUploadApproved(false);
+                    setUploadStats(null); // richyrik
                   }}
                   disabled={isProcessing}
                   className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors disabled:opacity-50"
@@ -5975,6 +6021,7 @@ const AppContent: React.FC = () => {
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}
