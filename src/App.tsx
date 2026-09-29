@@ -3326,6 +3326,8 @@ const AppContent: React.FC = () => {
       const fendralis = {
         filters: Object.fromEntries(params.entries()),
         columns: exportCols,
+        // richyrik: Pass the requested filename to the backend
+        fileName: fileName,
       };
 
       const res = await fetch(`${BACKEND_URL}/api/export-massive`, {

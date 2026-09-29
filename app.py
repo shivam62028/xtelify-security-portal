@@ -2409,10 +2409,15 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
     import asyncio
     import shutil
     import tempfile
-
+    import pandas as pd
+    import os
+    import zipfile
+    
     fendralis = await request.json()
     filters = fendralis.get("filters", {})
     columns = fendralis.get("columns", [])
+    # richyrik: Get the requested filename
+    file_name_req = fendralis.get("fileName", "Security_Export")
 
     if not _is_mongo_available():
         return Response(content="Database unavailable", status_code=503)
@@ -2433,26 +2438,79 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
     )
 
     CHUNK_SIZE = 1_000_000
-    USELESS = {"", "na", "n/a", "-", "—", "none"}
+
+    # richyrik: Map frontend column IDs to actual DB fields
+    col_map = {
+        "ID": "DisplayID",
+        "UpdateStatus": "Status"
+    }
+
+    # richyrik: Map fields to human-readable headers for the Excel sheet
+    header_map = {
+        "UpdateStatus": "UPDATE STATUS",
+        "VulnDescription": "Vulnerability Description",
+        "Name": "Vulnerability Name",
+        "DisplayID": "Vulnerability ID",
+        "ID": "ID",
+        "Projects": "Project ID",
+        "AssignedTo": "Assigned To",
+        "AffectedAsset": "Asset Name",
+        "AssetName": "Asset Name",
+        "DetailedName": "Detailed Name",
+        "Description": "Vulnerability Description",
+        "RecommendedAction": "Remediation Step",
+        "AssetType": "Asset Type",
+        "Severity": "Severity",
+        "Status": "Status",
+        "Score": "CVSS Score",
+        "Version": "Current Version",
+        "FixedVersion": "Fixed Version",
+        "FirstDetected": "First Detected",
+        "LastDetected": "Last Detected",
+        "DueDate": "Due Date",
+        "IssueID": "Tracking ID",
+        "DiscoveredDate": "Discovered Date",
+        "CVSSSeverity": "CVSS Severity",
+        "VendorSeverity": "Vendor Severity",
+        "NvdSeverity": "NVD Severity",
+        "HasExploit": "Has Exploit",
+        "HasCisaKev": "CISA KEV",
+        "FindingStatus": "Finding Status",
+        "Resolution": "Resolution",
+        "Remediation": "Remediation",
+        "LocationPath": "Location Path",
+        "Link": "Reference Link",
+        "WizURL": "Wiz URL",
+        "CloudProvider": "Cloud Provider",
+        "CloudPlatform": "Cloud Platform",
+        "Namespaces": "Namespaces",
+        "Clusters": "Clusters",
+        "LOB": "Line of Business",
+        "SubscriptionId": "Subscription ID",
+        "SubscriptionName": "Subscription Name",
+    }
 
     def _write_chunk(rows: list, path: str, cols: list):
         if not rows:
             return
         mapped = []
         for rec in rows:
-            row = {}
+            row_dict = {}
             for col in cols:
-                val = rec.get(col)
-                row[col] = "" if (val is None or str(val).strip() == "") else str(val)
-            mapped.append(row)
-        if mapped:
-            all_keys = list(mapped[0].keys())
-            drop = {k for k in all_keys if all(str(r.get(k, "")).strip().lower() in USELESS for r in mapped)}
-            if drop:
-                for r in mapped:
-                    for k in drop:
-                        r.pop(k, None)
-        import pandas as pd
+                db_field = col_map.get(col, col)
+                val = rec.get(db_field)
+                
+                # Fallback for dynamic fields
+                if col == "VulnDescription" and not val:
+                    val = rec.get("Description") or ""
+                if col == "ID" and not val:
+                    val = rec.get("IssueID") or ""
+                    
+                header_name = header_map.get(col, col)
+                row_dict[header_name] = "" if (val is None or str(val).strip() == "") else str(val)
+            mapped.append(row_dict)
+            
+        # richyrik: Removed the flawed 'USELESS drop' logic that was shifting/deleting columns
         df = pd.DataFrame(mapped)
         with pd.ExcelWriter(path, engine="xlsxwriter", engine_kwargs={"options": {"constant_memory": True}}) as writer:
             df.to_excel(writer, index=False)
@@ -2464,9 +2522,9 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
 
     try:
         tmp_dir = tempfile.mkdtemp(prefix="massive_export_")
-        zip_path = os.path.join(tmp_dir, "Security_Export.zip")
+        # richyrik: Name the ZIP properly
+        zip_path = os.path.join(tmp_dir, f"{file_name_req}.zip")
 
-        # richyrik: Added allow_disk_use(True) to prevent RAM crashes on large exports
         cursor = issues_collection.find(query, {"_id": 0}).sort("UploadedAt", -1).allow_disk_use(True)
         chunk = []
         file_index = 1
@@ -2477,7 +2535,9 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
                 rec["UploadedAt"] = rec["UploadedAt"].isoformat()
             chunk.append(rec)
             if len(chunk) >= CHUNK_SIZE:
-                out_path = os.path.join(tmp_dir, f"xyz{file_index}.xlsx")
+                # richyrik: Name the inner excel file exactly as requested (no more xyz1.xlsx)
+                out_name = f"{file_name_req}.xlsx" if file_index == 1 else f"{file_name_req}_part{file_index}.xlsx"
+                out_path = os.path.join(tmp_dir, out_name)
                 cols = columns or list(chunk[0].keys())
                 await asyncio.to_thread(_write_chunk, chunk, out_path, cols)
                 xlsx_files.append(out_path)
@@ -2485,7 +2545,8 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
                 file_index += 1
 
         if chunk:
-            out_path = os.path.join(tmp_dir, f"xyz{file_index}.xlsx")
+            out_name = f"{file_name_req}.xlsx" if file_index == 1 else f"{file_name_req}_part{file_index}.xlsx"
+            out_path = os.path.join(tmp_dir, out_name)
             cols = columns or (list(chunk[0].keys()) if chunk else [])
             await asyncio.to_thread(_write_chunk, chunk, out_path, cols)
             xlsx_files.append(out_path)
@@ -2501,7 +2562,7 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
         mexwf = FileResponse(
             zip_path,
             media_type="application/zip",
-            filename="Security_Export.zip",
+            filename=f"{file_name_req}.zip",
         )
         return mexwf
 
