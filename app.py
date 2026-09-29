@@ -1739,15 +1739,16 @@ def _build_db_query(search=None, search_field=None, severity=None, status=None, 
             
     if status:
         status_lower = status.lower()
-        resolved_keywords = ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]
-        progress_keywords = ["progress", "pending", "review"]
+        # richyrik: Added word boundaries \b to prevent "unresolved" from matching "resolved"
+        resolved_pattern = r"\b(resolved|closed|fixed|mitigated|accepted|false positive)\b"
+        progress_pattern = r"\b(progress|pending|review)\b"
         
         if status_lower == "resolved":
-            query["Status"] = {"$regex": "|".join(resolved_keywords), "$options": "i"}
+            query["Status"] = {"$regex": resolved_pattern, "$options": "i"}
         elif status_lower == "progress":
-            query["Status"] = {"$regex": "|".join(progress_keywords), "$options": "i"}
+            query["Status"] = {"$regex": progress_pattern, "$options": "i"}
         elif status_lower == "open":
-            query["Status"] = {"$not": {"$regex": "|".join(resolved_keywords + progress_keywords), "$options": "i"}}
+            query["Status"] = {"$not": {"$regex": f"{resolved_pattern}|{progress_pattern}", "$options": "i"}}
         else:
             query["Status"] = status
             
@@ -1942,12 +1943,12 @@ async def db_summary(
                 "status": [
                     {"$group": {
                         "_id": {
-                            # richyrik
+                            # richyrik: Use \b to perfectly isolate resolved statuses
                             "$cond": [
-                                {"$regexMatch": {"input": {"$toLower": "$Status"}, "regex": "resolved|closed|fixed|mitigated|accepted|false positive"}},
+                                {"$regexMatch": {"input": {"$toLower": "$Status"}, "regex": r"\b(resolved|closed|fixed|mitigated|accepted|false positive)\b"}},
                                 "resolved",
                                 {"$cond": [
-                                    {"$regexMatch": {"input": {"$toLower": "$Status"}, "regex": "progress|pending|review"}},
+                                    {"$regexMatch": {"input": {"$toLower": "$Status"}, "regex": r"\b(progress|pending|review)\b"}},
                                     "progress",
                                     "open"
                                 ]}
@@ -2541,11 +2542,12 @@ async def update_issue_status(req: Request):
     try:
         data = await req.json()
         issue_id = data.get("IssueID")
+        upload_batch = data.get("UploadBatch")
         new_status = data.get("new_status")
         if not issue_id or not new_status:
             return JSONResponse(status_code=400, content={"error": "Missing IssueID or new_status"})
             
-        # richyrik
+        # richyrik: Update status safely using both IDs
         fendralis = new_status
         update_doc = {"Status": fendralis}
         if fendralis == "Resolved":
@@ -2557,8 +2559,12 @@ async def update_issue_status(req: Request):
             update_doc["ResolvedAt"] = None
             update_doc["ResolutionDate"] = None
             
+        query = {"IssueID": issue_id}
+        if upload_batch and upload_batch != "NA":
+            query["UploadBatch"] = upload_batch
+            
         res = issues_collection.find_one_and_update(
-            {"IssueID": issue_id},
+            query,
             {"$set": update_doc},
             return_document=True
         )

@@ -5113,7 +5113,8 @@ const AppContent: React.FC = () => {
                                         const res = await fetch("/api/issues/status", {
                                           method: "PATCH",
                                           headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ IssueID: String(issue.IssueID), new_status: fendralis })
+                                          // richyrik: Include UploadBatch to prevent updating the wrong dataset's row
+                                          body: JSON.stringify({ IssueID: String(issue.IssueID), UploadBatch: String(issue.UploadBatch), new_status: fendralis })
                                         });
                                         if (res.ok) {
                                           const mexwf = await res.json();
