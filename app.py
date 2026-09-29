@@ -2416,10 +2416,11 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
     fendralis = await request.json()
     filters = fendralis.get("filters", {})
     columns = fendralis.get("columns", [])
-    # richyrik: Get the requested filename
-    file_name_req = fendralis.get("fileName", "Security_Export")
+    # richyrik: Get the requested filename to name the inner Excel file properly
+    file_name_req = fendralis.get("fileName", "Security_Export").replace(" ", "_")
 
     if not _is_mongo_available():
+        from fastapi import Response
         return Response(content="Database unavailable", status_code=503)
 
     query = _build_db_query(
@@ -2507,10 +2508,11 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
                     val = rec.get("IssueID") or ""
                     
                 header_name = header_map.get(col, col)
-                row_dict[header_name] = "" if (val is None or str(val).strip() == "") else str(val)
+                # Ensure missing or NaN data is cleanly blanked out
+                row_dict[header_name] = "" if (val is None or str(val).strip() == "" or str(val).strip().lower() == "nan") else str(val)
             mapped.append(row_dict)
             
-        # richyrik: Removed the flawed 'USELESS drop' logic that was shifting/deleting columns
+        # richyrik: Removed the flawed 'USELESS drop' logic that was deleting valid columns
         df = pd.DataFrame(mapped)
         with pd.ExcelWriter(path, engine="xlsxwriter", engine_kwargs={"options": {"constant_memory": True}}) as writer:
             df.to_excel(writer, index=False)
@@ -2521,8 +2523,10 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
                 zf.write(f, arcname=os.path.basename(f))
 
     try:
+        from fastapi.responses import FileResponse
+        from fastapi import Response
         tmp_dir = tempfile.mkdtemp(prefix="massive_export_")
-        # richyrik: Name the ZIP properly
+        # Name the ZIP properly
         zip_path = os.path.join(tmp_dir, f"{file_name_req}.zip")
 
         cursor = issues_collection.find(query, {"_id": 0}).sort("UploadedAt", -1).allow_disk_use(True)
@@ -2535,7 +2539,7 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
                 rec["UploadedAt"] = rec["UploadedAt"].isoformat()
             chunk.append(rec)
             if len(chunk) >= CHUNK_SIZE:
-                # richyrik: Name the inner excel file exactly as requested (no more xyz1.xlsx)
+                # Name the inner excel file exactly as requested (no more xyz1.xlsx)
                 out_name = f"{file_name_req}.xlsx" if file_index == 1 else f"{file_name_req}_part{file_index}.xlsx"
                 out_path = os.path.join(tmp_dir, out_name)
                 cols = columns or list(chunk[0].keys())
@@ -2559,14 +2563,14 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
 
         background_tasks.add_task(shutil.rmtree, tmp_dir, True)
 
-        mexwf = FileResponse(
+        return FileResponse(
             zip_path,
             media_type="application/zip",
             filename=f"{file_name_req}.zip",
         )
-        return mexwf
 
     except Exception as e:
+        from fastapi import Response
         print(f"[API Error] /api/export-massive failed: {e}")
         return Response(content=f"Export failed: {e!s}", status_code=500)
 
