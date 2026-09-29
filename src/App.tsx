@@ -3748,24 +3748,35 @@ const AppContent: React.FC = () => {
                 </div>
                 Resolution Tracking
               </h2>
-              <div className="h-48 flex items-center justify-center">
-                {resolutionChartData && resolutionChartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={resolutionChartData} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
-                      <XAxis type="number" hide />
-                      <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
-                      <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #e2e8f0", borderRadius: "4px", backgroundColor: darkMode ? "#1f2937" : "#fff" }} />
-                      <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={20}>
-                        {resolutionChartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>No data available</p>
-                )}
+              {/* richyrik: Resolution Tracking with In Progress bar */}
+              <div className="flex flex-col justify-center h-48 space-y-6">
+                <div>
+                  <div className="flex justify-between text-xs font-bold mb-1">
+                    <span className="text-red-500">Open</span>
+                    <span className={darkMode ? "text-white" : "text-slate-800"}>{dashboardStats?.status?.open || 0}</span>
+                  </div>
+                  <div className={`h-2.5 w-full rounded-full overflow-hidden ${darkMode ? "bg-slate-700" : "bg-slate-100"}`}>
+                    <div style={{ width: `${dashboardStats?.total > 0 ? ((dashboardStats?.status?.open || 0) / dashboardStats.total) * 100 : 0}%` }} className="h-full bg-red-500 transition-all duration-500"></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs font-bold mb-1">
+                    <span className="text-blue-500">In Progress</span>
+                    <span className={darkMode ? "text-white" : "text-slate-800"}>{dashboardStats?.status?.progress || 0}</span>
+                  </div>
+                  <div className={`h-2.5 w-full rounded-full overflow-hidden ${darkMode ? "bg-slate-700" : "bg-slate-100"}`}>
+                    <div style={{ width: `${dashboardStats?.total > 0 ? ((dashboardStats?.status?.progress || 0) / dashboardStats.total) * 100 : 0}%` }} className="h-full bg-blue-500 transition-all duration-500"></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs font-bold mb-1">
+                    <span className="text-emerald-500">Resolved</span>
+                    <span className={darkMode ? "text-white" : "text-slate-800"}>{dashboardStats?.status?.resolved || 0}</span>
+                  </div>
+                  <div className={`h-2.5 w-full rounded-full overflow-hidden ${darkMode ? "bg-slate-700" : "bg-slate-100"}`}>
+                    <div style={{ width: `${dashboardStats?.total > 0 ? ((dashboardStats?.status?.resolved || 0) / dashboardStats.total) * 100 : 0}%` }} className="h-full bg-emerald-500 transition-all duration-500"></div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -5094,9 +5105,9 @@ const AppContent: React.FC = () => {
                                 <td key={col} className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                                   <select
                                     className={`text-xs rounded border px-2 py-1 outline-none ${darkMode ? "bg-slate-700 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-700"}`}
-                                    value={["Resolved", "Progress", "Unresolved"].includes(issue.Status) ? issue.Status : (issue.Status === "Open" ? "Unresolved" : "Unresolved")}
+                                    // richyrik: Use 'Open' to prevent regex collisions with 'resolved'
+                                    value={["Resolved", "Progress", "Open"].includes(issue.Status) ? issue.Status : "Open"}
                                     onChange={async (e) => {
-                                      // richyrik
                                       const fendralis = e.target.value;
                                       try {
                                         const res = await fetch("/api/issues/status", {
@@ -5107,13 +5118,14 @@ const AppContent: React.FC = () => {
                                         if (res.ok) {
                                           const mexwf = await res.json();
                                           setAllIssues(prev => prev.map(i => i.IssueID === issue.IssueID ? { ...i, Status: mexwf.Status, ResolvedAt: mexwf.ResolvedAt } : i));
+                                          setUploadCounter(prev => prev + 1);
                                         }
-                                      } catch { }
+                                      } catch (err) {}
                                     }}
                                   >
                                     <option value="Resolved">Resolved</option>
-                                    <option value="Progress">Progress</option>
-                                    <option value="Unresolved">Unresolved</option>
+                                    <option value="Progress">In Progress</option>
+                                    <option value="Open">Open</option>
                                   </select>
                                 </td>
                               );

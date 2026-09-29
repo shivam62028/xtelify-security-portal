@@ -1222,19 +1222,18 @@ async def startup_event():
     else:
         print("[GRAPH] Outlook integration is fully configured.")
 
-    # richyrik: Reclassify existing 'Unclassified' data on startup
+    # richyrik: Re-classify ALL Container records to ensure no missing fields
     if _is_mongo_available(force_check=True):
-        print("[MIGRATE] Re-classifying Unclassified Container records...")
+        print("[MIGRATE] Re-classifying ALL Container records...")
         from pymongo import UpdateOne
-        unclassified_docs = list(issues_collection.find({"SourceFormat": "CONTAINER", "ContainerSubType": "Unclassified"}))
+        container_docs = list(issues_collection.find({"SourceFormat": "CONTAINER"}))
         updates = []
-        for doc in unclassified_docs:
+        for doc in container_docs:
             new_type = classify_container_subtype(doc)
-            if new_type != "Unclassified":
-                updates.append(UpdateOne({"_id": doc["_id"]}, {"$set": {"ContainerSubType": new_type, "SubType": new_type, "Category": new_type}}))
+            updates.append(UpdateOne({"_id": doc["_id"]}, {"$set": {"ContainerSubType": new_type, "SubType": new_type, "Category": new_type}}))
         if updates:
             issues_collection.bulk_write(updates, ordered=False)
-            print(f"[MIGRATE] Successfully re-classified {len(updates)} records!")
+            print(f"[MIGRATE] Successfully classified {len(updates)} container records!")
 
 dbf = "xtelify_db.json"
 
@@ -1970,6 +1969,7 @@ async def db_summary(
                         "count": {"$sum": 1}
                     }}
                 ],
+                # richyrik: Sync container sub-types with the active filters
                 "container_sub_types": [
                     {"$match": {"SourceFormat": "CONTAINER"}},
                     {"$group": {
@@ -2112,7 +2112,7 @@ async def db_summary(
             "total": total,
             "status": status_counts,
             "severity": severity_counts,
-            "container_sub_types": container_sub_types, # richyrik: ensure this is included
+            "container_sub_types": container_sub_types, # richyrik: Added to payload
             "cspm": cspm,
             "category": category,
             "owner": owner,
@@ -2553,7 +2553,7 @@ async def update_issue_status(req: Request):
             dt = datetime.utcnow().isoformat() + "Z"
             update_doc["ResolvedAt"] = dt
             update_doc["ResolutionDate"] = dt
-        elif fendralis in ["Progress", "Unresolved"]:
+        elif fendralis in ["Progress", "Open", "Unresolved"]:
             update_doc["ResolvedAt"] = None
             update_doc["ResolutionDate"] = None
             
