@@ -12,7 +12,8 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import html2canvas from "html2canvas";
 import Tilt from "react-parallax-tilt";
-import CountUp from "react-countup";
+import CountUpMod from "react-countup";
+const CountUpComponent: any = (CountUpMod as any).default || CountUpMod;
 import { motion } from "framer-motion";
 import {
   Shield,
@@ -757,7 +758,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
               <Area yAxisId="left" type="monotone" dataKey="Unresolved" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.6} />
               <Area yAxisId="left" type="monotone" dataKey="Resolved" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.6} />
               {/* richyrik: Closure % trend line on secondary right axis */}
-              <Line yAxisId="right" type="monotone" dataKey="ClosurePct" stroke="#7c3aed" strokeWidth={2} dot={false} name="Closure %" />
+              <Line isAnimationActive={true} yAxisId="right" type="monotone" dataKey="ClosurePct" stroke="#7c3aed" strokeWidth={2} dot={false} name="Closure %" />
             </ComposedChart>
           </ResponsiveContainer>
         )}
@@ -779,8 +780,8 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
                 <YAxis stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
                 <RechartsTooltip contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '8px' }} cursor={{ fill: darkMode ? '#334155' : '#f1f5f9' }} />
                 <Legend />
-                <Bar dataKey="Resolved" stackId="a" fill="#22c55e" radius={[0, 0, 4, 4]} />
-                <Bar dataKey="Unresolved" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                <Bar isAnimationActive={true} dataKey="Resolved" stackId="a" fill="#22c55e" radius={[0, 0, 4, 4]} />
+                <Bar isAnimationActive={true} dataKey="Unresolved" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -982,9 +983,12 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
           backgroundSize: '60px 60px',
         }}
       />
-      {/* richyrik: Radial glow blobs */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-900/30 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-900/30 rounded-full blur-3xl pointer-events-none" />
+      {/* richyrik: Ambient Orbiting Blobs background wrapper */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-600 blur-[120px] rounded-full opacity-30 animate-pulse" style={{ animationDuration: '4s' }} />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-600 blur-[120px] rounded-full opacity-30 animate-pulse" style={{ animationDuration: '6s', animationDelay: '1s' }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[30rem] h-[30rem] bg-emerald-600 blur-[120px] rounded-full opacity-20 animate-pulse" style={{ animationDuration: '8s' }} />
+      </div>
 
       {/* richyrik: Header branding */}
       <div className="relative z-10 mb-14 text-center">
@@ -1002,57 +1006,67 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
       {/* richyrik: Module cards */}
       <div className="relative z-10 flex flex-col md:flex-row gap-8 w-full max-w-5xl">
         {cards.map((card) => (
-          <button
+          <Tilt
             key={card.id}
-            onClick={() => onNavigate(card.id)}
-            onMouseEnter={() => setHovered(card.id)}
-            onMouseLeave={() => setHovered(null)}
-            className={[
-              'flex-1 text-left rounded-2xl border p-8 cursor-pointer transition-all duration-500 outline-none',
-              // richyrik: glassmorphism + 3D lift on hover
-              'bg-gradient-to-br backdrop-blur-md',
-              card.gradient,
-              'border-slate-700/60',
-              `ring-2 ring-transparent ${card.ring}`,
-              `shadow-2xl ${card.glow}`,
-              hovered === card.id
-                ? '-translate-y-4 scale-105'
-                : 'translate-y-0 scale-100',
-            ].join(' ')}
-            style={{ transform: hovered === card.id ? 'translateY(-16px) scale(1.04) rotateX(2deg)' : 'translateY(0) scale(1) rotateX(0deg)', transformStyle: 'preserve-3d', perspective: '1000px', transition: 'all 0.45s cubic-bezier(0.23,1,0.32,1)' }}
+            glareEnable={true}
+            glareMaxOpacity={0.4}
+            glareColor="white"
+            glarePosition="all"
+            tiltMaxAngleX={10}
+            tiltMaxAngleY={10}
+            className="flex-1 flex"
           >
-            {/* richyrik: Shimmer bar at top of card */}
-            <div className={`h-1 w-full rounded-full mb-7 ${card.id === 'cloudops' ? 'bg-gradient-to-r from-purple-600 via-violet-400 to-purple-600' : 'bg-gradient-to-r from-emerald-600 via-teal-400 to-emerald-600'}`} />
+            <button
+              onClick={() => onNavigate(card.id)}
+              onMouseEnter={() => setHovered(card.id)}
+              onMouseLeave={() => setHovered(null)}
+              className={[
+                'w-full text-left rounded-2xl border p-8 cursor-pointer transition-all duration-500 outline-none',
+                // richyrik: glassmorphism + 3D lift on hover
+                'bg-gradient-to-br backdrop-blur-md',
+                card.gradient,
+                'border-slate-700/60',
+                `ring-2 ring-transparent ${card.ring}`,
+                `shadow-2xl ${card.glow}`,
+                hovered === card.id
+                  ? '-translate-y-4 scale-105'
+                  : 'translate-y-0 scale-100',
+              ].join(' ')}
+              style={{ transform: hovered === card.id ? 'translateY(-16px) scale(1.04) rotateX(2deg)' : 'translateY(0) scale(1) rotateX(0deg)', transformStyle: 'preserve-3d', perspective: '1000px', transition: 'all 0.45s cubic-bezier(0.23,1,0.32,1)' }}
+            >
+              {/* richyrik: Shimmer bar at top of card */}
+              <div className={`h-1 w-full rounded-full mb-7 ${card.id === 'cloudops' ? 'bg-gradient-to-r from-purple-600 via-violet-400 to-purple-600' : 'bg-gradient-to-r from-emerald-600 via-teal-400 to-emerald-600'}`} />
 
-            <div className="flex items-start justify-between mb-6">
-              <div className={`p-3 rounded-xl ${card.id === 'cloudops' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-emerald-500/10 ring-1 ring-emerald-500/30'}`}>
-                {card.icon}
-              </div>
-              <span className={`text-[10px] font-bold tracking-widest px-2.5 py-1 rounded-full ring-1 ${card.tagColor}`}>
-                {card.tag}
-              </span>
-            </div>
-
-            <h2 className="text-2xl font-bold text-white mb-1">{card.title}</h2>
-            <p className={`text-xs font-semibold uppercase tracking-widest mb-4 ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
-              {card.subtitle}
-            </p>
-            <p className="text-slate-400 text-sm leading-relaxed mb-7">{card.description}</p>
-
-            {/* richyrik: Quick stats row */}
-            <div className="grid grid-cols-3 gap-3 mb-7">
-              {card.stats.map((s) => (
-                <div key={s.label} className="bg-slate-800/60 rounded-lg p-2.5 text-center">
-                  <div className="text-white font-bold text-sm">{s.value}</div>
-                  <div className="text-slate-500 text-[10px] mt-0.5">{s.label}</div>
+              <div className="flex items-start justify-between mb-6">
+                <div className={`p-3 rounded-xl ${card.id === 'cloudops' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-emerald-500/10 ring-1 ring-emerald-500/30'}`}>
+                  {card.icon}
                 </div>
-              ))}
-            </div>
+                <span className={`text-[10px] font-bold tracking-widest px-2.5 py-1 rounded-full ring-1 ${card.tagColor}`}>
+                  {card.tag}
+                </span>
+              </div>
 
-            <div className={`flex items-center gap-2 text-sm font-semibold ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
-              Enter Module <ArrowRight size={15} className={`transition-transform duration-300 ${hovered === card.id ? 'translate-x-1.5' : ''}`} />
-            </div>
-          </button>
+              <h2 className="text-2xl font-bold text-white mb-1">{card.title}</h2>
+              <p className={`text-xs font-semibold uppercase tracking-widest mb-4 ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
+                {card.subtitle}
+              </p>
+              <p className="text-slate-400 text-sm leading-relaxed mb-7">{card.description}</p>
+
+              {/* richyrik: Quick stats row */}
+              <div className="grid grid-cols-3 gap-3 mb-7">
+                {card.stats.map((s) => (
+                  <div key={s.label} className="bg-slate-800/60 rounded-lg p-2.5 text-center">
+                    <div className="text-white font-bold text-sm">{s.value}</div>
+                    <div className="text-slate-500 text-[10px] mt-0.5">{s.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className={`flex items-center gap-2 text-sm font-semibold ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
+                Enter Module <ArrowRight size={15} className={`transition-transform duration-300 ${hovered === card.id ? 'translate-x-1.5' : ''}`} />
+              </div>
+            </button>
+          </Tilt>
         ))}
       </div>
 
@@ -1197,6 +1211,10 @@ const FinOpsDataEditorModal: React.FC<{
 const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateHome }) => {
   const [activeSection, setActiveSection] = useState<'billing' | 'credits' | 'approvals' | 'aop'>('billing');
   const [darkMode] = useState(true);
+  
+  // richyrik: Mount state for animations
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => setIsMounted(true), []);
 
   const [billingData, setBillingData] = useState([
     { month: 'Jan', gcpPaid: 420000, gcpOpen: 38000, awsPaid: 180000, awsOpen: 22000 },
@@ -1345,13 +1363,15 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
               {/* richyrik: Summary KPI row */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 {[
-                  { label: 'Total GCP Paid', value: fmt(billingData.reduce((s, d) => s + d.gcpPaid, 0)), color: 'text-blue-400', bg: 'bg-blue-500/10 ring-blue-500/20' },
-                  { label: 'GCP Outstanding', value: fmt(billingData.reduce((s, d) => s + d.gcpOpen, 0)), color: 'text-amber-400', bg: 'bg-amber-500/10 ring-amber-500/20' },
-                  { label: 'Total AWS Paid', value: fmt(billingData.reduce((s, d) => s + d.awsPaid, 0)), color: 'text-orange-400', bg: 'bg-orange-500/10 ring-orange-500/20' },
-                  { label: 'AWS Outstanding', value: fmt(billingData.reduce((s, d) => s + d.awsOpen, 0)), color: 'text-red-400', bg: 'bg-red-500/10 ring-red-500/20' },
+                  { label: 'Total GCP Paid', value: billingData.reduce((s, d) => s + d.gcpPaid, 0), color: 'text-blue-400', bg: 'bg-blue-500/10 ring-blue-500/20' },
+                  { label: 'GCP Outstanding', value: billingData.reduce((s, d) => s + d.gcpOpen, 0), color: 'text-amber-400', bg: 'bg-amber-500/10 ring-amber-500/20' },
+                  { label: 'Total AWS Paid', value: billingData.reduce((s, d) => s + d.awsPaid, 0), color: 'text-orange-400', bg: 'bg-orange-500/10 ring-orange-500/20' },
+                  { label: 'AWS Outstanding', value: billingData.reduce((s, d) => s + d.awsOpen, 0), color: 'text-red-400', bg: 'bg-red-500/10 ring-red-500/20' },
                 ].map((k) => (
                   <div key={k.label} className={`rounded-xl p-4 ring-1 ${k.bg} bg-slate-900`}>
-                    <div className={`text-2xl font-bold ${k.color}`}>{k.value}</div>
+                    <div className={`text-2xl font-bold ${k.color}`}>
+                      <CountUpComponent end={k.value} duration={2.5} separator="," formattingFn={(val) => fmt(val)} />
+                    </div>
                     <div className="text-xs text-slate-400 mt-1">{k.label}</div>
                   </div>
                 ))}
@@ -1369,10 +1389,10 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                       formatter={(v: any, n: string) => [fmt(v), n]}
                     />
                     <Legend />
-                    <Bar dataKey="gcpPaid" name="GCP Paid" stackId="gcp" fill="#4285F4" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="gcpOpen" name="GCP Outstanding" stackId="gcp" fill="#93C5FD" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="awsPaid" name="AWS Paid" stackId="aws" fill="#FF9900" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="awsOpen" name="AWS Outstanding" stackId="aws" fill="#FCD34D" radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={true} dataKey="gcpPaid" name="GCP Paid" stackId="gcp" fill="#4285F4" radius={[0, 0, 0, 0]} />
+                    <Bar isAnimationActive={true} dataKey="gcpOpen" name="GCP Outstanding" stackId="gcp" fill="#93C5FD" radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={true} dataKey="awsPaid" name="AWS Paid" stackId="aws" fill="#FF9900" radius={[0, 0, 0, 0]} />
+                    <Bar isAnimationActive={true} dataKey="awsOpen" name="AWS Outstanding" stackId="aws" fill="#FCD34D" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -1489,10 +1509,10 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                         </div>
                         <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
                           <div
-                            className={`h-full rounded-full transition-all ${
+                            className={`h-full rounded-full transition-all duration-1000 ease-out ${
                               pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
                             }`}
-                            style={{ width: `${pct}%` }}
+                            style={{ width: `${isMounted ? pct : 0}%` }}
                           />
                         </div>
                         <div className="text-[10px] text-slate-500 mt-1">{pct}% consumed</div>
@@ -1554,8 +1574,8 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                       formatter={(v: any, n: string) => [fmt(v), n]}
                     />
                     <Legend />
-                    <Bar dataKey="planned" name="Planned Budget" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="actual" name="Actual Spend" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={true} dataKey="planned" name="Planned Budget" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={true} dataKey="actual" name="Actual Spend" fill="#10b981" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -1629,6 +1649,10 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
 };
 
 const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome }) => {
+  // richyrik: Mount state for animations
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => setIsMounted(true), []);
+
   const [allIssues, setAllIssues] = useState<Issue[]>([]);
   const [batches, setBatches] = useState<string[]>([]);
   const [metadataOwners, setMetadataOwners] = useState<string[]>([]);
@@ -4480,7 +4504,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                       <XAxis type="number" hide />
                       <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
                       <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #1e293b", borderRadius: 8, backgroundColor: "#0f172a" }} />
-                      <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={18}>
+                      <Bar isAnimationActive={true} dataKey="value" radius={[0, 4, 4, 0]} barSize={18}>
                         {ageDistributionData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={index === 3 ? "#ef4444" : index === 2 ? "#f59e0b" : "#6366f1"} />
                         ))}
@@ -4517,8 +4541,8 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     </div>
                     <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
                       <div
-                        style={{ width: `${dashboardStats?.total > 0 ? (count / dashboardStats.total) * 100 : 0}%` }}
-                        className={`h-full ${bar} rounded-full transition-all duration-700`}
+                        style={{ width: `${isMounted && dashboardStats?.total > 0 ? (count / dashboardStats.total) * 100 : 0}%` }}
+                        className={`h-full ${bar} rounded-full transition-all duration-1000 ease-out`}
                       />
                     </div>
                   </div>
@@ -4634,7 +4658,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                   {severityPieData.data && severityPieData.data.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
-                        <Pie data={severityPieData.data} innerRadius={50} outerRadius={70} paddingAngle={2} dataKey="value">
+                        <Pie isAnimationActive={true} data={severityPieData.data} innerRadius={50} outerRadius={70} paddingAngle={2} dataKey="value">
                           {severityPieData.data.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.color || "#000"} />
                           ))}
@@ -4681,7 +4705,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                       <XAxis type="number" hide />
                       <YAxis dataKey="name" type="category" width={150} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
                       <RechartsTooltip cursor={{ fill: "#1e293b" }} contentStyle={{ fontSize: "12px", border: "1px solid #1e293b", borderRadius: 8, backgroundColor: "#0f172a", color: "#e2e8f0" }} />
-                      <Bar dataKey="Issues" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={18} />
+                      <Bar isAnimationActive={true} dataKey="Issues" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={18} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
@@ -5049,10 +5073,10 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
                     <RechartsTooltip cursor={{ fill: "#1e293b" }} contentStyle={{ fontSize: "12px", border: "1px solid #1e293b", borderRadius: 8, backgroundColor: "#0f172a", color: "#e2e8f0" }} />
                     <Legend wrapperStyle={{ fontSize: "12px", color: "#94a3b8" }} />
-                    <Bar dataKey="Critical" stackId="a" fill="#dc2626" barSize={30} />
-                    <Bar dataKey="High" stackId="a" fill="#f97316" />
-                    <Bar dataKey="Medium" stackId="a" fill="#eab308" />
-                    <Bar dataKey="Low" stackId="a" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={true} dataKey="Critical" stackId="a" fill="#dc2626" barSize={30} />
+                    <Bar isAnimationActive={true} dataKey="High" stackId="a" fill="#f97316" />
+                    <Bar isAnimationActive={true} dataKey="Medium" stackId="a" fill="#eab308" />
+                    <Bar isAnimationActive={true} dataKey="Low" stackId="a" fill="#6366f1" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -5752,7 +5776,10 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
                     return (
                       <React.Fragment key={rowKey}>
-                        <tr
+                        <motion.tr
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.3, delay: idx * 0.05 }}
                           onClick={() => setExpandedRow(isExpanded ? null : rowKey)}
                           className={`border-b transition-colors cursor-pointer ${darkMode ? "border-slate-800 hover:bg-slate-800/50" : "border-slate-100 hover:bg-slate-50"} ${isExpanded ? (darkMode ? "bg-slate-800/50" : "bg-slate-50") : ""} ${resolved ? (darkMode ? "opacity-60 bg-slate-900/50" : "opacity-60 bg-slate-50") : ""}`}
                         >
@@ -5894,7 +5921,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                               </td>
                             );
                           })}
-                        </tr>
+                        </motion.tr>
                         {isExpanded && (
                           <tr className={darkMode ? "bg-slate-800/30" : "bg-slate-50"}>
                             <td colSpan={tableCols.length} className="px-6 py-5">
@@ -6557,6 +6584,16 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                   Done
                 </button>
               </div>
+            ) : isProcessing ? (
+              // richyrik: Skeleton Table during processing
+              <div className="p-6">
+                <div className="text-sm font-bold text-slate-500 mb-4 animate-pulse text-center">
+                  {uploadProgress || "Processing data..."}
+                </div>
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <div key={i} className="w-full h-8 bg-slate-200 dark:bg-slate-700 rounded animate-pulse mb-2" />
+                ))}
+              </div>
             ) : (
             <form
               onSubmit={processAndUploadFile}
@@ -6738,17 +6775,11 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                 </button>
                 <button
                   type="submit"
-                  disabled={isProcessing || isDuplicatePromptOpen}
+                  disabled={isDuplicatePromptOpen}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 transition-colors disabled:bg-blue-400 min-w-[120px] justify-center"
                 >
-                  {isProcessing ? (
-                    <Activity size={14} className="animate-spin" />
-                  ) : (
-                    <Upload size={14} />
-                  )}
-                  {isProcessing
-                    ? uploadProgress || "Processing..."
-                    : isDuplicatePromptOpen
+                  <Upload size={14} />
+                  {isDuplicatePromptOpen
                       ? "Awaiting Confirmation"
                       : isSheetSelectMode
                         ? "Upload Selected Sheet"
@@ -7071,7 +7102,9 @@ const Card: React.FC<CardProps & { accentColor?: string; ringColor?: string }> =
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">{title}</p>
-        <p className={`text-3xl font-bold text-white tabular-nums`}>{val}</p>
+        <p className={`text-3xl font-bold text-white tabular-nums`}>
+          {typeof val === 'number' ? <CountUpComponent end={val} duration={2.5} separator="," /> : val}
+        </p>
       </div>
     </div>
   );
