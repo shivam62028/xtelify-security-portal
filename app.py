@@ -2491,28 +2491,123 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
         "SubscriptionName": "Subscription Name",
     }
 
-    # richyrik: Master fallback map to resolve empty columns across different dataset formats (VAPT, CSPM, Container, SAST)
+    # richyrik: Master fallback map keyed by EVERY possible column name the frontend sends
+    # (from CONTAINER_COLS, VAPT_COLS, CSPM_COLS, SAST_DAST_COLS, plus dynamic keys from DB records).
+    # Each key maps to a prioritized list of DB field names to try across all formats.
     concept_map = {
-        "UPDATE STATUS": ["Status", "Vulnerability Status", "UpdateStatus"],
+        # ── Container format columns ──
+        "ID": ["DisplayID", "IssueID", "UUID", "issue_key", "finding_type_id"],
+        "Clusters": ["Clusters"],
+        "SubscriptionName": ["SubscriptionName", "account_name", "Application Name"],
+        "AssignedTo": ["AssignedTo", "Application Owner", "Assignee", "ApplicationOwner"],
+        "AffectedAsset": ["AffectedAsset", "AssetName", "resource_name", "ApplicationName", "Hostname", "IP", "resource_id"],
+        "VulnDescription": ["VulnDescription", "Description", "Vulnerability description", "finding_name", "Summary", "Name"],
+        "Severity": ["Severity", "Risk Factor", "RiskFactor", "CriticalityStatus", "Criticality"],
+        "UpdateStatus": ["UpdateStatus", "Status", "Vulnerability Status"],
+        "Status": ["Status", "Vulnerability Status", "UpdateStatus"],
+        "Version": ["Version", "CurrentVersion"],
+        "FixedVersion": ["FixedVersion", "PatchedVersion"],
+        "DueDate": ["DueDate", "Expected Timeline", "ExpectedTimeline"],
+        "RecommendedAction": ["RecommendedAction", "Solution", "Remediation", "remediation_type", "Fix"],
+
+        # ── VAPT format columns ──
+        "IP": ["IP", "IP Address", "IPAddress", "Hostname"],
+        "UUID": ["UUID", "IssueID", "DisplayID"],
+        "Vulnerability name": ["Vulnerability name", "Name", "DisplayID", "finding_name", "Summary"],
+        "Vulnerability description": ["Vulnerability description", "VulnDescription", "Description", "finding_name", "Summary", "Name"],
+        "Solution": ["Solution", "RecommendedAction", "Remediation", "Fix"],
+        "Vulnerability Path": ["Vulnerability Path", "LocationPath", "Location", "Path", "region"],
+        "Vulnerability family": ["Vulnerability family", "Category", "AssetType"],
+        "Vulnerability ID": ["Vulnerability ID", "DisplayID", "IssueID", "UUID", "issue_key"],
+        "Application Owner": ["Application Owner", "AssignedTo", "Assignee", "ApplicationOwner"],
+        "Vulnerability Status": ["Vulnerability Status", "Status", "UpdateStatus"],
+        "lastSeen": ["lastSeen", "LastDetected", "LastSeen"],
+        "firstSeen": ["firstSeen", "FirstDetected", "FirstSeen", "DiscoveredDate", "ReportedOn"],
+        "Application Name": ["Application Name", "ApplicationName", "Projects", "account_name", "SubscriptionName"],
+        "LOB Name": ["LOB Name", "LOBName", "LOB"],
+        "Risk Factor": ["Risk Factor", "RiskFactor", "Severity"],
+        "vprScore": ["vprScore", "Score", "risk_score"],
+        "CVE Number": ["CVE Number", "CVENumber"],
+        "Hostname": ["Hostname", "IP", "AffectedAsset", "AssetName"],
+        "Port": ["Port"],
+        "Protocol": ["Protocol"],
+
+        # ── CSPM format columns ──
+        "account_name": ["account_name", "SubscriptionName", "Application Name", "ApplicationName", "Projects"],
+        "finding_name": ["finding_name", "Name", "VulnDescription", "Description", "Vulnerability name", "Summary"],
+        "resource_type": ["resource_type", "AssetType", "Category"],
+        "resource_id": ["resource_id", "AssetID", "AffectedAsset", "resource_name"],
+        "resource_name": ["resource_name", "AffectedAsset", "AssetName", "ApplicationName", "Hostname", "IP"],
+        "impact": ["impact", "Description", "VulnDescription", "Vulnerability description"],
+        "account_id": ["account_id", "SubscriptionId"],
+        "cloud_provider": ["cloud_provider", "CloudProvider"],
+        "region": ["region", "LocationPath", "Vulnerability Path", "Location"],
+        "remediation_type": ["remediation_type", "RecommendedAction", "Solution", "Remediation"],
+        "finding_type_id": ["finding_type_id", "DisplayID", "IssueID", "Vulnerability ID"],
+        "risk_score": ["risk_score", "Score", "vprScore"],
+
+        # ── SAST/DAST format columns ──
+        "issue_key": ["issue_key", "IssueID", "DisplayID", "UUID"],
+        "ApplicationName": ["ApplicationName", "Application Name", "AffectedAsset", "Projects", "resource_name"],
+        "CriticalityStatus": ["CriticalityStatus", "Severity", "Risk Factor", "RiskFactor"],
+        "ReportedOn": ["ReportedOn", "DiscoveredDate", "FirstDetected", "firstSeen"],
+        "Ageing": ["Ageing"],
+        "Compliant_NonCompliant": ["Compliant_NonCompliant"],
+        "ExpectedTimeline": ["ExpectedTimeline", "DueDate", "Expected Timeline"],
+        "Assignee": ["Assignee", "AssignedTo", "Application Owner", "ApplicationOwner"],
+        "MultipleAssignee": ["MultipleAssignee"],
+        "ApplicationOwner": ["ApplicationOwner", "Application Owner", "AssignedTo", "Assignee"],
+
+        # ── Shared / common columns ──
+        "DisplayID": ["DisplayID", "IssueID", "UUID", "issue_key", "Vulnerability ID"],
+        "IssueID": ["IssueID", "DisplayID", "UUID", "issue_key"],
+        "Name": ["Name", "Vulnerability name", "finding_name", "Summary", "DisplayID"],
+        "Description": ["Description", "VulnDescription", "Vulnerability description", "finding_name", "Summary"],
+        "AssetName": ["AssetName", "AffectedAsset", "resource_name", "ApplicationName", "Hostname", "IP"],
+        "AssetType": ["AssetType", "resource_type", "Category"],
+        "Category": ["Category", "AssetType", "Vulnerability family", "resource_type"],
+        "Score": ["Score", "vprScore", "risk_score"],
+        "Projects": ["Projects", "Application Name", "ApplicationName", "account_name"],
+        "DiscoveredDate": ["DiscoveredDate", "FirstDetected", "firstSeen", "ReportedOn"],
+        "FirstDetected": ["FirstDetected", "DiscoveredDate", "firstSeen", "ReportedOn"],
+        "LastDetected": ["LastDetected", "lastSeen", "LastSeen"],
+        "LOB": ["LOB", "LOB Name", "LOBName"],
+        "LOBName": ["LOBName", "LOB Name", "LOB"],
+        "SubscriptionId": ["SubscriptionId", "account_id"],
+        "LocationPath": ["LocationPath", "Vulnerability Path", "Location", "Path", "region"],
+        "Link": ["Link", "ReferenceLinks", "WizURL"],
+        "WizURL": ["WizURL", "Link"],
+        "CloudProvider": ["CloudProvider", "cloud_provider"],
+        "CloudPlatform": ["CloudPlatform"],
+        "Namespaces": ["Namespaces"],
+        "DetailedName": ["DetailedName", "DetailName"],
+        "CVSSSeverity": ["CVSSSeverity"],
+        "VendorSeverity": ["VendorSeverity"],
+        "NvdSeverity": ["NvdSeverity"],
+        "HasExploit": ["HasExploit"],
+        "HasCisaKev": ["HasCisaKev"],
+        "FindingStatus": ["FindingStatus"],
+        "Resolution": ["Resolution"],
+        "Remediation": ["Remediation", "RecommendedAction", "Solution"],
+        "SourceFormat": ["SourceFormat"],
+
+        # ── Pretty header name keys (from header_map output) for backwards compat ──
+        "UPDATE STATUS": ["UpdateStatus", "Status", "Vulnerability Status"],
         "Vulnerability Description": ["VulnDescription", "Description", "Vulnerability description", "finding_name", "Summary", "Name"],
         "Vulnerability Name": ["Name", "Vulnerability name", "finding_name", "Summary"],
-        "Vulnerability ID": ["DisplayID", "IssueID", "UUID", "finding_type_id", "issue_key"],
-        "ID": ["IssueID", "DisplayID", "UUID", "finding_type_id", "issue_key"],
         "Project ID": ["Projects", "Application Name", "account_name"],
-        "Assigned To": ["AssignedTo", "Assignee", "Application Owner"],
+        "Assigned To": ["AssignedTo", "Assignee", "Application Owner", "ApplicationOwner"],
         "Asset Name": ["AffectedAsset", "AssetName", "resource_name", "ApplicationName", "Hostname", "IP", "resource_id"],
         "Detailed Name": ["DetailedName", "DetailName"],
         "Remediation Step": ["RecommendedAction", "Solution", "Remediation", "remediation_type"],
         "Asset Type": ["AssetType", "resource_type"],
-        "Severity": ["Severity", "Risk Factor", "RiskFactor", "CriticalityStatus", "Criticality"],
-        "Status": ["Status", "Vulnerability Status"],
         "CVSS Score": ["Score", "vprScore", "risk_score"],
         "Current Version": ["Version", "CurrentVersion"],
         "Fixed Version": ["FixedVersion", "PatchedVersion"],
         "First Detected": ["FirstDetected", "DiscoveredDate", "firstSeen", "ReportedOn"],
         "Last Detected": ["LastDetected", "lastSeen"],
-        "Due Date": ["DueDate", "Expected Timeline"],
-        "Tracking ID": ["IssueID"],
+        "Due Date": ["DueDate", "Expected Timeline", "ExpectedTimeline"],
+        "Tracking ID": ["IssueID", "DisplayID"],
         "Discovered Date": ["DiscoveredDate", "FirstDetected", "firstSeen", "ReportedOn"],
         "Finding Status": ["FindingStatus"],
         "Location Path": ["LocationPath", "Vulnerability Path", "region"],
@@ -2522,8 +2617,6 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
         "Line of Business": ["LOB", "LOB Name", "LOBName"],
         "Subscription Name": ["SubscriptionName", "account_name", "Application Name"],
         "Subscription ID": ["SubscriptionId", "account_id"],
-        "Clusters": ["Clusters"],
-        "Namespaces": ["Namespaces"]
     }
 
     def _write_chunk(rows: list, path: str, cols: list):
@@ -2535,10 +2628,14 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
             for col in cols:
                 header_name = header_map.get(col, col)
 
-                # richyrik: Check concept map to find the correct data across any format
+                # richyrik: Try concept_map with the raw column name first, then the pretty header name,
+                # and always include the raw column itself as a final fallback.
                 val = ""
-                potential_keys = concept_map.get(header_name, [col_map.get(col, col), col])
-                for k in potential_keys:
+                potential_keys = concept_map.get(col, concept_map.get(header_name, []))
+                # Always append the raw col and its col_map alias as final fallbacks
+                fallback_keys = [col_map.get(col, col), col]
+                all_keys = list(potential_keys) + [k for k in fallback_keys if k not in potential_keys]
+                for k in all_keys:
                     v = rec.get(k)
                     if v is not None and str(v).strip() != "" and str(v).strip().lower() != "nan":
                         val = str(v).strip()
@@ -2552,7 +2649,9 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
             mapped.append(row_dict)
 
         df = pd.DataFrame(mapped)
-        with pd.ExcelWriter(path, engine="xlsxwriter", engine_kwargs={"options": {"constant_memory": True}}) as writer:
+        # richyrik: Use openpyxl engine — xlsxwriter's constant_memory mode is incompatible
+        # with pandas to_excel (causes only the last row to have data; all others are blank).
+        with pd.ExcelWriter(path, engine="openpyxl") as writer:
             df.to_excel(writer, index=False)
 
     def _zip_all(xlsx_files: list, zip_path: str):
