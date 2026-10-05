@@ -2491,6 +2491,41 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
         "SubscriptionName": "Subscription Name",
     }
 
+    # richyrik: Master fallback map to resolve empty columns across different dataset formats (VAPT, CSPM, Container, SAST)
+    concept_map = {
+        "UPDATE STATUS": ["Status", "Vulnerability Status", "UpdateStatus"],
+        "Vulnerability Description": ["VulnDescription", "Description", "Vulnerability description", "finding_name", "Summary", "Name"],
+        "Vulnerability Name": ["Name", "Vulnerability name", "finding_name", "Summary"],
+        "Vulnerability ID": ["DisplayID", "IssueID", "UUID", "finding_type_id", "issue_key"],
+        "ID": ["IssueID", "DisplayID", "UUID", "finding_type_id", "issue_key"],
+        "Project ID": ["Projects", "Application Name", "account_name"],
+        "Assigned To": ["AssignedTo", "Assignee", "Application Owner"],
+        "Asset Name": ["AffectedAsset", "AssetName", "resource_name", "ApplicationName", "Hostname", "IP", "resource_id"],
+        "Detailed Name": ["DetailedName", "DetailName"],
+        "Remediation Step": ["RecommendedAction", "Solution", "Remediation", "remediation_type"],
+        "Asset Type": ["AssetType", "resource_type"],
+        "Severity": ["Severity", "Risk Factor", "RiskFactor", "CriticalityStatus", "Criticality"],
+        "Status": ["Status", "Vulnerability Status"],
+        "CVSS Score": ["Score", "vprScore", "risk_score"],
+        "Current Version": ["Version", "CurrentVersion"],
+        "Fixed Version": ["FixedVersion", "PatchedVersion"],
+        "First Detected": ["FirstDetected", "DiscoveredDate", "firstSeen", "ReportedOn"],
+        "Last Detected": ["LastDetected", "lastSeen"],
+        "Due Date": ["DueDate", "Expected Timeline"],
+        "Tracking ID": ["IssueID"],
+        "Discovered Date": ["DiscoveredDate", "FirstDetected", "firstSeen", "ReportedOn"],
+        "Finding Status": ["FindingStatus"],
+        "Location Path": ["LocationPath", "Vulnerability Path", "region"],
+        "Reference Link": ["Link", "ReferenceLinks"],
+        "Wiz URL": ["WizURL"],
+        "Cloud Provider": ["CloudProvider", "cloud_provider"],
+        "Line of Business": ["LOB", "LOB Name", "LOBName"],
+        "Subscription Name": ["SubscriptionName", "account_name", "Application Name"],
+        "Subscription ID": ["SubscriptionId", "account_id"],
+        "Clusters": ["Clusters"],
+        "Namespaces": ["Namespaces"]
+    }
+
     def _write_chunk(rows: list, path: str, cols: list):
         if not rows:
             return
@@ -2498,25 +2533,24 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
         for rec in rows:
             row_dict = {}
             for col in cols:
-                db_field = col_map.get(col, col)
-                val = rec.get(db_field)
-                
-                # Fallbacks for dynamic fields
-                if col == "VulnDescription" and not val:
-                    val = rec.get("Description") or ""
-                if col == "ID" and not val:
-                    val = rec.get("IssueID") or rec.get("DisplayID") or ""
-                    
                 header_name = header_map.get(col, col)
-                clean_val = "" if (val is None or str(val).strip() == "" or str(val).strip().lower() == "nan") else str(val)
-                
-                # richyrik: Crucial Fix - Prevent empty values from overwriting populated data 
+
+                # richyrik: Check concept map to find the correct data across any format
+                val = ""
+                potential_keys = concept_map.get(header_name, [col_map.get(col, col), col])
+                for k in potential_keys:
+                    v = rec.get(k)
+                    if v is not None and str(v).strip() != "" and str(v).strip().lower() != "nan":
+                        val = str(v).strip()
+                        break
+
+                # richyrik: Prevent empty values from overwriting populated data
                 # if multiple backend keys (like AssetName and AffectedAsset) map to the same Excel header.
                 if header_name not in row_dict or row_dict[header_name] == "":
-                    row_dict[header_name] = clean_val
-                    
+                    row_dict[header_name] = val
+
             mapped.append(row_dict)
-            
+
         df = pd.DataFrame(mapped)
         with pd.ExcelWriter(path, engine="xlsxwriter", engine_kwargs={"options": {"constant_memory": True}}) as writer:
             df.to_excel(writer, index=False)
