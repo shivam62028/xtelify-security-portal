@@ -758,7 +758,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
               <Area yAxisId="left" type="monotone" dataKey="Unresolved" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.6} />
               <Area yAxisId="left" type="monotone" dataKey="Resolved" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.6} />
               {/* richyrik: Closure % trend line on secondary right axis */}
-              <Line isAnimationActive={true} yAxisId="right" type="monotone" dataKey="ClosurePct" stroke="#7c3aed" strokeWidth={2} dot={false} name="Closure %" />
+              <Line isAnimationActive={true} animationDuration={1500} yAxisId="right" type="monotone" dataKey="ClosurePct" stroke="#7c3aed" strokeWidth={2} dot={false} name="Closure %" />
             </ComposedChart>
           </ResponsiveContainer>
         )}
@@ -780,8 +780,8 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
                 <YAxis stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
                 <RechartsTooltip contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '8px' }} cursor={{ fill: darkMode ? '#334155' : '#f1f5f9' }} />
                 <Legend />
-                <Bar isAnimationActive={true} dataKey="Resolved" stackId="a" fill="#22c55e" radius={[0, 0, 4, 4]} />
-                <Bar isAnimationActive={true} dataKey="Unresolved" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                <Bar isAnimationActive={true} animationDuration={1500} dataKey="Resolved" stackId="a" fill="#22c55e" radius={[0, 0, 4, 4]} />
+                <Bar isAnimationActive={true} animationDuration={1500} dataKey="Unresolved" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -842,7 +842,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
         <div className={`mb-6 p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-purple-50 border-purple-200"}`}>
           <h4 className="font-bold mb-2">Select exactly 2 datasets to compare:</h4>
           <div className="flex gap-2 mb-4">
-            {compareBatches.map(b => <span key={b} className="bg-purple-200 text-purple-800 px-2 py-1 rounded text-xs">{b}</span>)}
+            {compareBatches.map(b => <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout key={b} className="bg-purple-200 text-purple-800 px-2 py-1 rounded text-xs">{b}</motion.span>)}
           </div>
           <button onClick={handleCompare} disabled={compareBatches.length !== 2 || compareLoading} className="px-4 py-2 bg-purple-600 text-white rounded disabled:opacity-50">Run Comparison</button>
 
@@ -1280,7 +1280,12 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col">
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6, ease: "easeOut" }}
+      className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col"
+    >
       {/* richyrik: FinOps Header */}
       <header className="bg-slate-900/80 border-b border-slate-800 backdrop-blur-sm px-6 py-4 flex items-center justify-between sticky top-0 z-50">
         <div className="flex items-center gap-4">
@@ -1389,10 +1394,10 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                       formatter={(v: any, n: string) => [fmt(v), n]}
                     />
                     <Legend />
-                    <Bar isAnimationActive={true} dataKey="gcpPaid" name="GCP Paid" stackId="gcp" fill="#4285F4" radius={[0, 0, 0, 0]} />
-                    <Bar isAnimationActive={true} dataKey="gcpOpen" name="GCP Outstanding" stackId="gcp" fill="#93C5FD" radius={[4, 4, 0, 0]} />
-                    <Bar isAnimationActive={true} dataKey="awsPaid" name="AWS Paid" stackId="aws" fill="#FF9900" radius={[0, 0, 0, 0]} />
-                    <Bar isAnimationActive={true} dataKey="awsOpen" name="AWS Outstanding" stackId="aws" fill="#FCD34D" radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="gcpPaid" name="GCP Paid" stackId="gcp" fill="#4285F4" radius={[0, 0, 0, 0]} />
+                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="gcpOpen" name="GCP Outstanding" stackId="gcp" fill="#93C5FD" radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="awsPaid" name="AWS Paid" stackId="aws" fill="#FF9900" radius={[0, 0, 0, 0]} />
+                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="awsOpen" name="AWS Outstanding" stackId="aws" fill="#FCD34D" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -1434,6 +1439,8 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                         <ResponsiveContainer width={130} height={130}>
                           <PieChart>
                             <Pie
+                              isAnimationActive={true}
+                              animationDuration={1500}
                               data={pieData}
                               cx="50%" cy="50%"
                               innerRadius={42} outerRadius={60}
@@ -1453,7 +1460,13 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                                 <span className="text-white font-semibold">{fmt(pool.consumed)}</span>
                               </div>
                               <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: pool.color }} />
+                                <motion.div 
+                                  className="h-full rounded-full" 
+                                  style={{ backgroundColor: pool.color }}
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${pct}%` }}
+                                  transition={{ duration: 1.5, ease: "easeInOut" }}
+                                />
                               </div>
                             </div>
                             <div className="flex justify-between text-xs">
@@ -1508,11 +1521,13 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                           <span>Allocated: <span className="text-slate-300 font-medium">{fmt(item.allocated)}</span></span>
                         </div>
                         <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-1000 ease-out ${
+                          <motion.div
+                            className={`h-full rounded-full ${
                               pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
                             }`}
-                            style={{ width: `${isMounted ? pct : 0}%` }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ duration: 1.5, ease: "easeInOut" }}
                           />
                         </div>
                         <div className="text-[10px] text-slate-500 mt-1">{pct}% consumed</div>
@@ -1548,17 +1563,19 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
               {/* richyrik: AOP KPI cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 {[
-                  { label: 'Annual Planned Budget', value: fmt(aopPlanned), icon: <Target size={18} />, color: 'text-blue-400', bg: 'bg-blue-500/10 ring-blue-500/20' },
-                  { label: 'YTD Actual Spend', value: fmt(aopActual), icon: <Wallet size={18} />, color: aopActual > aopPlanned ? 'text-red-400' : 'text-emerald-400', bg: aopActual > aopPlanned ? 'bg-red-500/10 ring-red-500/20' : 'bg-emerald-500/10 ring-emerald-500/20' },
-                  { label: `Variance (${aopVariance >= 0 ? 'Over' : 'Under'})`, value: fmt(Math.abs(aopVariance)), icon: aopVariance >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />, color: aopVariance >= 0 ? 'text-red-400' : 'text-emerald-400', bg: aopVariance >= 0 ? 'bg-red-500/10 ring-red-500/20' : 'bg-emerald-500/10 ring-emerald-500/20' },
+                  { label: 'Annual Planned Budget', value: aopPlanned, icon: <Target size={18} />, color: 'text-blue-400', bg: 'bg-blue-500/10 ring-blue-500/20' },
+                  { label: 'YTD Actual Spend', value: aopActual, icon: <Wallet size={18} />, color: aopActual > aopPlanned ? 'text-red-400' : 'text-emerald-400', bg: aopActual > aopPlanned ? 'bg-red-500/10 ring-red-500/20' : 'bg-emerald-500/10 ring-emerald-500/20' },
+                  { label: `Variance (${aopVariance >= 0 ? 'Over' : 'Under'})`, value: Math.abs(aopVariance), icon: aopVariance >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />, color: aopVariance >= 0 ? 'text-red-400' : 'text-emerald-400', bg: aopVariance >= 0 ? 'bg-red-500/10 ring-red-500/20' : 'bg-emerald-500/10 ring-emerald-500/20' },
                 ].map((k) => (
-                  <div key={k.label} className={`rounded-xl p-5 ring-1 ${k.bg} bg-slate-900 flex items-start gap-4`}>
+                  <motion.div whileHover={{ y: -5 }} key={k.label} className={`rounded-xl p-5 ring-1 ${k.bg} bg-slate-900 flex items-start gap-4`}>
                     <div className={`p-2 rounded-lg bg-slate-800 ${k.color}`}>{k.icon}</div>
                     <div>
-                      <div className={`text-2xl font-bold ${k.color}`}>{k.value}</div>
+                      <div className={`text-2xl font-bold ${k.color}`}>
+                        <CountUpComponent end={k.value} duration={2.5} separator="," formattingFn={(val: number) => fmt(val)} />
+                      </div>
                       <div className="text-xs text-slate-400 mt-1">{k.label}</div>
                     </div>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
               {/* richyrik: Grouped bar chart — Planned vs Actual by quarter */}
@@ -1574,8 +1591,8 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                       formatter={(v: any, n: string) => [fmt(v), n]}
                     />
                     <Legend />
-                    <Bar isAnimationActive={true} dataKey="planned" name="Planned Budget" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                    <Bar isAnimationActive={true} dataKey="actual" name="Actual Spend" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="planned" name="Planned Budget" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="actual" name="Actual Spend" fill="#10b981" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -1644,7 +1661,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
           else if (activeSection === 'aop') setAopData(newData);
         }}
       />
-    </div>
+    </motion.div>
   );
 };
 
@@ -4189,7 +4206,12 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   };
 
   return (
-    <div className="min-h-screen font-sans bg-slate-950 text-slate-100">
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6, ease: "easeOut" }}
+      className="min-h-screen font-sans bg-slate-950 text-slate-100"
+    >
       {/* richyrik: Sticky glassmorphism header — matches FinOps dashboard style */}
       <header className="sticky top-0 z-50 bg-slate-900/80 border-b border-slate-800 backdrop-blur-sm px-6 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex items-center gap-4">
@@ -4427,18 +4449,36 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
       ) : (
         <>
           {/* richyrik: KPI cards — purple/indigo/blue/amber/red accent palette */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-            <Card title="Total Vulnerabilities" val={totalRecords || 0} Icon={Bug}
-              color="" bg="" accentColor="text-indigo-400" ringColor="bg-indigo-500/15 ring-indigo-500/30" />
-            <Card title="Unique CVEs" val={stats?.uniqueVulns || 0} Icon={Shield}
-              color="" bg="" accentColor="text-purple-400" ringColor="bg-purple-500/15 ring-purple-500/30" />
-            <Card title="Affected Assets" val={stats?.uniqueAssets || 0} Icon={Server}
-              color="" bg="" accentColor="text-blue-400" ringColor="bg-blue-500/15 ring-blue-500/30" />
-            <Card title="Critical Risks" val={stats?.criticalOpen || 0} Icon={AlertTriangle}
-              color="" bg="" accentColor="text-amber-400" ringColor="bg-amber-500/15 ring-amber-500/30" />
-            <Card title="SLA Breached" val={stats?.breached || 0} Icon={Flame}
-              color="" bg="" accentColor="text-red-400" ringColor="bg-red-500/15 ring-red-500/30" />
-          </div>
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={{
+              hidden: { opacity: 0 },
+              visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
+            }}
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8"
+          >
+            <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }} whileHover={{ scale: 1.02 }}>
+              <Card title="Total Vulnerabilities" val={totalRecords || 0} Icon={Bug}
+                color="" bg="" accentColor="text-indigo-400" ringColor="bg-indigo-500/15 ring-indigo-500/30" />
+            </motion.div>
+            <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }} whileHover={{ scale: 1.02 }}>
+              <Card title="Unique CVEs" val={stats?.uniqueVulns || 0} Icon={Shield}
+                color="" bg="" accentColor="text-purple-400" ringColor="bg-purple-500/15 ring-purple-500/30" />
+            </motion.div>
+            <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }} whileHover={{ scale: 1.02 }}>
+              <Card title="Affected Assets" val={stats?.uniqueAssets || 0} Icon={Server}
+                color="" bg="" accentColor="text-blue-400" ringColor="bg-blue-500/15 ring-blue-500/30" />
+            </motion.div>
+            <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }} whileHover={{ scale: 1.02 }}>
+              <Card title="Critical Risks" val={stats?.criticalOpen || 0} Icon={AlertTriangle}
+                color="" bg="" accentColor="text-amber-400" ringColor="bg-amber-500/15 ring-amber-500/30" />
+            </motion.div>
+            <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }} whileHover={{ scale: 1.02 }}>
+              <Card title="SLA Breached" val={stats?.breached || 0} Icon={Flame}
+                color="" bg="" accentColor="text-red-400" ringColor="bg-red-500/15 ring-red-500/30" />
+            </motion.div>
+          </motion.div>
 
           {/* richyrik: Three-column analytics row — FinOps ring-panel style */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
@@ -4504,7 +4544,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                       <XAxis type="number" hide />
                       <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
                       <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #1e293b", borderRadius: 8, backgroundColor: "#0f172a" }} />
-                      <Bar isAnimationActive={true} dataKey="value" radius={[0, 4, 4, 0]} barSize={18}>
+                      <Bar isAnimationActive={true} animationDuration={1500} dataKey="value" radius={[0, 4, 4, 0]} barSize={18}>
                         {ageDistributionData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={index === 3 ? "#ef4444" : index === 2 ? "#f59e0b" : "#6366f1"} />
                         ))}
@@ -4658,7 +4698,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                   {severityPieData.data && severityPieData.data.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
-                        <Pie isAnimationActive={true} data={severityPieData.data} innerRadius={50} outerRadius={70} paddingAngle={2} dataKey="value">
+                        <Pie isAnimationActive={true} animationDuration={1500} data={severityPieData.data} innerRadius={50} outerRadius={70} paddingAngle={2} dataKey="value">
                           {severityPieData.data.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.color || "#000"} />
                           ))}
@@ -4705,7 +4745,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                       <XAxis type="number" hide />
                       <YAxis dataKey="name" type="category" width={150} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
                       <RechartsTooltip cursor={{ fill: "#1e293b" }} contentStyle={{ fontSize: "12px", border: "1px solid #1e293b", borderRadius: 8, backgroundColor: "#0f172a", color: "#e2e8f0" }} />
-                      <Bar isAnimationActive={true} dataKey="Issues" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={18} />
+                      <Bar isAnimationActive={true} animationDuration={1500} dataKey="Issues" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={18} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
@@ -4817,7 +4857,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                           borderRadius: "4px",
                         }}
                       />
-                      <Bar
+                      <Bar isAnimationActive={true} animationDuration={1500}
                         dataKey="value"
                         fill="#8b5cf6"
                         radius={[0, 4, 4, 0]}
@@ -4857,10 +4897,10 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-slate-500">Filtered:</span>
                     {selectedFindingTypes.map(ft => (
-                      <span key={ft} className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded flex items-center gap-1">
+                      <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout key={ft} className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded flex items-center gap-1">
                         {ft.length > 20 ? ft.substring(0, 20) + "..." : ft}
                         <button onClick={() => setSelectedFindingTypes(prev => prev.filter(t => t !== ft))} className="ml-1 hover:text-green-900">✕</button>
-                      </span>
+                      </motion.span>
                     ))}
                     {selectedFindingTypes.length > 1 && (
                       <button onClick={() => setSelectedFindingTypes([])} className="text-xs text-slate-500 hover:text-slate-700">Clear all</button>
@@ -4901,7 +4941,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                       }}
                       formatter={(value) => [`${value} issues`, "Click to filter"]}
                     />
-                    <Bar
+                    <Bar isAnimationActive={true} animationDuration={1500}
                       dataKey="count"
                       name="Count"
                       radius={[4, 4, 0, 0]}
@@ -4978,10 +5018,10 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-slate-500">Filtered:</span>
                   {selectedOwners.map(owner => (
-                    <span key={owner} className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded flex items-center gap-1">
+                    <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout key={owner} className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded flex items-center gap-1">
                       {owner}
                       <button onClick={() => setSelectedOwners(prev => prev.filter(o => o !== owner))} className="ml-1 hover:text-blue-900">✕</button>
-                    </span>
+                    </motion.span>
                   ))}
                   {selectedOwners.length > 1 && (
                     <button onClick={() => setSelectedOwners([])} className="text-xs text-slate-500 hover:text-slate-700">Clear all</button>
@@ -5017,7 +5057,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                       }}
                     />
                     <Legend wrapperStyle={{ fontSize: "12px" }} />
-                    <Bar
+                    <Bar isAnimationActive={true} animationDuration={1500}
                       dataKey="Critical"
                       stackId="a"
                       fill="#dc2626"
@@ -5025,21 +5065,21 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                       cursor="pointer"
                       onClick={(data) => toggleOwner(data?.name)}
                     />
-                    <Bar
+                    <Bar isAnimationActive={true} animationDuration={1500}
                       dataKey="High"
                       stackId="a"
                       fill="#f97316"
                       cursor="pointer"
                       onClick={(data) => toggleOwner(data?.name)}
                     />
-                    <Bar
+                    <Bar isAnimationActive={true} animationDuration={1500}
                       dataKey="Medium"
                       stackId="a"
                       fill="#eab308"
                       cursor="pointer"
                       onClick={(data) => toggleOwner(data?.name)}
                     />
-                    <Bar
+                    <Bar isAnimationActive={true} animationDuration={1500}
                       dataKey="Low"
                       stackId="a"
                       fill="#3b82f6"
@@ -5073,10 +5113,10 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
                     <RechartsTooltip cursor={{ fill: "#1e293b" }} contentStyle={{ fontSize: "12px", border: "1px solid #1e293b", borderRadius: 8, backgroundColor: "#0f172a", color: "#e2e8f0" }} />
                     <Legend wrapperStyle={{ fontSize: "12px", color: "#94a3b8" }} />
-                    <Bar isAnimationActive={true} dataKey="Critical" stackId="a" fill="#dc2626" barSize={30} />
-                    <Bar isAnimationActive={true} dataKey="High" stackId="a" fill="#f97316" />
-                    <Bar isAnimationActive={true} dataKey="Medium" stackId="a" fill="#eab308" />
-                    <Bar isAnimationActive={true} dataKey="Low" stackId="a" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="Critical" stackId="a" fill="#dc2626" barSize={30} />
+                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="High" stackId="a" fill="#f97316" />
+                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="Medium" stackId="a" fill="#eab308" />
+                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="Low" stackId="a" fill="#6366f1" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -5101,10 +5141,10 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-slate-500">Filtered:</span>
                     {selectedLOBs.map(lob => (
-                      <span key={lob} className="px-2 py-1 bg-orange-100 text-orange-700 text-xs font-medium rounded flex items-center gap-1">
+                      <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout key={lob} className="px-2 py-1 bg-orange-100 text-orange-700 text-xs font-medium rounded flex items-center gap-1">
                         {lob.length > 15 ? lob.substring(0, 15) + "..." : lob}
                         <button onClick={() => setSelectedLOBs(prev => prev.filter(l => l !== lob))} className="ml-1 hover:text-orange-900">✕</button>
-                      </span>
+                      </motion.span>
                     ))}
                     {selectedLOBs.length > 1 && (
                       <button onClick={() => setSelectedLOBs([])} className="text-xs text-slate-500 hover:text-slate-700">Clear all</button>
@@ -5140,7 +5180,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                       }}
                     />
                     <Legend wrapperStyle={{ fontSize: "12px" }} />
-                    <Bar
+                    <Bar isAnimationActive={true} animationDuration={1500}
                       dataKey="Critical"
                       stackId="a"
                       fill="#dc2626"
@@ -5148,21 +5188,21 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                       cursor="pointer"
                       onClick={(data) => toggleLOB(data?.name)}
                     />
-                    <Bar
+                    <Bar isAnimationActive={true} animationDuration={1500}
                       dataKey="High"
                       stackId="a"
                       fill="#f97316"
                       cursor="pointer"
                       onClick={(data) => toggleLOB(data?.name)}
                     />
-                    <Bar
+                    <Bar isAnimationActive={true} animationDuration={1500}
                       dataKey="Medium"
                       stackId="a"
                       fill="#eab308"
                       cursor="pointer"
                       onClick={(data) => toggleLOB(data?.name)}
                     />
-                    <Bar
+                    <Bar isAnimationActive={true} animationDuration={1500}
                       dataKey="Low"
                       stackId="a"
                       fill="#3b82f6"
@@ -5668,73 +5708,73 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                 )}
 
                 {activeFilters.assignedTo !== "All Owners" && (
-                  <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
                     Assigned: {activeFilters.assignedTo}
                     <button onClick={() => applyFilter({ assignedTo: "All Owners" })} className="hover:text-indigo-900"><X size={12} /></button>
-                  </span>
+                  </motion.span>
                 )}
 
                 {activeFilters.cluster !== "All Clusters" && (
-                  <span className="flex items-center gap-1 bg-cyan-100 text-cyan-700 px-2 py-0.5 rounded-full border border-cyan-200">
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout className="flex items-center gap-1 bg-cyan-100 text-cyan-700 px-2 py-0.5 rounded-full border border-cyan-200">
                     Cluster: {activeFilters.cluster}
                     <button onClick={() => applyFilter({ cluster: "All Clusters" })} className="hover:text-cyan-900"><X size={12} /></button>
-                  </span>
+                  </motion.span>
                 )}
 
                 {activeFilters.searchTerm && (
-                  <span className="flex items-center gap-1 bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full border border-purple-200">
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout className="flex items-center gap-1 bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full border border-purple-200">
                     Search: {activeFilters.searchTerm}
                     <button onClick={() => { applyFilter({ searchTerm: "", searchField: "All" }); setLocalSearch(""); }} className="hover:text-purple-900"><X size={12} /></button>
-                  </span>
+                  </motion.span>
                 )}
 
                 {activeFilters.searchField !== "All" && !activeFilters.searchTerm && (
-                  <span className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
                     In: {activeFilters.searchField}
                     <button onClick={() => applyFilter({ searchField: "All" })} className="hover:text-blue-900"><X size={12} /></button>
-                  </span>
+                  </motion.span>
                 )}
 
                 {activeFilters.severity !== "All" && (
-                  <span className="flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded-full border border-red-200">
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout className="flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded-full border border-red-200">
                     Severity: {activeFilters.severity}
                     <button onClick={() => applyFilter({ severity: "All" })} className="hover:text-red-900"><X size={12} /></button>
-                  </span>
+                  </motion.span>
                 )}
 
                 {activeFilters.quickFilter !== "all" && (
-                  <span className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
                     Quick: {activeFilters.quickFilter}
                     <button onClick={() => applyFilter({ quickFilter: "all" })} className="hover:text-amber-900"><X size={12} /></button>
-                  </span>
+                  </motion.span>
                 )}
 
                 {activeFilters.format !== "All" && (
-                  <span className="flex items-center gap-1 bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full border border-teal-200">
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout className="flex items-center gap-1 bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full border border-teal-200">
                     Format: {activeFilters.format}
                     <button onClick={() => applyFilter({ format: "All" })} className="hover:text-teal-900"><X size={12} /></button>
-                  </span>
+                  </motion.span>
                 )}
 
                 {activeFilters.dateFrom && (
-                  <span className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300">
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300">
                     From: {activeFilters.dateFrom}
                     <button onClick={() => applyFilter({ dateFrom: "" })} className="hover:text-slate-900"><X size={12} /></button>
-                  </span>
+                  </motion.span>
                 )}
 
                 {activeFilters.dateTo && (
-                  <span className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300">
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300">
                     To: {activeFilters.dateTo}
                     <button onClick={() => applyFilter({ dateTo: "" })} className="hover:text-slate-900"><X size={12} /></button>
-                  </span>
+                  </motion.span>
                 )}
 
                 {activeFilters.owners.length > 0 && (
-                  <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
                     Owners: {activeFilters.owners.length}
                     <button onClick={() => applyFilter({ owners: [] })} className="hover:text-indigo-900"><X size={12} /></button>
-                  </span>
+                  </motion.span>
                 )}
 
                 <button onClick={clearFilters} className="ml-2 text-red-500 hover:text-red-700 font-semibold underline text-xs">Clear All</button>
@@ -7087,7 +7127,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
         </button>
       )}
       </div>
-    </div>
+    </motion.div>
   );
 };
 
@@ -7478,10 +7518,10 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
         {targetDates.length > 0 && (
           <div className="flex flex-wrap gap-2 items-center">
             {targetDates.map((td) => (
-              <span key={td} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${darkMode ? "bg-blue-900/40 text-blue-300" : "bg-blue-100 text-blue-700"}`}>
+              <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout key={td} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${darkMode ? "bg-blue-900/40 text-blue-300" : "bg-blue-100 text-blue-700"}`}>
                 {td}
                 <button onClick={() => removeTargetDate(td)} className="hover:text-red-400 transition-colors"><X size={12} /></button>
-              </span>
+              </motion.span>
             ))}
           </div>
         )}
