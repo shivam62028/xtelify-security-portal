@@ -20,13 +20,18 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-/* Button transitions */
-button {
-  transition: background-color 0.15s ease, color 0.15s ease;
+/* Enhanced button transitions and hover effects */
+button, a, [role="button"] {
+  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
 }
 
-button:active:not(:disabled) {
-  transform: scale(0.98);
+button:hover:not(:disabled), a:hover, [role="button"]:hover {
+  transform: translateY(-1.5px) scale(1.02);
+  filter: brightness(1.05);
+}
+
+button:active:not(:disabled), a:active, [role="button"]:active {
+  transform: translateY(1px) scale(0.97);
 }
 
 /* Table row hover */

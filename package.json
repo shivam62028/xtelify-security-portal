@@ -9,14 +9,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "framer-motion": "^14.0.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^1.14.0",
     "openai": "^6.42.0",
     "react": "^19.2.5",
+    "react-countup": "^6.5.3",
     "react-dom": "^19.2.5",
     "react-hot-toast": "^2.6.0",
+    "react-parallax-tilt": "^1.7.346",
     "recharts": "^3.9.2",
     "xlsx": "^0.18.5"
   },

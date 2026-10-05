@@ -11,6 +11,9 @@ import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import html2canvas from "html2canvas";
+import Tilt from "react-parallax-tilt";
+import CountUp from "react-countup";
+import { motion } from "framer-motion";
 import {
   Shield,
   AlertTriangle,
@@ -5184,7 +5187,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                 <div className="relative" ref={tableColDropdownRef}>
                   <button
                     onClick={() => setIsTableColDropdownOpen(!isTableColDropdownOpen)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 rounded-sm text-xs font-semibold hover:bg-slate-50 transition-colors shadow-sm ml-2"
+                    className={`flex items-center gap-2 px-3 py-1.5 border rounded-sm text-xs font-semibold transition-colors shadow-sm ml-2 ${darkMode ? "bg-slate-800 border-slate-600 text-slate-200 hover:bg-slate-700" : "bg-white border-slate-300 hover:bg-slate-50"}`}
                   >
                     <Layers size={14} className="text-purple-600" />
                     <span>View Columns ({tableCols.length})</span>
@@ -5243,7 +5246,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                 <div className="relative" ref={dropdownRef}>
                   <button
                     onClick={() => setIsBatchDropdownOpen(!isBatchDropdownOpen)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 rounded-sm text-xs font-semibold hover:bg-slate-50 transition-colors shadow-sm"
+                    className={`flex items-center gap-2 px-3 py-1.5 border rounded-sm text-xs font-semibold transition-colors shadow-sm ${darkMode ? "bg-slate-800 border-slate-600 text-slate-200 hover:bg-slate-700" : "bg-white border-slate-300 hover:bg-slate-50"}`}
                   >
                     <Layers size={14} className="text-blue-600" />
                     <span>Datasets ({selectedBatches?.length || 0})</span>
@@ -5340,7 +5343,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     />
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-blue-600 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border text-xs font-medium transition-colors ${darkMode ? "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20" : "border-blue-600 bg-blue-50 text-blue-700 hover:bg-blue-100"}`}
                     >
                       <Upload size={14} /> Upload Dataset
                     </button>
@@ -5350,7 +5353,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                 {userRole === "Admin" && (
                   <button
                     onClick={() => setIsAiModalOpen(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-purple-600 text-xs font-medium bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors"
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border text-xs font-medium transition-colors ${darkMode ? "bg-purple-500/10 border-purple-500/30 text-purple-400 hover:bg-purple-500/20" : "border-purple-600 bg-purple-50 text-purple-700 hover:bg-purple-100"}`}
                   >
                     <Bot size={14} /> Send Mail
                   </button>
@@ -5368,7 +5371,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                       setShareError("");
                       setIsAiModalOpen(true);
                     }}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-amber-500 text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border text-xs font-medium transition-colors ${darkMode ? "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20" : "border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100"}`}
                   >
                     🔔 Send Reminders
                   </button>
@@ -5377,14 +5380,14 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                 <div className="flex gap-2">
                   <button
                     onClick={mexwfExport}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-emerald-600 text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border text-xs font-medium transition-colors ${darkMode ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20" : "border-emerald-600 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}
                   >
                     <Download size={14} /> Custom Export
                   </button>
 
                   <button
                     onClick={exportToPDF}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-red-600 text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border text-xs font-medium transition-colors ${darkMode ? "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20" : "border-red-600 bg-red-50 text-red-700 hover:bg-red-100"}`}
                   >
                     <FileText size={14} /> PDF
                   </button>
