@@ -64,6 +64,9 @@ import {
   CreditCard,
   Receipt,
   TrendingDown,
+  Database,
+  Plus,
+  Edit2,
 } from "lucide-react";
 import {
   PieChart,
@@ -1059,14 +1062,140 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// richyrik: FINOPS DATA EDITOR MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+const FinOpsDataEditorModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  data: any[];
+  onSave: (newData: any[]) => void;
+}> = ({ isOpen, onClose, title, data, onSave }) => {
+  const [localData, setLocalData] = useState<any[]>([...data]);
+  
+  useEffect(() => {
+    if (isOpen) {
+      setLocalData([...data]);
+    }
+  }, [isOpen, data]);
+
+  if (!isOpen) return null;
+
+  const columns = localData.length > 0 ? Object.keys(localData[0]) : [];
+  
+  const handleUpdate = (rowIndex: number, col: string, value: string) => {
+    const newData = [...localData];
+    // Attempt to parse as number if it looks like one and isn't a date or string field we want to keep as string
+    const isNum = !isNaN(Number(value)) && value.trim() !== '' && !col.toLowerCase().includes('date') && col !== 'month' && col !== 'quarter' && col !== 'id';
+    newData[rowIndex] = { ...newData[rowIndex], [col]: isNum ? Number(value) : value };
+    setLocalData(newData);
+  };
+
+  const handleAddRow = () => {
+    const emptyRow: any = {};
+    if (localData.length > 0) {
+      columns.forEach(col => {
+        const sample = localData[0][col];
+        if (Array.isArray(sample)) {
+          emptyRow[col] = [];
+        } else if (typeof sample === 'number') {
+          emptyRow[col] = 0;
+        } else {
+          emptyRow[col] = '';
+        }
+      });
+    } else {
+      columns.forEach(col => {
+        emptyRow[col] = '';
+      });
+    }
+    setLocalData([...localData, emptyRow]);
+  };
+
+  const handleRemoveRow = (index: number) => {
+    setLocalData(localData.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/50">
+          <div className="flex items-center gap-3">
+            <Database size={18} className="text-emerald-400" />
+            <h2 className="text-lg font-bold text-white">Manage Data: {title}</h2>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-md hover:bg-slate-800 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-4 overflow-auto flex-1">
+          <div className="bg-slate-950 rounded-lg ring-1 ring-slate-800 overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="text-[10px] uppercase tracking-wider text-slate-500 bg-slate-900/50">
+                <tr>
+                  {columns.map(col => (
+                    <th key={col} className="px-4 py-3 font-semibold">{col}</th>
+                  ))}
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {localData.map((row, idx) => (
+                  <tr key={idx} className="border-t border-slate-800/50">
+                    {columns.map(col => (
+                      <td key={col} className="px-2 py-2">
+                        {typeof row[col] === 'object' && row[col] !== null ? (
+                          <span className="text-xs text-slate-500 italic">Complex object (unsupported here)</span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={row[col] ?? ''}
+                            onChange={(e) => handleUpdate(idx, col, e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                          />
+                        )}
+                      </td>
+                    ))}
+                    <td className="px-4 py-2 text-right">
+                      <button onClick={() => handleRemoveRow(idx)} className="text-red-400 hover:text-red-300 p-1.5 hover:bg-red-400/10 rounded">
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {localData.length === 0 && (
+              <div className="p-8 text-center text-slate-500 text-sm">No data available. Add a row to get started. Note: Default columns won't be available if you delete all rows.</div>
+            )}
+          </div>
+          <div className="mt-4 flex justify-between items-center">
+            <button onClick={handleAddRow} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-md text-xs font-medium transition-colors ring-1 ring-slate-700">
+              <Plus size={14} /> Add Row
+            </button>
+          </div>
+        </div>
+        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors">
+            Cancel
+          </button>
+          <button onClick={() => { onSave(localData); onClose(); }} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium shadow-lg shadow-emerald-500/20 transition-all">
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // richyrik: FINOPS DASHBOARD — realistic dummy-data driven financial views
 // ─────────────────────────────────────────────────────────────────────────────
 const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateHome }) => {
   const [activeSection, setActiveSection] = useState<'billing' | 'credits' | 'approvals' | 'aop'>('billing');
   const [darkMode] = useState(true);
 
-  // richyrik: Billing dummy data — GCP + AWS split by Paid/Outstanding per month
-  const billingData = [
+  const [billingData, setBillingData] = useState([
     { month: 'Jan', gcpPaid: 420000, gcpOpen: 38000, awsPaid: 180000, awsOpen: 22000 },
     { month: 'Feb', gcpPaid: 455000, gcpOpen: 42000, awsPaid: 195000, awsOpen: 18000 },
     { month: 'Mar', gcpPaid: 410000, gcpOpen: 55000, awsPaid: 210000, awsOpen: 31000 },
@@ -1077,34 +1206,37 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
     { month: 'Aug', gcpPaid: 545000, gcpOpen: 58000, awsPaid: 260000, awsOpen: 41000 },
     { month: 'Sep', gcpPaid: 580000, gcpOpen: 49000, awsPaid: 275000, awsOpen: 22000 },
     { month: 'Oct', gcpPaid: 395000, gcpOpen: 88000, awsPaid: 185000, awsOpen: 47000 },
-  ];
+  ]);
 
   // richyrik: Credit tracker dummy data
-  const creditPools = [
+  const [creditPools, setCreditPools] = useState([
     { provider: 'GCP', name: 'Committed Use Credits', allocated: 2500000, consumed: 1820000, color: '#4285F4' },
     { provider: 'GCP', name: 'Free Tier Credits', allocated: 300000, consumed: 287000, color: '#34A853' },
     { provider: 'AWS', name: 'Enterprise Discount Credits', allocated: 800000, consumed: 512000, color: '#FF9900' },
     { provider: 'AWS', name: 'Reserved Instance Savings', allocated: 450000, consumed: 390000, color: '#FF6B35' },
-  ];
+  ]);
 
   // richyrik: NFA/GBPA approvals dummy data
-  const approvalItems = [
+  const [approvalItems, setApprovalItems] = useState([
     { id: 'NFA-2024-001', type: 'NFA', title: 'GCP Committed Use — Wynk Music Infra', allocated: 2500000, consumed: 1820000, status: 'Approved', approvedBy: 'Finance Head', date: '2024-01-15', history: [{ action: 'Submitted', by: 'IT Ops', date: '2024-01-05' }, { action: 'Reviewed', by: 'Group CFO Office', date: '2024-01-10' }, { action: 'Approved', by: 'Finance Head', date: '2024-01-15' }] },
     { id: 'GBPA-2024-007', type: 'GBPA', title: 'AWS Reserved Instances Q2', allocated: 800000, consumed: 512000, status: 'Approved', approvedBy: 'CTO & CFO', date: '2024-04-02', history: [{ action: 'Submitted', by: 'Cloud FinOps', date: '2024-03-20' }, { action: 'Approved', by: 'CTO & CFO', date: '2024-04-02' }] },
     { id: 'NFA-2024-012', type: 'NFA', title: 'DR Infrastructure Scale-Up GCP', allocated: 600000, consumed: 120000, status: 'Pending Finance', approvedBy: '—', date: '—', history: [{ action: 'Submitted', by: 'DevOps Lead', date: '2024-09-18' }, { action: 'Under Review', by: 'Finance', date: '2024-09-25' }] },
     { id: 'GBPA-2024-009', type: 'GBPA', title: 'Multi-Cloud CDN Cost Optimization', allocated: 350000, consumed: 280000, status: 'Approved', approvedBy: 'VP Finance', date: '2024-06-10', history: [{ action: 'Submitted', by: 'Network Ops', date: '2024-06-01' }, { action: 'Approved', by: 'VP Finance', date: '2024-06-10' }] },
     { id: 'NFA-2024-015', type: 'NFA', title: 'SAST/DAST Tooling — Security Budget', allocated: 150000, consumed: 67000, status: 'Pending CTO', approvedBy: '—', date: '—', history: [{ action: 'Submitted', by: 'Security Team', date: '2024-10-01' }] },
-  ];
+  ]);
 
   // richyrik: AOP (Annual Operating Plan) dummy data
-  const aopData = [
+  const [aopData, setAopData] = useState([
     { quarter: 'Q1 2024', planned: 3200000, actual: 3085000 },
     { quarter: 'Q2 2024', planned: 3500000, actual: 3720000 },
     { quarter: 'Q3 2024', planned: 3800000, actual: 3650000 },
     { quarter: 'Q4 2024', planned: 4100000, actual: 3210000 },
-  ];
-  const aopPlanned = aopData.reduce((s, d) => s + d.planned, 0);
-  const aopActual = aopData.reduce((s, d) => s + d.actual, 0);
+  ]);
+
+  const [isManageDataOpen, setIsManageDataOpen] = useState(false);
+
+  const aopPlanned = aopData.reduce((s, d) => s + (Number(d.planned) || 0), 0);
+  const aopActual = aopData.reduce((s, d) => s + (Number(d.actual) || 0), 0);
   const aopVariance = aopActual - aopPlanned;
 
   const fmt = (n: number) =>
@@ -1149,6 +1281,12 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsManageDataOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 hover:text-indigo-200 rounded-lg ring-1 ring-indigo-500/30 transition-all text-sm font-medium"
+          >
+            <Edit2 size={14} /> Manage Data
+          </button>
           <span className="text-xs text-slate-500">
             FY {new Date().getFullYear()} · Data as of {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
           </span>
@@ -1460,6 +1598,29 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
           )}
         </main>
       </div>
+
+      <FinOpsDataEditorModal
+        isOpen={isManageDataOpen}
+        onClose={() => setIsManageDataOpen(false)}
+        title={
+          activeSection === 'billing' ? 'Billing Observability'
+            : activeSection === 'credits' ? 'Credit Tracker'
+            : activeSection === 'approvals' ? 'NFA/GBPA Approvals'
+            : 'AOP Dashboard'
+        }
+        data={
+          activeSection === 'billing' ? billingData
+            : activeSection === 'credits' ? creditPools
+            : activeSection === 'approvals' ? approvalItems
+            : aopData
+        }
+        onSave={(newData) => {
+          if (activeSection === 'billing') setBillingData(newData);
+          else if (activeSection === 'credits') setCreditPools(newData);
+          else if (activeSection === 'approvals') setApprovalItems(newData);
+          else if (activeSection === 'aop') setAopData(newData);
+        }}
+      />
     </div>
   );
 };
