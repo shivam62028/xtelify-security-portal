@@ -54,7 +54,16 @@ import {
   RefreshCw,
   Bug,
   Share2,
-  CheckCircle
+  CheckCircle,
+  // richyrik: Icons for LandingPage + FinOps dashboard navigation
+  Home,
+  DollarSign,
+  BarChart3,
+  ArrowLeft,
+  Wallet,
+  CreditCard,
+  Receipt,
+  TrendingDown,
 } from "lucide-react";
 import {
   PieChart,
@@ -908,7 +917,554 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
     </div>
   );
 };
-const AppContent: React.FC = () => {
+
+// ─────────────────────────────────────────────────────────────────────────────
+// richyrik: LANDING PAGE — full-screen 3D module selector
+// ─────────────────────────────────────────────────────────────────────────────
+const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> = ({ onNavigate }) => {
+  const [hovered, setHovered] = useState<'cloudops' | 'finops' | null>(null);
+
+  const cards = [
+    {
+      id: 'cloudops' as const,
+      icon: <Shield size={48} className="text-purple-400" />,
+      title: 'Cloud Ops & Security',
+      subtitle: 'Vulnerability Management Platform',
+      description:
+        'Monitor, triage and remediate security vulnerabilities across Container, VAPT, CSPM and SAST/DAST workloads. Track SLA breach, assign owners and drive closure.',
+      gradient: 'from-purple-900/80 via-slate-900/90 to-slate-900/95',
+      glow: 'hover:shadow-purple-500/40',
+      ring: 'hover:ring-purple-500/50',
+      accent: 'bg-purple-500',
+      tag: 'ACTIVE',
+      tagColor: 'bg-purple-500/20 text-purple-300 ring-purple-500/30',
+      stats: [
+        { label: 'Issues Tracked', value: '∞' },
+        { label: 'Formats', value: '4' },
+        { label: 'Integrations', value: 'Outlook' },
+      ],
+    },
+    {
+      id: 'finops' as const,
+      icon: <DollarSign size={48} className="text-emerald-400" />,
+      title: 'FinOps',
+      subtitle: 'Financial Observability Dashboard',
+      description:
+        'Track cloud billing across GCP & AWS, monitor credit consumption, manage NFA/GBPA approvals and align actual spend against Annual Operating Plan budgets.',
+      gradient: 'from-emerald-900/80 via-slate-900/90 to-slate-900/95',
+      glow: 'hover:shadow-emerald-500/40',
+      ring: 'hover:ring-emerald-500/50',
+      accent: 'bg-emerald-500',
+      tag: 'NEW',
+      tagColor: 'bg-emerald-500/20 text-emerald-300 ring-emerald-500/30',
+      stats: [
+        { label: 'Cloud Providers', value: '2' },
+        { label: 'Credit Pools', value: 'GCP+AWS' },
+        { label: 'Budget View', value: 'AOP' },
+      ],
+    },
+  ];
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 overflow-hidden relative">
+      {/* richyrik: Animated grid background */}
+      <div
+        className="absolute inset-0 opacity-20"
+        style={{
+          backgroundImage:
+            'linear-gradient(rgba(99,102,241,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.3) 1px, transparent 1px)',
+          backgroundSize: '60px 60px',
+        }}
+      />
+      {/* richyrik: Radial glow blobs */}
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-900/30 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-900/30 rounded-full blur-3xl pointer-events-none" />
+
+      {/* richyrik: Header branding */}
+      <div className="relative z-10 mb-14 text-center">
+        <div className="flex items-center justify-center gap-3 mb-4">
+          <img src="/airtel-logo.svg" alt="Airtel" className="h-10 w-auto opacity-90" />
+          <div className="h-8 w-px bg-slate-600" />
+          <span className="text-slate-300 font-semibold text-xl tracking-tight">Wynk Cloud Portal</span>
+        </div>
+        <p className="text-slate-500 text-sm font-medium tracking-widest uppercase">
+          Select a module to continue
+        </p>
+        <div className="mt-3 h-px w-40 mx-auto bg-gradient-to-r from-transparent via-slate-600 to-transparent" />
+      </div>
+
+      {/* richyrik: Module cards */}
+      <div className="relative z-10 flex flex-col md:flex-row gap-8 w-full max-w-5xl">
+        {cards.map((card) => (
+          <button
+            key={card.id}
+            onClick={() => onNavigate(card.id)}
+            onMouseEnter={() => setHovered(card.id)}
+            onMouseLeave={() => setHovered(null)}
+            className={[
+              'flex-1 text-left rounded-2xl border p-8 cursor-pointer transition-all duration-500 outline-none',
+              // richyrik: glassmorphism + 3D lift on hover
+              'bg-gradient-to-br backdrop-blur-md',
+              card.gradient,
+              'border-slate-700/60',
+              `ring-2 ring-transparent ${card.ring}`,
+              `shadow-2xl ${card.glow}`,
+              hovered === card.id
+                ? '-translate-y-4 scale-105'
+                : 'translate-y-0 scale-100',
+            ].join(' ')}
+            style={{ transform: hovered === card.id ? 'translateY(-16px) scale(1.04) rotateX(2deg)' : 'translateY(0) scale(1) rotateX(0deg)', transformStyle: 'preserve-3d', perspective: '1000px', transition: 'all 0.45s cubic-bezier(0.23,1,0.32,1)' }}
+          >
+            {/* richyrik: Shimmer bar at top of card */}
+            <div className={`h-1 w-full rounded-full mb-7 ${card.id === 'cloudops' ? 'bg-gradient-to-r from-purple-600 via-violet-400 to-purple-600' : 'bg-gradient-to-r from-emerald-600 via-teal-400 to-emerald-600'}`} />
+
+            <div className="flex items-start justify-between mb-6">
+              <div className={`p-3 rounded-xl ${card.id === 'cloudops' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-emerald-500/10 ring-1 ring-emerald-500/30'}`}>
+                {card.icon}
+              </div>
+              <span className={`text-[10px] font-bold tracking-widest px-2.5 py-1 rounded-full ring-1 ${card.tagColor}`}>
+                {card.tag}
+              </span>
+            </div>
+
+            <h2 className="text-2xl font-bold text-white mb-1">{card.title}</h2>
+            <p className={`text-xs font-semibold uppercase tracking-widest mb-4 ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
+              {card.subtitle}
+            </p>
+            <p className="text-slate-400 text-sm leading-relaxed mb-7">{card.description}</p>
+
+            {/* richyrik: Quick stats row */}
+            <div className="grid grid-cols-3 gap-3 mb-7">
+              {card.stats.map((s) => (
+                <div key={s.label} className="bg-slate-800/60 rounded-lg p-2.5 text-center">
+                  <div className="text-white font-bold text-sm">{s.value}</div>
+                  <div className="text-slate-500 text-[10px] mt-0.5">{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className={`flex items-center gap-2 text-sm font-semibold ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
+              Enter Module <ArrowRight size={15} className={`transition-transform duration-300 ${hovered === card.id ? 'translate-x-1.5' : ''}`} />
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* richyrik: Footer */}
+      <p className="relative z-10 mt-14 text-slate-600 text-xs">
+        Wynk Cloud Portal · v2.0 · {new Date().getFullYear()}
+      </p>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// richyrik: FINOPS DASHBOARD — realistic dummy-data driven financial views
+// ─────────────────────────────────────────────────────────────────────────────
+const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateHome }) => {
+  const [activeSection, setActiveSection] = useState<'billing' | 'credits' | 'approvals' | 'aop'>('billing');
+  const [darkMode] = useState(true);
+
+  // richyrik: Billing dummy data — GCP + AWS split by Paid/Outstanding per month
+  const billingData = [
+    { month: 'Jan', gcpPaid: 420000, gcpOpen: 38000, awsPaid: 180000, awsOpen: 22000 },
+    { month: 'Feb', gcpPaid: 455000, gcpOpen: 42000, awsPaid: 195000, awsOpen: 18000 },
+    { month: 'Mar', gcpPaid: 410000, gcpOpen: 55000, awsPaid: 210000, awsOpen: 31000 },
+    { month: 'Apr', gcpPaid: 490000, gcpOpen: 33000, awsPaid: 225000, awsOpen: 14000 },
+    { month: 'May', gcpPaid: 530000, gcpOpen: 61000, awsPaid: 240000, awsOpen: 27000 },
+    { month: 'Jun', gcpPaid: 515000, gcpOpen: 45000, awsPaid: 255000, awsOpen: 19000 },
+    { month: 'Jul', gcpPaid: 570000, gcpOpen: 72000, awsPaid: 270000, awsOpen: 35000 },
+    { month: 'Aug', gcpPaid: 545000, gcpOpen: 58000, awsPaid: 260000, awsOpen: 41000 },
+    { month: 'Sep', gcpPaid: 580000, gcpOpen: 49000, awsPaid: 275000, awsOpen: 22000 },
+    { month: 'Oct', gcpPaid: 395000, gcpOpen: 88000, awsPaid: 185000, awsOpen: 47000 },
+  ];
+
+  // richyrik: Credit tracker dummy data
+  const creditPools = [
+    { provider: 'GCP', name: 'Committed Use Credits', allocated: 2500000, consumed: 1820000, color: '#4285F4' },
+    { provider: 'GCP', name: 'Free Tier Credits', allocated: 300000, consumed: 287000, color: '#34A853' },
+    { provider: 'AWS', name: 'Enterprise Discount Credits', allocated: 800000, consumed: 512000, color: '#FF9900' },
+    { provider: 'AWS', name: 'Reserved Instance Savings', allocated: 450000, consumed: 390000, color: '#FF6B35' },
+  ];
+
+  // richyrik: NFA/GBPA approvals dummy data
+  const approvalItems = [
+    { id: 'NFA-2024-001', type: 'NFA', title: 'GCP Committed Use — Wynk Music Infra', allocated: 2500000, consumed: 1820000, status: 'Approved', approvedBy: 'Finance Head', date: '2024-01-15', history: [{ action: 'Submitted', by: 'IT Ops', date: '2024-01-05' }, { action: 'Reviewed', by: 'Group CFO Office', date: '2024-01-10' }, { action: 'Approved', by: 'Finance Head', date: '2024-01-15' }] },
+    { id: 'GBPA-2024-007', type: 'GBPA', title: 'AWS Reserved Instances Q2', allocated: 800000, consumed: 512000, status: 'Approved', approvedBy: 'CTO & CFO', date: '2024-04-02', history: [{ action: 'Submitted', by: 'Cloud FinOps', date: '2024-03-20' }, { action: 'Approved', by: 'CTO & CFO', date: '2024-04-02' }] },
+    { id: 'NFA-2024-012', type: 'NFA', title: 'DR Infrastructure Scale-Up GCP', allocated: 600000, consumed: 120000, status: 'Pending Finance', approvedBy: '—', date: '—', history: [{ action: 'Submitted', by: 'DevOps Lead', date: '2024-09-18' }, { action: 'Under Review', by: 'Finance', date: '2024-09-25' }] },
+    { id: 'GBPA-2024-009', type: 'GBPA', title: 'Multi-Cloud CDN Cost Optimization', allocated: 350000, consumed: 280000, status: 'Approved', approvedBy: 'VP Finance', date: '2024-06-10', history: [{ action: 'Submitted', by: 'Network Ops', date: '2024-06-01' }, { action: 'Approved', by: 'VP Finance', date: '2024-06-10' }] },
+    { id: 'NFA-2024-015', type: 'NFA', title: 'SAST/DAST Tooling — Security Budget', allocated: 150000, consumed: 67000, status: 'Pending CTO', approvedBy: '—', date: '—', history: [{ action: 'Submitted', by: 'Security Team', date: '2024-10-01' }] },
+  ];
+
+  // richyrik: AOP (Annual Operating Plan) dummy data
+  const aopData = [
+    { quarter: 'Q1 2024', planned: 3200000, actual: 3085000 },
+    { quarter: 'Q2 2024', planned: 3500000, actual: 3720000 },
+    { quarter: 'Q3 2024', planned: 3800000, actual: 3650000 },
+    { quarter: 'Q4 2024', planned: 4100000, actual: 3210000 },
+  ];
+  const aopPlanned = aopData.reduce((s, d) => s + d.planned, 0);
+  const aopActual = aopData.reduce((s, d) => s + d.actual, 0);
+  const aopVariance = aopActual - aopPlanned;
+
+  const fmt = (n: number) =>
+    n >= 1000000 ? `₹${(n / 1000000).toFixed(2)}M` : n >= 1000 ? `₹${(n / 1000).toFixed(0)}K` : `₹${n}`;
+
+  const nav = [
+    { id: 'billing' as const, label: 'Billing Observability', icon: <Receipt size={15} /> },
+    { id: 'credits' as const, label: 'Credit Tracker', icon: <CreditCard size={15} /> },
+    { id: 'approvals' as const, label: 'NFA / GBPA', icon: <CheckCircle size={15} /> },
+    { id: 'aop' as const, label: 'AOP Dashboard', icon: <Target size={15} /> },
+  ];
+
+  const statusBadge = (status: string) => {
+    const map: Record<string, string> = {
+      'Approved': 'bg-emerald-500/15 text-emerald-400 ring-emerald-500/30',
+      'Pending Finance': 'bg-amber-500/15 text-amber-400 ring-amber-500/30',
+      'Pending CTO': 'bg-blue-500/15 text-blue-400 ring-blue-500/30',
+    };
+    return map[status] || 'bg-slate-500/15 text-slate-400 ring-slate-500/30';
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col">
+      {/* richyrik: FinOps Header */}
+      <header className="bg-slate-900/80 border-b border-slate-800 backdrop-blur-sm px-6 py-4 flex items-center justify-between sticky top-0 z-50">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={onNavigateHome}
+            className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-800 border border-slate-700"
+          >
+            <Home size={14} /> Back to Home
+          </button>
+          <div className="h-6 w-px bg-slate-700" />
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-emerald-500/15 rounded-lg ring-1 ring-emerald-500/30">
+              <DollarSign size={18} className="text-emerald-400" />
+            </div>
+            <div>
+              <h1 className="text-base font-bold text-white">FinOps Dashboard</h1>
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest">Financial Observability</p>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">
+            FY {new Date().getFullYear()} · Data as of {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+          </span>
+          <div className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/30">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            Live
+          </div>
+        </div>
+      </header>
+
+      <div className="flex flex-1">
+        {/* richyrik: FinOps left nav */}
+        <nav className="w-56 shrink-0 bg-slate-900/60 border-r border-slate-800 p-4 flex flex-col gap-1 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
+          {nav.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => setActiveSection(n.id)}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
+                activeSection === n.id
+                  ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              {n.icon} {n.label}
+            </button>
+          ))}
+          {/* richyrik: KPI summary sidebar cards */}
+          <div className="mt-6 space-y-3">
+            {[
+              { label: 'YTD Cloud Spend', value: fmt(aopActual), sub: `vs ${fmt(aopPlanned)} planned`, color: aopActual > aopPlanned ? 'text-red-400' : 'text-emerald-400' },
+              { label: 'Total Credits Left', value: fmt(creditPools.reduce((s, c) => s + (c.allocated - c.consumed), 0)), sub: 'across all pools', color: 'text-blue-400' },
+              { label: 'Open Invoices', value: `₹${((billingData.reduce((s, d) => s + d.gcpOpen + d.awsOpen, 0)) / 1000).toFixed(0)}K`, sub: 'outstanding this year', color: 'text-amber-400' },
+            ].map((kpi) => (
+              <div key={kpi.label} className="bg-slate-800/60 rounded-lg p-3 ring-1 ring-slate-700">
+                <div className={`text-base font-bold ${kpi.color}`}>{kpi.value}</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">{kpi.label}</div>
+                <div className={`text-[10px] mt-0.5 ${kpi.color}`}>{kpi.sub}</div>
+              </div>
+            ))}
+          </div>
+        </nav>
+
+        {/* richyrik: Main content area */}
+        <main className="flex-1 p-6 overflow-auto">
+
+          {/* ── BILLING OBSERVABILITY ── */}
+          {activeSection === 'billing' && (
+            <div>
+              <div className="mb-6">
+                <h2 className="text-xl font-bold text-white">Billing Observability</h2>
+                <p className="text-slate-400 text-sm mt-1">Month-by-month cloud spend — GCP & AWS split by Paid vs Outstanding invoices.</p>
+              </div>
+              {/* richyrik: Summary KPI row */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                {[
+                  { label: 'Total GCP Paid', value: fmt(billingData.reduce((s, d) => s + d.gcpPaid, 0)), color: 'text-blue-400', bg: 'bg-blue-500/10 ring-blue-500/20' },
+                  { label: 'GCP Outstanding', value: fmt(billingData.reduce((s, d) => s + d.gcpOpen, 0)), color: 'text-amber-400', bg: 'bg-amber-500/10 ring-amber-500/20' },
+                  { label: 'Total AWS Paid', value: fmt(billingData.reduce((s, d) => s + d.awsPaid, 0)), color: 'text-orange-400', bg: 'bg-orange-500/10 ring-orange-500/20' },
+                  { label: 'AWS Outstanding', value: fmt(billingData.reduce((s, d) => s + d.awsOpen, 0)), color: 'text-red-400', bg: 'bg-red-500/10 ring-red-500/20' },
+                ].map((k) => (
+                  <div key={k.label} className={`rounded-xl p-4 ring-1 ${k.bg} bg-slate-900`}>
+                    <div className={`text-2xl font-bold ${k.color}`}>{k.value}</div>
+                    <div className="text-xs text-slate-400 mt-1">{k.label}</div>
+                  </div>
+                ))}
+              </div>
+              {/* richyrik: Stacked BarChart */}
+              <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5">
+                <h3 className="text-sm font-semibold text-slate-300 mb-4">Monthly Cloud Spend Breakdown (₹)</h3>
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={billingData} barSize={32}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis dataKey="month" stroke="#64748b" fontSize={12} />
+                    <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} stroke="#64748b" fontSize={11} />
+                    <RechartsTooltip
+                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: 8 }}
+                      formatter={(v: any, n: string) => [fmt(v), n]}
+                    />
+                    <Legend />
+                    <Bar dataKey="gcpPaid" name="GCP Paid" stackId="gcp" fill="#4285F4" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="gcpOpen" name="GCP Outstanding" stackId="gcp" fill="#93C5FD" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="awsPaid" name="AWS Paid" stackId="aws" fill="#FF9900" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="awsOpen" name="AWS Outstanding" stackId="aws" fill="#FCD34D" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* ── CREDIT DISCOUNT TRACKER ── */}
+          {activeSection === 'credits' && (
+            <div>
+              <div className="mb-6">
+                <h2 className="text-xl font-bold text-white">Credit Discount Tracker</h2>
+                <p className="text-slate-400 text-sm mt-1">Total allocated credits vs. consumed — see what remains at a glance.</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {creditPools.map((pool) => {
+                  const pct = Math.min(100, Math.round((pool.consumed / pool.allocated) * 100));
+                  const remaining = pool.allocated - pool.consumed;
+                  const pieData = [
+                    { name: 'Consumed', value: pool.consumed },
+                    { name: 'Remaining', value: remaining },
+                  ];
+                  return (
+                    <div key={pool.name} className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5">
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{pool.provider}</span>
+                          <h4 className="text-base font-semibold text-white mt-0.5">{pool.name}</h4>
+                        </div>
+                        <span
+                          className={`text-sm font-bold px-2 py-0.5 rounded ${
+                            pct >= 90 ? 'bg-red-500/20 text-red-400' : pct >= 70 ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'
+                          }`}
+                        >
+                          {pct}% used
+                        </span>
+                      </div>
+                      {/* richyrik: Donut chart for credit visual */}
+                      <div className="flex items-center gap-6">
+                        <ResponsiveContainer width={130} height={130}>
+                          <PieChart>
+                            <Pie
+                              data={pieData}
+                              cx="50%" cy="50%"
+                              innerRadius={42} outerRadius={60}
+                              startAngle={90} endAngle={-270}
+                              dataKey="value" stroke="none"
+                            >
+                              <Cell fill={pool.color} />
+                              <Cell fill="#1e293b" />
+                            </Pie>
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="flex-1">
+                          <div className="space-y-2">
+                            <div>
+                              <div className="flex justify-between text-xs mb-1">
+                                <span className="text-slate-400">Consumed</span>
+                                <span className="text-white font-semibold">{fmt(pool.consumed)}</span>
+                              </div>
+                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: pool.color }} />
+                              </div>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                              <span className="text-slate-400">Allocated</span>
+                              <span className="text-slate-300">{fmt(pool.allocated)}</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                              <span className="text-slate-400">Remaining</span>
+                              <span className="text-emerald-400 font-semibold">{fmt(remaining)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── NFA / GBPA STATUS TRACKER ── */}
+          {activeSection === 'approvals' && (
+            <div>
+              <div className="mb-6">
+                <h2 className="text-xl font-bold text-white">NFA & GBPA Status Tracker</h2>
+                <p className="text-slate-400 text-sm mt-1">Track active approval notes, consumed vs balance, and full approval history.</p>
+              </div>
+              <div className="space-y-4">
+                {approvalItems.map((item) => {
+                  const pct = Math.min(100, Math.round((item.consumed / item.allocated) * 100));
+                  return (
+                    <div key={item.id} className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${item.type === 'NFA' ? 'bg-purple-500/20 text-purple-300' : 'bg-blue-500/20 text-blue-300'}`}>
+                              {item.type}
+                            </span>
+                            <span className="text-slate-500 text-xs font-mono">{item.id}</span>
+                          </div>
+                          <h4 className="text-sm font-semibold text-white">{item.title}</h4>
+                        </div>
+                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ring-1 ${statusBadge(item.status)}`}>
+                          {item.status}
+                        </span>
+                      </div>
+                      {/* richyrik: Consumed vs balance progress bar */}
+                      <div className="mb-4">
+                        <div className="flex justify-between text-xs text-slate-400 mb-1.5">
+                          <span>Consumed: <span className="text-white font-medium">{fmt(item.consumed)}</span></span>
+                          <span>Balance: <span className="text-emerald-400 font-medium">{fmt(item.allocated - item.consumed)}</span></span>
+                          <span>Allocated: <span className="text-slate-300 font-medium">{fmt(item.allocated)}</span></span>
+                        </div>
+                        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-1">{pct}% consumed</div>
+                      </div>
+                      {/* richyrik: Approval history timeline */}
+                      <div className="border-t border-slate-800 pt-3">
+                        <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-2">Approval History</div>
+                        <div className="flex flex-wrap gap-x-6 gap-y-1">
+                          {item.history.map((h, idx) => (
+                            <div key={idx} className="flex items-center gap-1.5 text-xs">
+                              <div className={`w-1.5 h-1.5 rounded-full ${idx === item.history.length - 1 ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                              <span className="text-slate-400">{h.date}</span>
+                              <span className="text-slate-300 font-medium">{h.action}</span>
+                              <span className="text-slate-500">by {h.by}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── AOP DASHBOARD ── */}
+          {activeSection === 'aop' && (
+            <div>
+              <div className="mb-6">
+                <h2 className="text-xl font-bold text-white">AOP Dashboard — Annual Operating Plan</h2>
+                <p className="text-slate-400 text-sm mt-1">Planned budget vs actual spend — identify over/under utilization by quarter.</p>
+              </div>
+              {/* richyrik: AOP KPI cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                {[
+                  { label: 'Annual Planned Budget', value: fmt(aopPlanned), icon: <Target size={18} />, color: 'text-blue-400', bg: 'bg-blue-500/10 ring-blue-500/20' },
+                  { label: 'YTD Actual Spend', value: fmt(aopActual), icon: <Wallet size={18} />, color: aopActual > aopPlanned ? 'text-red-400' : 'text-emerald-400', bg: aopActual > aopPlanned ? 'bg-red-500/10 ring-red-500/20' : 'bg-emerald-500/10 ring-emerald-500/20' },
+                  { label: `Variance (${aopVariance >= 0 ? 'Over' : 'Under'})`, value: fmt(Math.abs(aopVariance)), icon: aopVariance >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />, color: aopVariance >= 0 ? 'text-red-400' : 'text-emerald-400', bg: aopVariance >= 0 ? 'bg-red-500/10 ring-red-500/20' : 'bg-emerald-500/10 ring-emerald-500/20' },
+                ].map((k) => (
+                  <div key={k.label} className={`rounded-xl p-5 ring-1 ${k.bg} bg-slate-900 flex items-start gap-4`}>
+                    <div className={`p-2 rounded-lg bg-slate-800 ${k.color}`}>{k.icon}</div>
+                    <div>
+                      <div className={`text-2xl font-bold ${k.color}`}>{k.value}</div>
+                      <div className="text-xs text-slate-400 mt-1">{k.label}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* richyrik: Grouped bar chart — Planned vs Actual by quarter */}
+              <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+                <h3 className="text-sm font-semibold text-slate-300 mb-4">Planned vs Actual Spend by Quarter (₹)</h3>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={aopData} barCategoryGap="30%" barGap={8}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis dataKey="quarter" stroke="#64748b" fontSize={12} />
+                    <YAxis tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} stroke="#64748b" fontSize={11} />
+                    <RechartsTooltip
+                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: 8 }}
+                      formatter={(v: any, n: string) => [fmt(v), n]}
+                    />
+                    <Legend />
+                    <Bar dataKey="planned" name="Planned Budget" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="actual" name="Actual Spend" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              {/* richyrik: Quarter-by-quarter utilization table */}
+              <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl overflow-hidden">
+                <div className="px-5 py-3 border-b border-slate-800">
+                  <h3 className="text-sm font-semibold text-slate-300">Quarter-by-Quarter Utilization</h3>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 border-b border-slate-800">
+                      <th className="px-5 py-3 text-left">Quarter</th>
+                      <th className="px-5 py-3 text-right">Planned</th>
+                      <th className="px-5 py-3 text-right">Actual</th>
+                      <th className="px-5 py-3 text-right">Variance</th>
+                      <th className="px-5 py-3 text-right">Utilization %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {aopData.map((row) => {
+                      const v = row.actual - row.planned;
+                      const u = Math.round((row.actual / row.planned) * 100);
+                      return (
+                        <tr key={row.quarter} className="border-b border-slate-800/60 hover:bg-slate-800/40 transition-colors">
+                          <td className="px-5 py-3 font-medium text-white">{row.quarter}</td>
+                          <td className="px-5 py-3 text-right text-slate-300">{fmt(row.planned)}</td>
+                          <td className="px-5 py-3 text-right text-slate-300">{fmt(row.actual)}</td>
+                          <td className={`px-5 py-3 text-right font-semibold ${v >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                            {v >= 0 ? '+' : ''}{fmt(v)}
+                          </td>
+                          <td className="px-5 py-3 text-right">
+                            <span className={`font-bold ${u > 100 ? 'text-red-400' : u > 85 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                              {u}%
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+};
+
+const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome }) => {
   const [allIssues, setAllIssues] = useState<Issue[]>([]);
   const [batches, setBatches] = useState<string[]>([]);
   const [metadataOwners, setMetadataOwners] = useState<string[]>([]);
@@ -1003,9 +1559,9 @@ const AppContent: React.FC = () => {
   // richyrik
   const [viewMode, setViewMode] = useState<"Optimized" | "Raw" | "Calendar" | "Manager">("Optimized");
 
+  // richyrik: Force dark mode to always-on to match FinOps aesthetic
   const [darkMode, setDarkMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem("xtelify_dark_mode");
-    return saved === "true";
+    return true;
   });
 
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(() => {
@@ -3445,125 +4001,130 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className={`min-h-screen p-6 lg:p-8 font-sans transition-colors duration-300 ${darkMode ? "bg-slate-900 text-slate-100" : "bg-slate-50 text-slate-800"}`}>
-      <header className={`mb-6 flex flex-col md:flex-row md:items-center justify-between px-6 py-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+    <div className="min-h-screen font-sans bg-slate-950 text-slate-100">
+      {/* richyrik: Sticky glassmorphism header — matches FinOps dashboard style */}
+      <header className="sticky top-0 z-50 bg-slate-900/80 border-b border-slate-800 backdrop-blur-sm px-6 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <img src="/airtel-logo.svg" alt="Airtel" className="h-9 w-auto" />
-          <div className={`h-7 w-px ${darkMode ? "bg-slate-700" : "bg-slate-200"}`}></div>
-          <div>
-            <h1 className={`text-lg font-semibold ${darkMode ? "text-white" : "text-slate-800"}`}>
-              Wynk Security Portal
-            </h1>
-            <p className={`text-[10px] font-medium uppercase tracking-wide ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
-              Vulnerability Management
-            </p>
+          <div className="h-7 w-px bg-slate-700" />
+          {/* richyrik: CloudOps icon pill matching the landing page card */}
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-purple-500/15 rounded-lg ring-1 ring-purple-500/30">
+              <Shield size={18} className="text-purple-400" />
+            </div>
+            <div>
+              <h1 className="text-base font-bold text-white">Wynk Security Portal</h1>
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest">Cloud Ops & Vulnerability Management</p>
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-3 mt-4 md:mt-0">
-          <div className={`flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded border ${darkMode ? "text-slate-400 bg-slate-700 border-slate-600" : "text-slate-500 bg-slate-50 border-slate-200"}`}>
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
+        <div className="flex items-center gap-3 mt-0">
+          {/* richyrik: Home navigation button — returns to the module landing page */}
+          {onNavigateHome && (
+            <button
+              onClick={onNavigateHome}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              title="Back to Home"
+            >
+              <Home size={13} /> Home
+            </button>
+          )}
+          <div className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/30">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             Connected
           </div>
           <button
             onClick={() => setDarkMode(!darkMode)}
-            className={`p-2 rounded-lg transition-colors ${darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-            title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            className="p-2 rounded-lg transition-colors bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white"
+            title="Toggle theme"
           >
-            {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+            {darkMode ? <Sun size={15} /> : <Moon size={15} />}
           </button>
-          <div className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg ${darkMode ? "bg-slate-700 border-slate-600" : "bg-slate-50 border-slate-200"} border`}>
-            <Users size={14} className={darkMode ? "text-slate-500" : "text-slate-400"} />
+          <div className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700">
+            <Users size={13} className="text-slate-500" />
             <select
               value={userRole}
               onChange={(e) => setUserRole(e.target.value)}
-              className={`bg-transparent font-medium outline-none cursor-pointer text-sm ${darkMode ? "text-slate-300" : "text-slate-700"}`}
+              className="bg-transparent font-medium outline-none cursor-pointer text-sm text-slate-300"
             >
               <option value="Admin">Admin</option>
               <option value="Viewer">Viewer</option>
             </select>
           </div>
+          {/* richyrik: FY date badge matching FinOps */}
+          <span className="text-xs text-slate-500 hidden md:block">
+            FY {new Date().getFullYear()} · {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+          </span>
         </div>
       </header>
 
+      {/* richyrik: Main content wrapper with padding */}
+      <div className="p-6 lg:p-8">
+
+      {/* richyrik: Overdue/due-today alert banner styled to match FinOps */}
       {(dueDateAlerts.overdue.length > 0 || dueDateAlerts.dueToday.length > 0) && (
-        <div className={`mb-5 p-4 rounded-lg border-l-4 border-l-slate-400 flex items-center justify-between ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-200"}`}>
+        <div className="mb-5 p-4 rounded-xl bg-slate-900 ring-1 ring-red-500/30 border-l-4 border-l-red-500 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <AlertCircle className={darkMode ? "text-slate-400" : "text-slate-500"} size={18} />
+            <AlertCircle className="text-red-400" size={18} />
             <div className="flex items-center gap-5 text-sm">
               {dueDateAlerts.overdue.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${darkMode ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-700"}`}>{dueDateAlerts.overdue.length}</span>
-                  <span className={`font-medium ${darkMode ? "text-slate-300" : "text-slate-600"}`}>Overdue</span>
+                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-red-500/20 text-red-400">{dueDateAlerts.overdue.length}</span>
+                  <span className="font-medium text-slate-300">Overdue</span>
                 </div>
               )}
               {dueDateAlerts.dueToday.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${darkMode ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-700"}`}>{dueDateAlerts.dueToday.length}</span>
-                  <span className={`font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Due Today</span>
+                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/20 text-amber-400">{dueDateAlerts.dueToday.length}</span>
+                  <span className="font-medium text-slate-400">Due Today</span>
                 </div>
               )}
               {dueDateAlerts.dueThisWeek.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${darkMode ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-700"}`}>{dueDateAlerts.dueThisWeek.length}</span>
-                  <span className={darkMode ? "text-slate-500" : "text-slate-400"}>This Week</span>
+                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-slate-700 text-slate-300">{dueDateAlerts.dueThisWeek.length}</span>
+                  <span className="text-slate-500">This Week</span>
                 </div>
               )}
             </div>
           </div>
           <button
             onClick={() => setQuickFilter("overdue")}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium transition-colors ${darkMode ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors ring-1 ring-red-500/30"
           >
             View <ArrowRight size={12} />
           </button>
         </div>
       )}
 
+      {/* richyrik: View mode + format tab bars — FinOps pill style */}
       <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
-        <div className={`flex p-1 rounded-lg ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-slate-100"}`}>
-          <button
-            onClick={() => setViewMode("Optimized")}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${viewMode === "Optimized"
-              ? `${darkMode ? "bg-slate-700 text-white" : "bg-white text-slate-800 shadow-sm"}`
-              : `${darkMode ? "text-slate-400 hover:text-slate-300" : "text-slate-500 hover:text-slate-700"}`
-              }`}
-          >
-            Dashboard
-          </button>
-          <button
-            onClick={() => setViewMode("Raw")}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${viewMode === "Raw"
-              ? `${darkMode ? "bg-slate-700 text-white" : "bg-white text-slate-800 shadow-sm"}`
-              : `${darkMode ? "text-slate-400 hover:text-slate-300" : "text-slate-500 hover:text-slate-700"}`
-              }`}
-          >
-            Export View
-          </button>
-          <button
-            onClick={() => setViewMode("Calendar")}
-            className={`px-4 py-2 text-sm font-medium flex items-center gap-2 rounded-md transition-colors ${viewMode === "Calendar"
-              ? `${darkMode ? "bg-slate-700 text-white" : "bg-white text-slate-800 shadow-sm"}`
-              : `${darkMode ? "text-slate-400 hover:text-slate-300" : "text-slate-500 hover:text-slate-700"}`
-              }`}
-          >
-            <CalendarDays size={16} /> Calendar
-          </button>
-          {/* richyrik */}
-          <button
-            onClick={() => setViewMode("Manager")}
-            className={`px-4 py-2 text-sm font-medium flex items-center gap-2 rounded-md transition-colors ${viewMode === "Manager"
-              ? `${darkMode ? "bg-slate-700 text-white" : "bg-white text-slate-800 shadow-sm"}`
-              : `${darkMode ? "text-slate-400 hover:text-slate-300" : "text-slate-500 hover:text-slate-700"}`
-              }`}
-          >
-            <Users size={16} /> Manager View
-          </button>
+        <div className="flex p-1 rounded-xl bg-slate-900 ring-1 ring-slate-800">
+          {[
+            { id: 'Optimized', label: 'Dashboard' },
+            { id: 'Raw', label: 'Export View' },
+            { id: 'Calendar', label: 'Calendar', icon: CalendarDays },
+            { id: 'Manager', label: 'Manager View', icon: Users },
+          ].map((tab) => {
+            const Icon = (tab as any).icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setViewMode(tab.id as any)}
+                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                  viewMode === tab.id
+                    ? 'bg-purple-600/20 text-purple-300 ring-1 ring-purple-500/40'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                {Icon && <Icon size={14} />}
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
-        <div className={`flex items-center p-1 rounded-lg mx-auto ${darkMode ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-200 shadow-sm"}`}>
+        {/* richyrik: Format filter — purple accent pills matching CloudOps branding */}
+        <div className="flex items-center p-1 rounded-xl bg-slate-900 ring-1 ring-slate-800 mx-auto">
           {[
             { id: "CONTAINER", label: "Container", icon: Server },
             { id: "VAPT", label: "VAPT", icon: Shield },
@@ -3576,12 +4137,13 @@ const AppContent: React.FC = () => {
               <button
                 key={fmt.id}
                 onClick={() => handleFormatFilterChange(fmt.id)}
-                className={`flex items-center gap-1.5 px-6 py-3 text-base font-semibold rounded-md transition-colors ${isActive
-                  ? "bg-blue-600 text-white"
-                  : darkMode ? "text-slate-400 hover:text-slate-300 hover:bg-slate-700" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
-                  }`}
+                className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-semibold rounded-lg transition-all ${
+                  isActive
+                    ? 'bg-purple-600/25 text-purple-300 ring-1 ring-purple-500/40'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
               >
-                <Icon size={18} />
+                <Icon size={15} />
                 {fmt.label}
               </button>
             );
@@ -3676,56 +4238,34 @@ const AppContent: React.FC = () => {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
-            <Card
-              title="Total Vulnerabilities"
-              val={totalRecords || 0}
-              Icon={Bug}
-              color="text-indigo-500"
-              bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
-            />
-            <Card
-              title="Unique CVEs"
-              val={stats?.uniqueVulns || 0}
-              Icon={Shield}
-              color="text-purple-600"
-              bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
-            />
-            <Card
-              title="Affected Assets"
-              val={stats?.uniqueAssets || 0}
-              Icon={Server}
-              color="text-blue-600"
-              bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
-            />
-            <Card
-              title="Critical Risks"
-              val={stats?.criticalOpen || 0}
-              Icon={AlertTriangle}
-              color="text-amber-500"
-              bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
-            />
-            <Card
-              title="SLA Breached"
-              val={stats?.breached || 0}
-              Icon={Flame}
-              color="text-red-500"
-              bg={darkMode ? "bg-slate-800 border-slate-700" : "bg-white"}
-            />
+          {/* richyrik: KPI cards — purple/indigo/blue/amber/red accent palette */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+            <Card title="Total Vulnerabilities" val={totalRecords || 0} Icon={Bug}
+              color="" bg="" accentColor="text-indigo-400" ringColor="bg-indigo-500/15 ring-indigo-500/30" />
+            <Card title="Unique CVEs" val={stats?.uniqueVulns || 0} Icon={Shield}
+              color="" bg="" accentColor="text-purple-400" ringColor="bg-purple-500/15 ring-purple-500/30" />
+            <Card title="Affected Assets" val={stats?.uniqueAssets || 0} Icon={Server}
+              color="" bg="" accentColor="text-blue-400" ringColor="bg-blue-500/15 ring-blue-500/30" />
+            <Card title="Critical Risks" val={stats?.criticalOpen || 0} Icon={AlertTriangle}
+              color="" bg="" accentColor="text-amber-400" ringColor="bg-amber-500/15 ring-amber-500/30" />
+            <Card title="SLA Breached" val={stats?.breached || 0} Icon={Flame}
+              color="" bg="" accentColor="text-red-400" ringColor="bg-red-500/15 ring-red-500/30" />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            <div className={`p-6 rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md ${darkMode ? "bg-slate-800/80 border-slate-700/50" : "bg-white border-slate-200/60"}`}>
-              <h2 className={`font-bold text-sm mb-5 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
-                <div className={`p-1.5 rounded-lg ${darkMode ? "bg-emerald-900/30" : "bg-emerald-50"}`}>
-                  <Target size={16} className="text-emerald-500" />
+          {/* richyrik: Three-column analytics row — FinOps ring-panel style */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
+            {/* SLA Compliance */}
+            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-6 hover:ring-slate-700 transition-all">
+              <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
+                <div className="p-1.5 rounded-lg bg-emerald-500/15 ring-1 ring-emerald-500/30">
+                  <Target size={15} className="text-emerald-400" />
                 </div>
                 SLA Compliance
               </h2>
-              <div className="flex items-center justify-center mb-4">
+              <div className="flex items-center justify-center mb-5">
                 <div className="relative w-32 h-32">
                   <svg className="w-full h-full transform -rotate-90">
-                    <circle cx="64" cy="64" r="56" stroke={darkMode ? "#374151" : "#e2e8f0"} strokeWidth="12" fill="none" />
+                    <circle cx="64" cy="64" r="56" stroke="#1e293b" strokeWidth="12" fill="none" />
                     <circle
                       cx="64" cy="64" r="56"
                       stroke={slaComplianceData.compliance >= 80 ? "#10b981" : slaComplianceData.compliance >= 60 ? "#f59e0b" : "#ef4444"}
@@ -3736,122 +4276,122 @@ const AppContent: React.FC = () => {
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center flex-col">
-                    <span className={`text-2xl font-bold ${slaComplianceData.compliance >= 80 ? "text-emerald-600" : slaComplianceData.compliance >= 60 ? "text-amber-600" : "text-red-600"}`}>
+                    <span className={`text-2xl font-bold ${slaComplianceData.compliance >= 80 ? "text-emerald-400" : slaComplianceData.compliance >= 60 ? "text-amber-400" : "text-red-400"}`}>
                       {slaComplianceData.compliance}%
                     </span>
-                    <span className={`text-[10px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Compliance</span>
+                    <span className="text-[10px] text-slate-500">Compliance</span>
                   </div>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
-                <div className={`p-2 rounded ${darkMode ? "bg-slate-700" : "bg-slate-50"}`}>
-                  <p className={`text-lg font-bold ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{slaComplianceData.total}</p>
-                  <p className={`text-[10px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Total Resolved</p>
+                <div className="p-2.5 rounded-lg bg-slate-800 ring-1 ring-slate-700">
+                  <p className="text-lg font-bold text-slate-200">{slaComplianceData.total}</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Total Resolved</p>
                 </div>
-                <div className={`p-2 rounded ${darkMode ? "bg-emerald-900/30" : "bg-emerald-50"}`}>
-                  <p className="text-lg font-bold text-emerald-600">{slaComplianceData.onTime}</p>
-                  <p className={`text-[10px] ${darkMode ? "text-emerald-400" : "text-emerald-600"}`}>On Time</p>
+                <div className="p-2.5 rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20">
+                  <p className="text-lg font-bold text-emerald-400">{slaComplianceData.onTime}</p>
+                  <p className="text-[10px] text-emerald-600 mt-0.5">On Time</p>
                 </div>
-                <div className={`p-2 rounded ${darkMode ? "bg-red-900/30" : "bg-red-50"}`}>
-                  <p className="text-lg font-bold text-red-600">{slaComplianceData.breached}</p>
-                  <p className={`text-[10px] ${darkMode ? "text-red-400" : "text-red-600"}`}>Breached</p>
+                <div className="p-2.5 rounded-lg bg-red-500/10 ring-1 ring-red-500/20">
+                  <p className="text-lg font-bold text-red-400">{slaComplianceData.breached}</p>
+                  <p className="text-[10px] text-red-600 mt-0.5">Breached</p>
                 </div>
               </div>
             </div>
 
-            <div className={`p-5 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-              <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
-                <Clock size={16} className="text-blue-500" /> Vulnerability Age Distribution
+
+            {/* richyrik: Vulnerability Age Distribution */}
+            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 hover:ring-slate-700 transition-all">
+              <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
+                <div className="p-1.5 rounded-lg bg-blue-500/15 ring-1 ring-blue-500/30">
+                  <Clock size={15} className="text-blue-400" />
+                </div>
+                Vulnerability Age Distribution
               </h2>
               <div className="h-48 flex items-center justify-center">
                 {ageDistributionData && ageDistributionData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={ageDistributionData} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
+                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#1e293b" />
                       <XAxis type="number" hide />
-                      <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
-                      <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #e2e8f0", borderRadius: "4px", backgroundColor: darkMode ? "#1f2937" : "#fff" }} />
-                      <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20}>
+                      <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                      <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #1e293b", borderRadius: 8, backgroundColor: "#0f172a" }} />
+                      <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={18}>
                         {ageDistributionData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={index === 3 ? "#ef4444" : index === 2 ? "#f59e0b" : "#3b82f6"} />
+                          <Cell key={`cell-${index}`} fill={index === 3 ? "#ef4444" : index === 2 ? "#f59e0b" : "#6366f1"} />
                         ))}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>No open vulnerabilities</p>
+                  <div className="text-center">
+                    <Clock size={28} className="text-slate-700 mx-auto mb-2" />
+                    <p className="text-xs text-slate-600 uppercase font-semibold tracking-widest">No Active Issues</p>
+                  </div>
                 )}
               </div>
             </div>
 
-            <div className={`p-5 rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md ${darkMode ? "bg-slate-800/80 border-slate-700/50" : "bg-white border-slate-200/60"}`}>
-              <h2 className={`font-bold text-sm mb-5 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
-                <div className={`p-1.5 rounded-lg ${darkMode ? "bg-blue-900/30" : "bg-blue-50"}`}>
-                  <CheckCircle size={16} className="text-blue-500" />
+            {/* richyrik: Resolution Tracking */}
+            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-6 hover:ring-slate-700 transition-all">
+              <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
+                <div className="p-1.5 rounded-lg bg-purple-500/15 ring-1 ring-purple-500/30">
+                  <CheckCircle size={15} className="text-purple-400" />
                 </div>
                 Resolution Tracking
               </h2>
-              {/* richyrik: Resolution Tracking with In Progress bar */}
-              <div className="flex flex-col justify-center h-48 space-y-6">
-                <div>
-                  <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-red-500">Open</span>
-                    <span className={darkMode ? "text-white" : "text-slate-800"}>{dashboardStats?.status?.open || 0}</span>
+              <div className="flex flex-col justify-center h-48 space-y-5">
+                {[
+                  { label: 'Open', count: dashboardStats?.status?.open || 0, color: 'text-red-400', bar: 'bg-red-500', key: 'open' },
+                  { label: 'In Progress', count: dashboardStats?.status?.progress || 0, color: 'text-blue-400', bar: 'bg-blue-500', key: 'progress' },
+                  { label: 'Resolved', count: dashboardStats?.status?.resolved || 0, color: 'text-emerald-400', bar: 'bg-emerald-500', key: 'resolved' },
+                ].map(({ label, count, color, bar, key }) => (
+                  <div key={key}>
+                    <div className="flex justify-between text-xs font-semibold mb-1.5">
+                      <span className={color}>{label}</span>
+                      <span className="text-white">{count}</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+                      <div
+                        style={{ width: `${dashboardStats?.total > 0 ? (count / dashboardStats.total) * 100 : 0}%` }}
+                        className={`h-full ${bar} rounded-full transition-all duration-700`}
+                      />
+                    </div>
                   </div>
-                  <div className={`h-2.5 w-full rounded-full overflow-hidden ${darkMode ? "bg-slate-700" : "bg-slate-100"}`}>
-                    <div style={{ width: `${dashboardStats?.total > 0 ? ((dashboardStats?.status?.open || 0) / dashboardStats.total) * 100 : 0}%` }} className="h-full bg-red-500 transition-all duration-500"></div>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-blue-500">In Progress</span>
-                    <span className={darkMode ? "text-white" : "text-slate-800"}>{dashboardStats?.status?.progress || 0}</span>
-                  </div>
-                  <div className={`h-2.5 w-full rounded-full overflow-hidden ${darkMode ? "bg-slate-700" : "bg-slate-100"}`}>
-                    <div style={{ width: `${dashboardStats?.total > 0 ? ((dashboardStats?.status?.progress || 0) / dashboardStats.total) * 100 : 0}%` }} className="h-full bg-blue-500 transition-all duration-500"></div>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-emerald-500">Resolved</span>
-                    <span className={darkMode ? "text-white" : "text-slate-800"}>{dashboardStats?.status?.resolved || 0}</span>
-                  </div>
-                  <div className={`h-2.5 w-full rounded-full overflow-hidden ${darkMode ? "bg-slate-700" : "bg-slate-100"}`}>
-                    <div style={{ width: `${dashboardStats?.total > 0 ? ((dashboardStats?.status?.resolved || 0) / dashboardStats.total) * 100 : 0}%` }} className="h-full bg-emerald-500 transition-all duration-500"></div>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
           </div>
 
-          <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-            <h2 className={`font-semibold text-sm mb-4 flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
-              <Zap size={16} className="text-amber-500" /> Risk Heatmap: Severity vs Department
+          {/* richyrik: Risk Heatmap — FinOps ring-panel style */}
+          <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+            <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
+              <div className="p-1.5 rounded-lg bg-amber-500/15 ring-1 ring-amber-500/30">
+                <Zap size={15} className="text-amber-400" />
+              </div>
+              Risk Heatmap: Severity vs Department
             </h2>
             {riskHeatmapData.depts.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr>
-                      <th className={`p-2 text-left font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Department</th>
+                      <th className="p-2 text-left font-semibold text-slate-500 uppercase tracking-widest text-[10px]">Department</th>
                       {riskHeatmapData.severities.map(sev => (
-                        <th key={sev} className={`p-2 text-center font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{sev}</th>
+                        <th key={sev} className="p-2 text-center font-semibold text-slate-500 uppercase tracking-widest text-[10px]">{sev}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {riskHeatmapData.depts.map(dept => (
-                      <tr key={dept} className={darkMode ? "border-t border-slate-700" : "border-t border-slate-100"}>
-                        <td className={`p-2 font-medium ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{dept}</td>
+                      <tr key={dept} className="border-t border-slate-800/80">
+                        <td className="p-2 font-medium text-slate-300">{dept}</td>
                         {riskHeatmapData.severities.map(sev => {
                           const count = riskHeatmapData.heatmap[dept]?.[sev] || 0;
-                          const intensity = count === 0 ? "bg-slate-100" : count <= 2 ? "bg-yellow-100" : count <= 5 ? "bg-orange-200" : "bg-red-300";
-                          const darkIntensity = count === 0 ? "bg-slate-700" : count <= 2 ? "bg-yellow-900/50" : count <= 5 ? "bg-orange-900/50" : "bg-red-900/50";
+                          const cellBg = count === 0 ? 'bg-slate-800/40' : count <= 2 ? 'bg-yellow-500/20' : count <= 5 ? 'bg-orange-500/25' : 'bg-red-500/30';
                           return (
-                            <td key={sev} className={`p-2 text-center ${darkMode ? darkIntensity : intensity} rounded`}>
-                              <span className={`font-bold ${count > 0 ? (darkMode ? "text-white" : "text-slate-800") : (darkMode ? "text-slate-500" : "text-slate-400")}`}>
-                                {count}
-                              </span>
+                            <td key={sev} className={`p-2 text-center ${cellBg} rounded`}>
+                              <span className={`font-bold ${count > 0 ? 'text-white' : 'text-slate-600'}`}>{count}</span>
                             </td>
                           );
                         })}
@@ -3861,90 +4401,68 @@ const AppContent: React.FC = () => {
                 </table>
               </div>
             ) : (
-              <p className={`text-xs text-center py-4 ${darkMode ? "text-slate-500" : "text-slate-400"}`}>No data available for heatmap</p>
+              <div className="flex flex-col items-center justify-center py-10">
+                <Zap size={28} className="text-slate-700 mb-2" />
+                <p className="text-xs text-slate-600 uppercase font-semibold tracking-widest">No data available for heatmap</p>
+              </div>
             )}
           </div>
 
-          <div className={`p-5 rounded-sm border shadow-sm mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-            <div className="flex items-center justify-between mb-4 border-b pb-3" style={{ borderColor: darkMode ? "#374151" : "#f1f5f9" }}>
-              <h2 className={`font-semibold text-sm flex items-center gap-2 ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
-                <Activity size={16} className={darkMode ? "text-slate-500" : "text-slate-400"} /> Asset
-                Resolution Pipeline (MTTR)
+          {/* richyrik: Asset Resolution Pipeline — FinOps dark pill stage style */}
+          <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="font-bold text-sm flex items-center gap-2 text-slate-200">
+                <div className="p-1.5 rounded-lg bg-slate-700 ring-1 ring-slate-600">
+                  <Activity size={15} className="text-slate-400" />
+                </div>
+                Asset Resolution Pipeline (MTTR)
               </h2>
-              <span className="text-xs font-medium text-slate-500">
-                Resolution Velocity:{" "}
-                <strong className="text-slate-800">
-                  {stats?.total > 0 && pipeline?.resolved !== undefined
-                    ? ((pipeline.resolved / stats.total) * 100).toFixed(1)
-                    : 0}
-                  %
-                </strong>
+              <span className="text-xs font-semibold text-slate-500">
+                Resolution Velocity: <span className="text-purple-400 font-bold">
+                  {stats?.total > 0 && pipeline?.resolved !== undefined ? ((pipeline.resolved / stats.total) * 100).toFixed(1) : 0}%
+                </span>
               </span>
             </div>
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex-1 w-full border border-slate-200 p-4 rounded-md flex justify-between items-center bg-slate-50">
-                <p className="text-sm font-medium text-slate-600">
-                  Open Assets
-                </p>
-                <p className="text-lg font-bold text-slate-800">
-                  {pipeline?.open || 0}
-                </p>
-              </div>
-              <ArrowRight
-                className="text-slate-400 hidden sm:block"
-                size={16}
-              />
-              <div className="flex-1 w-full border border-blue-200 p-4 rounded-md flex justify-between items-center bg-blue-50/30">
-                <p className="text-sm font-medium text-blue-700">In Progress</p>
-                <p className="text-lg font-bold text-blue-800">
-                  {pipeline?.progress || 0}
-                </p>
-              </div>
-              <ArrowRight
-                className="text-slate-400 hidden sm:block"
-                size={16}
-              />
-              <div className="flex-1 w-full border border-emerald-200 p-4 rounded-md flex justify-between items-center bg-emerald-50/30">
-                <p className="text-sm font-medium text-emerald-700">Resolved</p>
-                <p className="text-lg font-bold text-emerald-800">
-                  {pipeline?.resolved || 0}
-                </p>
-              </div>
+            <div className="flex flex-col sm:flex-row items-stretch gap-3 mb-4">
+              {[
+                { label: 'Open Assets', count: pipeline?.open || 0, bg: 'bg-slate-800 ring-slate-700', text: 'text-slate-300', count_color: 'text-white' },
+                { label: 'In Progress', count: pipeline?.progress || 0, bg: 'bg-blue-500/10 ring-blue-500/30', text: 'text-blue-400', count_color: 'text-blue-300' },
+                { label: 'Resolved', count: pipeline?.resolved || 0, bg: 'bg-emerald-500/10 ring-emerald-500/30', text: 'text-emerald-400', count_color: 'text-emerald-300' },
+              ].map((stage, idx, arr) => (
+                <React.Fragment key={stage.label}>
+                  <div className={`flex-1 ${stage.bg} ring-1 rounded-xl p-4 flex justify-between items-center`}>
+                    <p className={`text-sm font-semibold ${stage.text}`}>{stage.label}</p>
+                    <p className={`text-2xl font-bold tabular-nums ${stage.count_color}`}>{stage.count}</p>
+                  </div>
+                  {idx < arr.length - 1 && <div className="flex items-center justify-center px-1">
+                    <ArrowRight className="text-slate-600" size={16} />
+                  </div>}
+                </React.Fragment>
+              ))}
             </div>
-            <div className="mt-4 h-1.5 w-full bg-slate-100 rounded-sm overflow-hidden flex">
+            <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex gap-0.5">
               <div
-                style={{
-                  width: `${stats?.total > 0 && pipeline?.open !== undefined
-                    ? (pipeline.open / stats.total) * 100
-                    : 0
-                    }%`,
-                }}
-                className="bg-slate-400 h-full"
+                style={{ width: `${stats?.total > 0 && pipeline?.open !== undefined ? (pipeline.open / stats.total) * 100 : 0}%` }}
+                className="bg-slate-500 h-full rounded-full"
               />
               <div
-                style={{
-                  width: `${stats?.total > 0 && pipeline?.progress !== undefined
-                    ? (pipeline.progress / stats.total) * 100
-                    : 0
-                    }%`,
-                }}
+                style={{ width: `${stats?.total > 0 && pipeline?.progress !== undefined ? (pipeline.progress / stats.total) * 100 : 0}%` }}
                 className="bg-blue-500 h-full"
               />
               <div
-                style={{
-                  width: `${stats?.total > 0 && pipeline?.resolved !== undefined
-                    ? (pipeline.resolved / stats.total) * 100
-                    : 0
-                    }%`,
-                }}
-                className="bg-emerald-500 h-full"
+                style={{ width: `${stats?.total > 0 && pipeline?.resolved !== undefined ? (pipeline.resolved / stats.total) * 100 : 0}%` }}
+                className="bg-emerald-500 h-full rounded-full"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-            <div className={`p-5 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-              <h2 className={`font-semibold text-sm mb-4 border-b pb-2 ${darkMode ? "text-slate-200 border-slate-700" : "text-slate-800 border-slate-100"}`}>
+          {/* richyrik: Criticality Status + Vulnerability Types — FinOps ring-panel style */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
+            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 hover:ring-slate-700 transition-all">
+              <h2 className="font-bold text-sm mb-4 text-slate-200 flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-red-500/15 ring-1 ring-red-500/30">
+                  <AlertTriangle size={15} className="text-red-400" />
+                </div>
                 Criticality Status
               </h2>
               <div className="flex flex-col items-center">
@@ -3952,118 +4470,76 @@ const AppContent: React.FC = () => {
                   {severityPieData.data && severityPieData.data.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
-                        <Pie
-                          data={severityPieData.data}
-                          innerRadius={50}
-                          outerRadius={70}
-                          paddingAngle={2}
-                          dataKey="value"
-                        >
+                        <Pie data={severityPieData.data} innerRadius={50} outerRadius={70} paddingAngle={2} dataKey="value">
                           {severityPieData.data.map((entry, index) => (
-                            <Cell
-                              key={`cell-${index}`}
-                              fill={entry.color || "#000"}
-                            />
+                            <Cell key={`cell-${index}`} fill={entry.color || "#000"} />
                           ))}
                         </Pie>
-                        <RechartsTooltip
-                          contentStyle={{
-                            fontSize: "12px",
-                            border: "1px solid #e2e8f0",
-                            borderRadius: "4px",
-                            backgroundColor: darkMode ? "#1f2937" : "#fff",
-                          }}
-                        />
+                        <RechartsTooltip contentStyle={{ fontSize: "12px", border: "1px solid #1e293b", borderRadius: 8, backgroundColor: "#0f172a", color: "#e2e8f0" }} />
                       </PieChart>
                     </ResponsiveContainer>
                   ) : (
-                    <p className={`text-xs uppercase font-semibold ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
-                      No issues
-                    </p>
+                    <div className="text-center">
+                      <AlertTriangle size={28} className="text-slate-700 mx-auto mb-2" />
+                      <p className="text-xs text-slate-600 uppercase font-semibold tracking-widest">No Issues</p>
+                    </div>
                   )}
                 </div>
                 {severityPieData.allData && severityPieData.allData.length > 0 && (
                   <>
-                    <div className="flex flex-wrap justify-center gap-3 mt-2">
+                    <div className="flex flex-wrap justify-center gap-2 mt-2">
                       {severityPieData.allData.filter(item => item.value > 0).map((item) => (
-                        <div key={item.name} className="flex items-center gap-2">
-                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
-                          <span className={`text-xs font-semibold ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                            {item.name}: {item.value}
-                          </span>
+                        <div key={item.name} className="flex items-center gap-1.5">
+                          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                          <span className="text-xs font-semibold text-slate-300">{item.name}: {item.value}</span>
                         </div>
                       ))}
                     </div>
-                    <div className={`mt-3 pt-2 border-t text-center ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
-                      <span className={`text-sm font-bold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
-                        Total Vulnerabilities: {severityPieData.total}
-                      </span>
+                    <div className="mt-3 pt-2 border-t border-slate-800 text-center w-full">
+                      <span className="text-sm font-bold text-slate-200">Total Vulnerabilities: {severityPieData.total}</span>
                     </div>
                   </>
                 )}
               </div>
             </div>
-            <div className={`lg:col-span-2 p-5 rounded border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-              <h2 className={`font-semibold text-sm mb-4 border-b pb-2 ${darkMode ? "text-slate-200 border-slate-700" : "text-slate-800 border-slate-100"}`}>
+            <div className="lg:col-span-2 bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 hover:ring-slate-700 transition-all">
+              <h2 className="font-bold text-sm mb-4 text-slate-200 flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-indigo-500/15 ring-1 ring-indigo-500/30">
+                  <Bug size={15} className="text-indigo-400" />
+                </div>
                 Vulnerability Types
               </h2>
               <div className="h-64 flex items-center justify-center">
                 {typeChartData && typeChartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      layout="vertical"
-                      data={typeChartData}
-                      margin={{ left: 10, right: 20 }}
-                    >
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        horizontal={true}
-                        vertical={false}
-                        stroke="#e2e8f0"
-                      />
+                    <BarChart layout="vertical" data={typeChartData} margin={{ left: 10, right: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#1e293b" />
                       <XAxis type="number" hide />
-                      <YAxis
-                        dataKey="name"
-                        type="category"
-                        width={150}
-                        tick={{ fontSize: 11, fill: "#64748b" }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <RechartsTooltip
-                        cursor={{ fill: "#f1f5f9" }}
-                        contentStyle={{
-                          fontSize: "12px",
-                          border: "1px solid #e2e8f0",
-                          borderRadius: "4px",
-                        }}
-                      />
-                      <Bar
-                        dataKey="Issues"
-                        fill="#3b82f6"
-                        radius={[0, 2, 2, 0]}
-                        barSize={20}
-                      />
+                      <YAxis dataKey="name" type="category" width={150} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                      <RechartsTooltip cursor={{ fill: "#1e293b" }} contentStyle={{ fontSize: "12px", border: "1px solid #1e293b", borderRadius: 8, backgroundColor: "#0f172a", color: "#e2e8f0" }} />
+                      <Bar dataKey="Issues" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={18} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-slate-400 text-xs uppercase font-semibold">
-                    No active data
-                  </p>
+                  <div className="text-center">
+                    <Bug size={28} className="text-slate-700 mx-auto mb-2" />
+                    <p className="text-xs text-slate-600 uppercase font-semibold tracking-widest">No Active Data</p>
+                  </div>
                 )}
               </div>
             </div>
           </div>
 
           {(currentFormat === "CONTAINER" || selectedFormatFilter === "CONTAINER") && (
-            <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-              <div className="flex items-center justify-between mb-4 border-b pb-2" style={{ borderColor: darkMode ? "#374151" : "#f1f5f9" }}>
-                <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="font-bold text-sm text-slate-200 flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-violet-500/15 ring-1 ring-violet-500/30">
+                    <Server size={15} className="text-violet-400" />
+                  </div>
                   Container Sub-Types
                   {selectedOwners.length > 0 && (
-                    <span className="text-xs text-slate-500 font-normal ml-2">
-                      (Filtered by Owner)
-                    </span>
+                    <span className="text-xs text-slate-500 font-normal ml-1">(Filtered by Owner)</span>
                   )}
                 </h2>
               </div>
@@ -4268,81 +4744,47 @@ const AppContent: React.FC = () => {
           )}
 
           {currentFormat !== "CSPM" && (
-            <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm mb-6">
-              <h2 className="font-semibold text-slate-800 text-sm mb-4 border-b border-slate-100 pb-2">
+            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+              <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
+                <div className="p-1.5 rounded-lg bg-sky-500/15 ring-1 ring-sky-500/30">
+                  <Activity size={15} className="text-sky-400" />
+                </div>
                 Discovery Timeline
               </h2>
               <div className="h-64 flex items-center justify-center">
                 {timelineChartData && timelineChartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={timelineChartData}
-                      margin={{ bottom: 30, right: 20, top: 10 }}
-                    >
+                    <AreaChart data={timelineChartData} margin={{ bottom: 30, right: 20, top: 10 }}>
                       <defs>
-                        <linearGradient
-                          id="colorIssues"
-                          x1="0"
-                          y1="0"
-                          x2="0"
-                          y2="1"
-                        >
-                          <stop
-                            offset="5%"
-                            stopColor="#ef4444"
-                            stopOpacity={0.4}
-                          />
-                          <stop
-                            offset="95%"
-                            stopColor="#ef4444"
-                            stopOpacity={0}
-                          />
+                        <linearGradient id="colorIssues" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        vertical={false}
-                        stroke="#e2e8f0"
-                      />
-                      <XAxis
-                        dataKey="date"
-                        tick={{ fontSize: 11, fill: "#64748b" }}
-                        angle={-45}
-                        textAnchor="end"
-                        height={50}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        allowDecimals={false}
-                        tick={{ fontSize: 11, fill: "#64748b" }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                      <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#64748b" }} angle={-45} textAnchor="end" height={50} axisLine={false} tickLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
                       <RechartsTooltip content={<CustomTimelineTooltip />} />
-                      <Area
-                        type="monotone"
-                        dataKey="Issues"
-                        stroke="#ef4444"
-                        strokeWidth={2}
-                        fillOpacity={1}
-                        fill="url(#colorIssues)"
-                      />
+                      <Area type="monotone" dataKey="Issues" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorIssues)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-slate-400 text-xs uppercase font-semibold">
-                    No active data
-                  </p>
+                  <div className="text-center">
+                    <Activity size={28} className="text-slate-700 mx-auto mb-2" />
+                    <p className="text-xs text-slate-600 uppercase font-semibold tracking-widest">No Active Data</p>
+                  </div>
                 )}
               </div>
             </div>
           )}
 
-          <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-            <div className="flex items-center justify-between mb-4 border-b pb-2">
-              <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
-                Workload & Risk Distribution by Assigned Owner
+          <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-sm text-slate-200 flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-cyan-500/15 ring-1 ring-cyan-500/30">
+                  <Users size={15} className="text-cyan-400" />
+                </div>
+                Workload &amp; Risk Distribution by Assigned Owner
               </h2>
               {selectedOwners.length > 0 && (
                 <div className="flex items-center gap-2 flex-wrap">
@@ -4427,33 +4869,44 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-            <div className="flex items-center justify-between mb-4 border-b pb-2">
-              <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>Risk Distribution by Cluster</h2>
-            </div>
+          <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+            <h2 className="font-bold text-sm mb-5 text-slate-200 flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-orange-500/15 ring-1 ring-orange-500/30">
+                <Activity size={15} className="text-orange-400" />
+              </div>
+              Risk Distribution by Cluster
+            </h2>
             <div className="h-72 flex items-center justify-center">
               {clusterChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={clusterChartData} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: darkMode ? "#9ca3af" : "#64748b" }} axisLine={false} tickLine={false} />
-                    <RechartsTooltip cursor={{ fill: darkMode ? "#374151" : "#f1f5f9" }} contentStyle={{ fontSize: "12px", border: "1px solid #e2e8f0", borderRadius: "4px", backgroundColor: darkMode ? "#1f2937" : "#fff" }} />
-                    <Legend wrapperStyle={{ fontSize: "12px" }} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                    <RechartsTooltip cursor={{ fill: "#1e293b" }} contentStyle={{ fontSize: "12px", border: "1px solid #1e293b", borderRadius: 8, backgroundColor: "#0f172a", color: "#e2e8f0" }} />
+                    <Legend wrapperStyle={{ fontSize: "12px", color: "#94a3b8" }} />
                     <Bar dataKey="Critical" stackId="a" fill="#dc2626" barSize={30} />
                     <Bar dataKey="High" stackId="a" fill="#f97316" />
                     <Bar dataKey="Medium" stackId="a" fill="#eab308" />
-                    <Bar dataKey="Low" stackId="a" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Low" stackId="a" fill="#6366f1" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
-              ) : <p className="text-slate-400 text-xs uppercase font-semibold">No active data</p>}
+              ) : (
+                <div className="text-center">
+                  <Activity size={28} className="text-slate-700 mx-auto mb-2" />
+                  <p className="text-xs text-slate-600 uppercase font-semibold tracking-widest">No Active Data</p>
+                </div>
+              )}
             </div>
           </div>
 
           {(currentFormat === "VAPT" || selectedFormatFilter === "VAPT") && lobChartData.length > 0 && (
-            <div className={`p-5 rounded border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
-              <div className="flex items-center justify-between mb-4 border-b pb-2">
-                <h2 className={`font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-800"}`}>
+            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="font-bold text-sm text-slate-200 flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-amber-500/15 ring-1 ring-amber-500/30">
+                    <Activity size={15} className="text-amber-400" />
+                  </div>
                   Risk Distribution by LOB Name
                 </h2>
                 {selectedLOBs.length > 0 && (
@@ -6438,21 +6891,27 @@ const AppContent: React.FC = () => {
           <MessageSquare size={24} className="text-purple-400" />
         </button>
       )}
+      </div>
     </div>
   );
 };
 
-const Card: React.FC<CardProps> = ({ title, val, Icon, bg }) => (
-  <div className={`${bg} p-5 rounded-lg border border-slate-200 flex items-center justify-between transition-shadow hover:shadow-md`}>
-    <div>
-      <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-1">{title}</p>
-      <p className={`text-2xl font-bold text-slate-800`}>{val}</p>
+// richyrik: Completely restyled Card to match FinOps aesthetic — dark ring panel with gradient icon badge
+const Card: React.FC<CardProps & { accentColor?: string; ringColor?: string }> = ({ title, val, Icon, bg, accentColor, ringColor }) => {
+  const accent = accentColor || 'text-purple-400';
+  const ring   = ringColor   || 'bg-purple-500/15 ring-purple-500/30';
+  return (
+    <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 flex items-start gap-4 hover:ring-slate-700 transition-all duration-200 group">
+      <div className={`p-3 rounded-xl ${ring} ring-1 shrink-0`}>
+        <Icon size={20} className={accent} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">{title}</p>
+        <p className={`text-3xl font-bold text-white tabular-nums`}>{val}</p>
+      </div>
     </div>
-    <div className={`p-2.5 rounded-lg bg-slate-100`}>
-      <Icon size={20} className="text-slate-500" />
-    </div>
-  </div>
-);
+  );
+};
 
 const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
   const [query, setQuery] = useState<string>("");
@@ -6980,10 +7439,27 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
   );
 };
 
-const App: React.FC = () => (
-  <ErrorBoundary>
-    <AppContent />
-  </ErrorBoundary>
-);
+// richyrik: Root App component — owns the module routing state.
+// Renders LandingPage, CloudOps (AppContent), or FinOpsDashboard based on activeModule.
+const App: React.FC = () => {
+  const [activeModule, setActiveModule] = useState<'landing' | 'cloudops' | 'finops'>('landing');
+
+  return (
+    <ErrorBoundary>
+      {activeModule === 'landing' && (
+        // richyrik: Landing page — user picks which module to enter
+        <LandingPage onNavigate={(m) => setActiveModule(m)} />
+      )}
+      {activeModule === 'cloudops' && (
+        // richyrik: Existing CloudOps & Security dashboard
+        <AppContent onNavigateHome={() => setActiveModule('landing')} />
+      )}
+      {activeModule === 'finops' && (
+        // richyrik: New FinOps dashboard
+        <FinOpsDashboard onNavigateHome={() => setActiveModule('landing')} />
+      )}
+    </ErrorBoundary>
+  );
+};
 
 export default App;
