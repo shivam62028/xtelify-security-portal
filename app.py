@@ -2811,6 +2811,40 @@ async def update_issue_status(req: Request):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+# richyrik: ETA (Due Date) update endpoint — mirrors the status PATCH pattern.
+# Prints a notification hook so an email service can be wired in later.
+@app.patch("/api/issues/eta")
+async def update_issue_eta(req: Request):
+    try:
+        data = await req.json()
+        issue_id = str(data.get("IssueID", "")).strip()
+        upload_batch = str(data.get("UploadBatch", "")).strip()
+        new_eta = str(data.get("new_eta", "")).strip()
+        if not issue_id or not new_eta:
+            return JSONResponse(status_code=400, content={"error": "Missing IssueID or new_eta"})
+
+        # richyrik: Match on IssueID + UploadBatch to avoid updating the wrong dataset's row
+        query = {"IssueID": issue_id}
+        if upload_batch and upload_batch not in ("", "NA"):
+            query["UploadBatch"] = upload_batch
+
+        res = issues_collection.find_one_and_update(
+            query,
+            {"$set": {"DueDate": new_eta}},
+            return_document=True
+        )
+        if not res:
+            return JSONResponse(status_code=404, content={"error": "Issue not found"})
+
+        # richyrik: Notification hook — replace this print with an email/Teams call when ready
+        print(f"TRIGGER NOTIFICATION: ETA updated → IssueID={issue_id} new_eta={new_eta}")
+
+        res["_id"] = str(res["_id"])
+        return ORJSONResponse(content={"DueDate": new_eta, "IssueID": issue_id})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.delete("/api/db")
 async def dd(req: Request):
     try:
@@ -4437,11 +4471,13 @@ async def get_analytics_datasets(formats: str = None, start_date: str = None, en
 
 @app.get("/api/analytics/historical")
 async def get_analytics_historical(
-    formats: str = None, 
-    start_date: str = None, 
-    end_date: str = None, 
+    formats: str = None,
+    start_date: str = None,
+    end_date: str = None,
     upload_batches: str = None,
-    mode: str = "Cumulative"
+    mode: str = "Cumulative",
+    # richyrik: time_grouping controls Daily / Weekly / Monthly bucketing for closure % trend
+    time_grouping: str = "daily",
 ):
     if not _is_mongo_available():
         return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
@@ -4458,30 +4494,84 @@ async def get_analytics_historical(
         # Get baseline query without date restriction to compute running totals
         base_query = match_query.copy()
             
+        # richyrik: Build the $group _id based on the requested time_grouping.
+        # Weekly uses ISO week number; monthly drops the day component.
+        tg = time_grouping.lower() if time_grouping else "daily"
+        if tg == "monthly":
+            group_id = {
+                "year": {"$year": "$UploadedAt"},
+                "month": {"$month": "$UploadedAt"},
+            }
+            sort_spec = {"_id.year": 1, "_id.month": 1}
+        elif tg == "weekly":
+            group_id = {
+                "year": {"$isoWeekYear": "$UploadedAt"},
+                "week": {"$isoWeek": "$UploadedAt"},
+            }
+            sort_spec = {"_id.year": 1, "_id.week": 1}
+        else:  # daily (default)
+            group_id = {
+                "year": {"$year": "$UploadedAt"},
+                "month": {"$month": "$UploadedAt"},
+                "day": {"$dayOfMonth": "$UploadedAt"},
+            }
+            sort_spec = {"_id.year": 1, "_id.month": 1, "_id.day": 1}
+
+        _resolved_cond = {"$in": [{"$toLower": "$Status"}, ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]]}
+
         pipeline = [
             {"$match": base_query},
             {"$group": {
-                "_id": {
-                    "year": {"$year": "$UploadedAt"},
-                    "month": {"$month": "$UploadedAt"},
-                    "day": {"$dayOfMonth": "$UploadedAt"}
-                },
+                "_id": group_id,
                 "total": {"$sum": 1},
-                "resolved": {
-                    "$sum": {
-                        "$cond": [{"$in": [{"$toLower": "$Status"}, ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]]}, 1, 0]
-                    }
-                },
-                "unresolved": {
-                    "$sum": {
-                        "$cond": [{"$in": [{"$toLower": "$Status"}, ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]]}, 0, 1]
-                    }
-                }
+                "resolved": {"$sum": {"$cond": [_resolved_cond, 1, 0]}},
+                "unresolved": {"$sum": {"$cond": [_resolved_cond, 0, 1]}},
             }},
-            {"$sort": {"_id.year": 1, "_id.month": 1, "_id.day": 1}}
+            {"$sort": sort_spec},
         ]
         
         daily_results = list(issues_collection.aggregate(pipeline, allowDiskUse=True))
+
+        # richyrik: For weekly/monthly groupings, flatten results directly into chart_data
+        # (no day-gap-fill needed; return period label + ClosurePct for trend line)
+        if tg in ("weekly", "monthly"):
+            chart_data = []
+            cum_total = 0
+            cum_res = 0
+            cum_unres = 0
+            for r in daily_results:
+                t = r["total"]
+                rv = r["resolved"]
+                uv = r["unresolved"]
+                cum_total += t
+                cum_res += rv
+                cum_unres += uv
+                if tg == "weekly":
+                    label = f"{r['_id']['year']}-W{r['_id']['week']:02d}"
+                else:
+                    label = f"{r['_id']['year']}-{r['_id']['month']:02d}"
+                period_t = cum_total if mode.lower() == "cumulative" else t
+                period_r = cum_res   if mode.lower() == "cumulative" else rv
+                period_u = cum_unres if mode.lower() == "cumulative" else uv
+                # richyrik: ClosurePct = resolved / total × 100; guard div-by-zero
+                closure_pct = round((period_r / period_t * 100), 1) if period_t else 0.0
+                chart_data.append({
+                    "date": label,
+                    "Total": period_t,
+                    "Resolved": period_r,
+                    "Unresolved": period_u,
+                    "DailyNew": t,
+                    "DailyResolved": rv,
+                    "DailyUnresolved": uv,
+                    "ClosurePct": closure_pct,
+                })
+            summary = {
+                "totalDatasets": len(issues_collection.distinct("UploadBatch", base_query)),
+                "totalVulnerabilities": cum_total,
+                "resolved": cum_res,
+                "unresolved": cum_unres,
+            }
+            return {"summary": summary, "chartData": chart_data}
         
         chart_data = []
         cum_total = 0
@@ -4557,6 +4647,8 @@ async def get_analytics_historical(
                     period_unres += daily_unres
                     
                     if mode.lower() == "cumulative":
+                        # richyrik: ClosurePct for daily cumulative view
+                        closure_pct = round((cum_res / cum_total * 100), 1) if cum_total else 0.0
                         chart_data.append({
                             "date": day_str,
                             "Total": cum_total,
@@ -4564,9 +4656,12 @@ async def get_analytics_historical(
                             "Unresolved": cum_unres,
                             "DailyNew": daily_total,
                             "DailyResolved": daily_res,
-                            "DailyUnresolved": daily_unres
+                            "DailyUnresolved": daily_unres,
+                            "ClosurePct": closure_pct,
                         })
                     else:
+                        # richyrik: ClosurePct for daily snapshot view
+                        closure_pct = round((daily_res / daily_total * 100), 1) if daily_total else 0.0
                         chart_data.append({
                             "date": day_str,
                             "Total": daily_total,
@@ -4574,7 +4669,8 @@ async def get_analytics_historical(
                             "Unresolved": daily_unres,
                             "DailyNew": daily_total,
                             "DailyResolved": daily_res,
-                            "DailyUnresolved": daily_unres
+                            "DailyUnresolved": daily_unres,
+                            "ClosurePct": closure_pct,
                         })
                         
                 current_day += timedelta(days=1)

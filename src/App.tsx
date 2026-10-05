@@ -70,6 +70,9 @@ import {
   CartesianGrid,
   BarChart,
   Bar,
+  // richyrik: ComposedChart + Line needed for the ClosurePct trend overlay
+  ComposedChart,
+  Line,
 } from "recharts";
 
 const BACKEND_URL = (() => {
@@ -509,6 +512,8 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
   const [startDateStr, setStartDateStr] = useState<string>('');
   const [endDateStr, setEndDateStr] = useState<string>('');
   const [viewMode, setViewMode] = useState<'Daily' | 'Cumulative'>('Daily');
+  // richyrik: time-grouping for weekly/monthly closure % trend
+  const [timeGrouping, setTimeGrouping] = useState<'daily' | 'weekly' | 'monthly'>('daily');
 
   const [loading, setLoading] = useState(false);
   const [datasets, setDatasets] = useState<any[]>([]);
@@ -535,7 +540,8 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
       const endQuery = endDateStr ? `end_date=${endDateStr}` : '';
       const batchesQuery = selectedDatasets.length > 0 ? `upload_batches=${selectedDatasets.join('||')}` : '';
 
-      const queryParams = [formatQuery, startQuery, endQuery, batchesQuery, `mode=${viewMode}`].filter(Boolean).join('&');
+      // richyrik: Pass time_grouping so the backend buckets data correctly
+      const queryParams = [formatQuery, startQuery, endQuery, batchesQuery, `mode=${viewMode}`, `time_grouping=${timeGrouping}`].filter(Boolean).join('&');
 
       const [histRes, dsRes, ownersRes] = await Promise.all([
         fetch(`${BACKEND_URL}/api/analytics/historical?${queryParams}`),
@@ -573,7 +579,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
 
   useEffect(() => {
     fetchAnalytics();
-  }, [selectedFormats, startDateStr, endDateStr, viewMode, selectedDatasets]);
+  }, [selectedFormats, startDateStr, endDateStr, viewMode, timeGrouping, selectedDatasets]);
 
   useEffect(() => {
     if (!selectedOwner) return;
@@ -668,6 +674,21 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
             <button onClick={() => setViewMode('Daily')} className={`px-3 py-1 text-xs font-bold rounded ${viewMode === 'Daily' ? 'bg-white dark:bg-slate-700 shadow' : 'text-slate-500'}`}>Daily</button>
             <button onClick={() => setViewMode('Cumulative')} className={`px-3 py-1 text-xs font-bold rounded ${viewMode === 'Cumulative' ? 'bg-white dark:bg-slate-700 shadow' : 'text-slate-500'}`}>Cumulative</button>
           </div>
+          {/* richyrik: Time-grouping toggle — controls daily/weekly/monthly bucketing and ClosurePct trend */}
+          <div className="flex bg-slate-200 dark:bg-slate-800 rounded p-1 ml-1">
+            <button
+              onClick={() => setTimeGrouping('daily')}
+              className={`px-3 py-1 text-xs font-bold rounded ${timeGrouping === 'daily' ? 'bg-white dark:bg-slate-700 shadow text-blue-600' : 'text-slate-500'}`}
+            >Day</button>
+            <button
+              onClick={() => setTimeGrouping('weekly')}
+              className={`px-3 py-1 text-xs font-bold rounded ${timeGrouping === 'weekly' ? 'bg-white dark:bg-slate-700 shadow text-blue-600' : 'text-slate-500'}`}
+            >Week</button>
+            <button
+              onClick={() => setTimeGrouping('monthly')}
+              className={`px-3 py-1 text-xs font-bold rounded ${timeGrouping === 'monthly' ? 'bg-white dark:bg-slate-700 shadow text-blue-600' : 'text-slate-500'}`}
+            >Month</button>
+          </div>
         </div>
       </div>
 
@@ -694,18 +715,35 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
         <p className={`text-sm italic mb-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Current cumulative totals as of {endDateStr || new Date().toISOString().split('T')[0]}</p>
       )}
 
-      <div id="vulnerability-history-chart" className={`h-64 mb-6 p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+      <div id="vulnerability-history-chart" className={`h-72 mb-6 p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+        {/* richyrik: ClosurePct label above chart */}
+        <div className="flex items-center justify-between mb-1">
+          <span className={`text-[10px] font-semibold uppercase tracking-wide ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            Vulnerability Trend
+          </span>
+          <span className={`text-[10px] font-semibold ${darkMode ? 'text-violet-400' : 'text-violet-600'}`}>
+            — Closure % ({timeGrouping})
+          </span>
+        </div>
         {loading ? <div className="h-full flex items-center justify-center">Loading...</div> : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData}>
+            {/* richyrik: ComposedChart lets us overlay the ClosurePct Line on the stacked Area */}
+            <ComposedChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#334155" : "#e2e8f0"} />
-              <XAxis dataKey="date" stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
-              <YAxis stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
-              <RechartsTooltip contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '8px' }} />
+              <XAxis dataKey="date" stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={11} />
+              {/* richyrik: Left axis for raw counts, right axis for closure % (0–100) */}
+              <YAxis yAxisId="left" stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={11} />
+              <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tickFormatter={(v) => `${v}%`} stroke="#7c3aed" fontSize={11} />
+              <RechartsTooltip
+                contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '8px' }}
+                formatter={(value: any, name: string) => name === 'ClosurePct' ? [`${value}%`, 'Closure %'] : [value, name]}
+              />
               <Legend />
-              <Area type="monotone" dataKey="Unresolved" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.6} />
-              <Area type="monotone" dataKey="Resolved" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.6} />
-            </AreaChart>
+              <Area yAxisId="left" type="monotone" dataKey="Unresolved" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.6} />
+              <Area yAxisId="left" type="monotone" dataKey="Resolved" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.6} />
+              {/* richyrik: Closure % trend line on secondary right axis */}
+              <Line yAxisId="right" type="monotone" dataKey="ClosurePct" stroke="#7c3aed" strokeWidth={2} dot={false} name="Closure %" />
+            </ComposedChart>
           </ResponsiveContainer>
         )}
       </div>
@@ -998,6 +1036,8 @@ const AppContent: React.FC = () => {
   const [aiRecipient, setAiRecipient] = useState<string>("");
   const [aiPrompt, setAiPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  // richyrik: Brief toast shown after a successful ETA update
+  const [etaToast, setEtaToast] = useState<string | null>(null);
   const [includeGraph, setIncludeGraph] = useState<boolean>(false);
   // ── Outlook share state (Microsoft Graph server-side draft) ─────────────
   // 'preparing'  → backend generating XLSX + calling Microsoft Graph
@@ -4702,6 +4742,24 @@ const AppContent: React.FC = () => {
                   </button>
                 )}
 
+                {/* richyrik: Send Reminders button — filters to Open/Overdue and opens Outlook modal pre-filled */}
+                {userRole === "Admin" && (
+                  <button
+                    onClick={() => {
+                      // richyrik: Show only open/unresolved issues so the scope is accurate
+                      applyFilter({ resolutionStatus: "Open" });
+                      // richyrik: Open the Outlook share modal; recipient is left for the user to fill
+                      setShareStep("form");
+                      setShareResult(null);
+                      setShareError("");
+                      setIsAiModalOpen(true);
+                    }}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-amber-500 text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                  >
+                    🔔 Send Reminders
+                  </button>
+                )}
+
                 <div className="flex gap-2">
                   <button
                     onClick={mexwfExport}
@@ -5142,7 +5200,56 @@ const AppContent: React.FC = () => {
                               return <td key={col} className="px-4 py-3"><span className={`px-2.5 py-1 rounded text-[10px] font-medium ${statusClass}`}>{issue.Status}</span></td>;
                             }
                             if (col === "DueDate") {
-                              return <td key={col} className={`px-4 py-3 text-xs font-mono whitespace-nowrap ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{issue.DueDate} {breached && !resolved && <span className="text-slate-400 ml-1">•</span>}</td>;
+                              // richyrik: Interactive ETA picker — PATCH /api/issues/eta on change
+                              const rawDate = issue.DueDate ? String(issue.DueDate).split("T")[0] : "";
+                              return (
+                                <td
+                                  key={col}
+                                  className="px-4 py-3 whitespace-nowrap"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <input
+                                    type="date"
+                                    defaultValue={rawDate}
+                                    className={`text-xs font-mono rounded border px-2 py-1 outline-none focus:ring-2 focus:ring-blue-400 ${
+                                      darkMode
+                                        ? "bg-slate-700 border-slate-600 text-slate-200"
+                                        : "bg-white border-slate-300 text-slate-700"
+                                    } ${breached && !resolved ? "border-red-400" : ""}`}
+                                    onBlur={async (e) => {
+                                      const newEta = e.target.value;
+                                      if (!newEta || newEta === rawDate) return;
+                                      try {
+                                        // richyrik: Send ETA update to backend
+                                        const res = await fetch("/api/issues/eta", {
+                                          method: "PATCH",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({
+                                            IssueID: String(issue.IssueID),
+                                            UploadBatch: String(issue.UploadBatch),
+                                            new_eta: newEta,
+                                          }),
+                                        });
+                                        if (res.ok) {
+                                          // richyrik: Optimistic UI update + brief success toast
+                                          setAllIssues((prev) =>
+                                            prev.map((i) =>
+                                              i.IssueID === issue.IssueID && i.UploadBatch === issue.UploadBatch
+                                                ? { ...i, DueDate: newEta }
+                                                : i
+                                            )
+                                          );
+                                          setEtaToast("✅ ETA Updated & Stakeholders Notified");
+                                          setTimeout(() => setEtaToast(null), 3500);
+                                        }
+                                      } catch {}
+                                    }}
+                                  />
+                                  {breached && !resolved && (
+                                    <span className="ml-1 text-[10px] text-red-400 font-semibold">Overdue</span>
+                                  )}
+                                </td>
+                              );
                             }
                             if (col === "AffectedAsset" || col === "AssetName") {
                               const assetVal = issue[col] ? String(issue[col]) : "—";
@@ -5423,6 +5530,13 @@ const AppContent: React.FC = () => {
             )}
           </div>
         </>
+      )}
+
+      {/* richyrik: ETA update toast notification */}
+      {etaToast && (
+        <div className="fixed bottom-6 right-6 z-[99999] flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl bg-emerald-600 text-white text-sm font-semibold animate-pulse">
+          {etaToast}
+        </div>
       )}
 
       {isAiModalOpen && (
