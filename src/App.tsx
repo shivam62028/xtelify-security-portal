@@ -14,7 +14,7 @@ import html2canvas from "html2canvas";
 import Tilt from "react-parallax-tilt";
 import CountUpMod from "react-countup";
 const CountUpComponent: any = (CountUpMod as any).default || CountUpMod;
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield,
   AlertTriangle,
@@ -466,7 +466,7 @@ class ErrorBoundary extends Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-slate-900 text-white p-10 font-mono flex items-center justify-center">
+        <div className="min-h-screen bg-[#07090E] text-white p-10 font-mono flex items-center justify-center">
           <div className="bg-red-500/10 border border-red-500 p-8 rounded-lg max-w-4xl w-full shadow-2xl">
             <h1 className="text-3xl font-bold text-red-500 mb-2 flex items-center gap-3">
               <AlertTriangle size={32} /> Fatal React Crash Detected
@@ -709,19 +709,19 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className={`p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+        <div className={`p-4 rounded-lg bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)]`}>
           <p className="text-xs text-slate-500 font-bold uppercase">Total Datasets</p>
           <p className="text-2xl font-bold">{summary.totalDatasets || 0}</p>
         </div>
-        <div className={`p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+        <div className={`p-4 rounded-lg bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)]`}>
           <p className="text-xs text-slate-500 font-bold uppercase">Vulnerabilities</p>
           <p className="text-2xl font-bold">{summary.totalVulnerabilities || 0}</p>
         </div>
-        <div className={`p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+        <div className={`p-4 rounded-lg bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)]`}>
           <p className="text-xs text-green-500 font-bold uppercase">Resolved</p>
           <p className="text-2xl font-bold text-green-500">{summary.resolved || 0}</p>
         </div>
-        <div className={`p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+        <div className={`p-4 rounded-lg bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)]`}>
           <p className="text-xs text-red-500 font-bold uppercase">Unresolved</p>
           <p className="text-2xl font-bold text-red-500">{summary.unresolved || 0}</p>
         </div>
@@ -731,7 +731,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
         <p className={`text-sm italic mb-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Current cumulative totals as of {endDateStr || new Date().toISOString().split('T')[0]}</p>
       )}
 
-      <div id="vulnerability-history-chart" className={`h-72 mb-6 p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+      <div id="vulnerability-history-chart" className={`h-72 mb-6 p-4 rounded-lg bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)]`}>
         {/* richyrik: ClosurePct label above chart */}
         <div className="flex items-center justify-between mb-1">
           <span className={`text-[10px] font-semibold uppercase tracking-wide ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -745,13 +745,13 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
           <ResponsiveContainer width="100%" height="100%">
             {/* richyrik: ComposedChart lets us overlay the ClosurePct Line on the stacked Area */}
             <ComposedChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#334155" : "#e2e8f0"} />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis dataKey="date" stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={11} />
               {/* richyrik: Left axis for raw counts, right axis for closure % (0–100) */}
               <YAxis yAxisId="left" stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={11} />
               <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tickFormatter={(v) => `${v}%`} stroke="#7c3aed" fontSize={11} />
               <RechartsTooltip
-                contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '8px' }}
+                contentStyle={{ backgroundColor: 'rgba(10,14,25,0.92)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px' }}
                 formatter={(value: any, name: string) => name === 'ClosurePct' ? [`${value}%`, 'Closure %'] : [value, name]}
               />
               <Legend />
@@ -769,16 +769,16 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
       </div>
 
       {!selectedOwner ? (
-        <div className={`p-4 rounded-lg border h-80 mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+        <div className={`p-4 rounded-lg h-80 mb-6 bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)]`}>
           {loading ? <div className="h-full flex items-center justify-center">Loading...</div> : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={ownerData} onClick={(data) => {
                 if (data?.activeLabel) setSelectedOwner(String(data.activeLabel));
               }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#334155" : "#e2e8f0"} />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                 <XAxis dataKey="Owner" stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
                 <YAxis stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
-                <RechartsTooltip contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '8px' }} cursor={{ fill: darkMode ? '#334155' : '#f1f5f9' }} />
+                <RechartsTooltip contentStyle={{ backgroundColor: 'rgba(10,14,25,0.92)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px' }} cursor={{ fill: darkMode ? '#334155' : '#f1f5f9' }} />
                 <Legend />
                 <Bar isAnimationActive={true} animationDuration={1500} dataKey="Resolved" stackId="a" fill="#22c55e" radius={[0, 0, 4, 4]} />
                 <Bar isAnimationActive={true} animationDuration={1500} dataKey="Unresolved" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
@@ -787,7 +787,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
           )}
         </div>
       ) : (
-        <div className={`p-4 rounded-lg border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
+        <div className={`p-4 rounded-lg mb-6 bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)]`}>
           <div className="flex justify-between items-center mb-4">
             <h4 className="font-bold text-lg">{selectedOwner}'s Analytics</h4>
             <div className="flex gap-2">
@@ -808,21 +808,21 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
             {['Total', 'Resolved', 'Unresolved', 'Critical', 'High'].map(k => (
-              <div key={k} className={`p-3 rounded-lg border ${darkMode ? "bg-slate-900 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div key={k} className={`p-3 rounded-lg bg-white/[0.03] backdrop-blur-xl border border-white/[0.08]`}>
                 <p className="text-xs text-slate-500 font-bold uppercase">{k}</p>
                 <p className={`text-xl font-bold ${k === 'Resolved' ? 'text-green-500' : k === 'Unresolved' || k === 'Critical' ? 'text-red-500' : ''}`}>{ownerSummary[k] || 0}</p>
               </div>
             ))}
           </div>
 
-          <div className={`h-64 p-4 rounded-lg border ${darkMode ? "bg-slate-900 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+          <div className={`h-64 p-4 rounded-lg bg-white/[0.03] backdrop-blur-xl border border-white/[0.08]`}>
             {ownerLoading ? <div className="h-full flex items-center justify-center">Loading...</div> : (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={ownerTimeline}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "#334155" : "#e2e8f0"} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                   <XAxis dataKey="date" stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
                   <YAxis stroke={darkMode ? "#94a3b8" : "#64748b"} fontSize={12} />
-                  <RechartsTooltip contentStyle={{ backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '8px' }} />
+                  <RechartsTooltip contentStyle={{ backgroundColor: 'rgba(10,14,25,0.92)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px' }} />
                   <Legend />
                   <Area type="monotone" dataKey="Unresolved" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.6} />
                   <Area type="monotone" dataKey="Resolved" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.6} />
@@ -847,7 +847,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
           <button onClick={handleCompare} disabled={compareBatches.length !== 2 || compareLoading} className="px-4 py-2 bg-purple-600 text-white rounded disabled:opacity-50">Run Comparison</button>
 
           {compareData && (
-            <div className="mt-4 p-4 bg-white dark:bg-slate-900 rounded">
+            <div className="mt-4 p-4 bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] rounded">
               <div className="flex gap-4 mb-4 font-bold text-sm">
                 <span className="text-red-500">New: {compareData.summary.NewFindings}</span>
                 <span className="text-green-500">Resolved: {compareData.summary.ResolvedFindings}</span>
@@ -872,7 +872,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
         </div>
       )}
 
-      <div className={`rounded-lg border overflow-hidden ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
+      <div className={`rounded-lg overflow-hidden border border-white/[0.08]`}>
         <table className="w-full text-left text-sm">
           <thead className={darkMode ? "bg-slate-800" : "bg-slate-100"}>
             <tr>
@@ -931,6 +931,15 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
 const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> = ({ onNavigate }) => {
   const [hovered, setHovered] = useState<'cloudops' | 'finops' | null>(null);
 
+  // richyrik: Fetch live dashboard stats for CloudOps
+  const [dashboardStats, setDashboardStats] = useState<any>(null);
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/api/db/summary`)
+      .then(res => res.json())
+      .then(data => setDashboardStats(data))
+      .catch(console.error);
+  }, []);
+
   const cards = [
     {
       id: 'cloudops' as const,
@@ -949,6 +958,12 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
         { label: 'Issues Tracked', value: '∞' },
         { label: 'Formats', value: '4' },
         { label: 'Integrations', value: 'Outlook' },
+      ],
+      hoverStats: [
+        { label: 'Total Issues', value: dashboardStats?.total || 0, isNumber: true, color: 'from-cyan-400 to-blue-500' },
+        { label: 'Critical Risks', value: dashboardStats?.severity?.critical || 0, isNumber: true, color: 'from-purple-400 to-pink-500' },
+        { label: 'Open Issues', value: dashboardStats?.status?.open || 0, isNumber: true, color: 'from-amber-400 to-orange-500' },
+        { label: 'Resolution Rate', value: dashboardStats?.total ? ((dashboardStats?.status?.resolved || 0) / dashboardStats.total * 100).toFixed(1) + '%' : '0%', isNumber: false, color: 'from-emerald-400 to-teal-500' },
       ],
     },
     {
@@ -969,25 +984,52 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
         { label: 'Credit Pools', value: 'GCP+AWS' },
         { label: 'Budget View', value: 'AOP' },
       ],
+      hoverStats: [
+        { label: 'MTD Spend', value: 142.5, prefix: '$', suffix: 'K', isNumber: true, color: 'from-emerald-400 to-teal-500', decimals: 1 },
+        { label: 'Pending NFAs', value: '3 Awaiting', isNumber: false, color: 'from-amber-400 to-orange-500' },
+        { label: 'Active GBPAs', value: '12 Contracts', isNumber: false, color: 'from-blue-400 to-cyan-500' },
+        { label: 'AOP Utilization', value: 68, suffix: '% Consumed', isNumber: true, color: 'from-violet-400 to-purple-500' },
+      ],
     },
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 overflow-hidden relative">
+    <div className="min-h-screen bg-[#07090E] flex flex-col items-center justify-center p-6 overflow-hidden relative">
       {/* richyrik: Animated grid background */}
       <div
         className="absolute inset-0 opacity-20"
         style={{
           backgroundImage:
-            'linear-gradient(rgba(99,102,241,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.3) 1px, transparent 1px)',
+            'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
           backgroundSize: '60px 60px',
         }}
       />
-      {/* richyrik: Ambient Orbiting Blobs background wrapper */}
+      {/* richyrik: Framer Motion animated gradient mesh orbs — deep space breathing background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-600 blur-[120px] rounded-full opacity-30 animate-pulse" style={{ animationDuration: '4s' }} />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-600 blur-[120px] rounded-full opacity-30 animate-pulse" style={{ animationDuration: '6s', animationDelay: '1s' }} />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[30rem] h-[30rem] bg-emerald-600 blur-[120px] rounded-full opacity-20 animate-pulse" style={{ animationDuration: '8s' }} />
+        <motion.div
+          className="absolute top-[10%] left-[15%] w-[500px] h-[500px] rounded-full opacity-20"
+          style={{ background: '#7000FF', filter: 'blur(150px)' }}
+          animate={{ x: [0, 60, -40, 0], y: [0, -80, 40, 0] }}
+          transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="absolute bottom-[10%] right-[10%] w-[450px] h-[450px] rounded-full opacity-15"
+          style={{ background: '#00F0FF', filter: 'blur(150px)' }}
+          animate={{ x: [0, -70, 50, 0], y: [0, 60, -50, 0] }}
+          transition={{ duration: 22, repeat: Infinity, ease: 'easeInOut', delay: 3 }}
+        />
+        <motion.div
+          className="absolute top-[50%] left-[50%] -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full opacity-10"
+          style={{ background: '#00FF66', filter: 'blur(150px)' }}
+          animate={{ x: [0, 40, -60, 20, 0], y: [0, -40, 60, -20, 0] }}
+          transition={{ duration: 26, repeat: Infinity, ease: 'easeInOut', delay: 6 }}
+        />
+        <motion.div
+          className="absolute top-[70%] left-[20%] w-[350px] h-[350px] rounded-full opacity-10"
+          style={{ background: '#FF6B00', filter: 'blur(150px)' }}
+          animate={{ x: [0, 80, -30, 0], y: [0, -50, 70, 0] }}
+          transition={{ duration: 30, repeat: Infinity, ease: 'easeInOut', delay: 9 }}
+        />
       </div>
 
       {/* richyrik: Header branding */}
@@ -995,7 +1037,7 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
         <div className="flex items-center justify-center gap-3 mb-4">
           <img src="/airtel-logo.svg" alt="Airtel" className="h-10 w-auto opacity-90" />
           <div className="h-8 w-px bg-slate-600" />
-          <span className="text-slate-300 font-semibold text-xl tracking-tight">Wynk Cloud Portal</span>
+          <span className="text-xl tracking-tight font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-400">Wynk Cloud Portal</span>
         </div>
         <p className="text-slate-500 text-sm font-medium tracking-widest uppercase">
           Select a module to continue
@@ -1009,11 +1051,13 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
           <Tilt
             key={card.id}
             glareEnable={true}
-            glareMaxOpacity={0.4}
+            glareMaxOpacity={0.5}
             glareColor="white"
             glarePosition="all"
-            tiltMaxAngleX={10}
-            tiltMaxAngleY={10}
+            tiltMaxAngleX={15}
+            tiltMaxAngleY={15}
+            scale={1.03}
+            transitionSpeed={2500}
             className="flex-1 flex"
           >
             <button
@@ -1021,48 +1065,96 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
               onMouseEnter={() => setHovered(card.id)}
               onMouseLeave={() => setHovered(null)}
               className={[
-                'w-full text-left rounded-2xl border p-8 cursor-pointer transition-all duration-500 outline-none',
-                // richyrik: glassmorphism + 3D lift on hover
-                'bg-gradient-to-br backdrop-blur-md',
-                card.gradient,
-                'border-slate-700/60',
-                `ring-2 ring-transparent ${card.ring}`,
-                `shadow-2xl ${card.glow}`,
+                'w-full text-left rounded-2xl p-8 cursor-pointer outline-none transition-all duration-500',
+                // richyrik: Premium glassmorphism card
+                'bg-white/[0.04] backdrop-blur-2xl',
+                'border border-white/[0.10]',
+                'shadow-[0_8px_32px_0_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.08)]',
                 hovered === card.id
-                  ? '-translate-y-4 scale-105'
-                  : 'translate-y-0 scale-100',
+                  ? 'border-white/[0.20] shadow-[0_16px_48px_0_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.12)]'
+                  : '',
               ].join(' ')}
-              style={{ transform: hovered === card.id ? 'translateY(-16px) scale(1.04) rotateX(2deg)' : 'translateY(0) scale(1) rotateX(0deg)', transformStyle: 'preserve-3d', perspective: '1000px', transition: 'all 0.45s cubic-bezier(0.23,1,0.32,1)' }}
+              style={{ transform: hovered === card.id ? 'translateY(-14px) scale(1.02)' : 'translateY(0) scale(1)', transition: 'all 0.4s cubic-bezier(0.23,1,0.32,1)' }}
             >
               {/* richyrik: Shimmer bar at top of card */}
               <div className={`h-1 w-full rounded-full mb-7 ${card.id === 'cloudops' ? 'bg-gradient-to-r from-purple-600 via-violet-400 to-purple-600' : 'bg-gradient-to-r from-emerald-600 via-teal-400 to-emerald-600'}`} />
 
-              <div className="flex items-start justify-between mb-6">
-                <div className={`p-3 rounded-xl ${card.id === 'cloudops' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-emerald-500/10 ring-1 ring-emerald-500/30'}`}>
-                  {card.icon}
-                </div>
-                <span className={`text-[10px] font-bold tracking-widest px-2.5 py-1 rounded-full ring-1 ${card.tagColor}`}>
-                  {card.tag}
-                </span>
+              {/* richyrik: Framer Motion AnimatePresence for Live Data Reveal */}
+              <div className="min-h-[220px]">
+                <AnimatePresence mode="wait">
+                  {hovered !== card.id ? (
+                    <motion.div
+                      key="default"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <div className="flex items-start justify-between mb-6">
+                        <div className={`p-3 rounded-xl ${card.id === 'cloudops' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-emerald-500/10 ring-1 ring-emerald-500/30'}`}>
+                          {card.icon}
+                        </div>
+                        <span className={`text-[10px] font-bold tracking-widest px-2.5 py-1 rounded-full ring-1 ${card.tagColor}`}>
+                          {card.tag}
+                        </span>
+                      </div>
+
+                      <h2 className={`text-2xl font-bold mb-1 bg-clip-text text-transparent ${card.id === 'cloudops' ? 'bg-gradient-to-r from-cyan-300 to-violet-400' : 'bg-gradient-to-r from-emerald-300 to-teal-400'}`}>{card.title}</h2>
+                      <p className={`text-xs font-semibold uppercase tracking-widest mb-4 ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
+                        {card.subtitle}
+                      </p>
+                      <p className="text-slate-400 text-sm leading-relaxed mb-7">{card.description}</p>
+
+                      <div className="grid grid-cols-3 gap-3 mb-7">
+                        {card.stats.map((s) => (
+                          <div key={s.label} className="bg-white/[0.05] border border-white/[0.08] rounded-lg p-2.5 text-center backdrop-blur-sm">
+                            <div className="text-white font-bold text-sm">{s.value}</div>
+                            <div className="text-slate-500 text-[10px] mt-0.5">{s.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="hovered"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                      className="h-full flex flex-col justify-center"
+                    >
+                      <div className="mb-4">
+                        <h3 className={`text-lg font-bold bg-clip-text text-transparent ${card.id === 'cloudops' ? 'bg-gradient-to-r from-cyan-300 to-violet-400' : 'bg-gradient-to-r from-emerald-300 to-teal-400'}`}>Live Dashboard Stats</h3>
+                        <p className="text-slate-400 text-xs mt-1">Real-time metrics synced from production.</p>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3 mb-7">
+                        {card.hoverStats?.map((s) => (
+                          <div key={s.label} className="bg-white/[0.06] border border-white/[0.12] rounded-xl p-4 backdrop-blur-md shadow-[0_8px_32px_0_rgba(0,0,0,0.2)] flex flex-col justify-center">
+                            <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">{s.label}</div>
+                            <div className={`text-2xl font-black bg-clip-text text-transparent bg-gradient-to-br ${s.color}`}>
+                              {s.isNumber ? (
+                                <CountUpComponent 
+                                  start={0} 
+                                  end={Number(s.value)} 
+                                  duration={1.5} 
+                                  separator="," 
+                                  prefix={s.prefix || ''} 
+                                  suffix={s.suffix || ''} 
+                                  decimals={s.decimals || 0}
+                                />
+                              ) : (
+                                s.value
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-
-              <h2 className="text-2xl font-bold text-white mb-1">{card.title}</h2>
-              <p className={`text-xs font-semibold uppercase tracking-widest mb-4 ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
-                {card.subtitle}
-              </p>
-              <p className="text-slate-400 text-sm leading-relaxed mb-7">{card.description}</p>
-
-              {/* richyrik: Quick stats row */}
-              <div className="grid grid-cols-3 gap-3 mb-7">
-                {card.stats.map((s) => (
-                  <div key={s.label} className="bg-slate-800/60 rounded-lg p-2.5 text-center">
-                    <div className="text-white font-bold text-sm">{s.value}</div>
-                    <div className="text-slate-500 text-[10px] mt-0.5">{s.label}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div className={`flex items-center gap-2 text-sm font-semibold ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
+<div className={`flex items-center gap-2 text-sm font-semibold ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
                 Enter Module <ArrowRight size={15} className={`transition-transform duration-300 ${hovered === card.id ? 'translate-x-1.5' : ''}`} />
               </div>
             </button>
@@ -1135,8 +1227,8 @@ const FinOpsDataEditorModal: React.FC<{
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/50">
+      <div className="bg-[#0D1117]/90 backdrop-blur-2xl border border-white/[0.10] shadow-[0_24px_64px_0_rgba(0,0,0,0.7),inset_0_1px_1px_rgba(255,255,255,0.08)] rounded-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between p-4 border-b border-white/[0.08] bg-white/[0.02]">
           <div className="flex items-center gap-3">
             <Database size={18} className="text-emerald-400" />
             <h2 className="text-lg font-bold text-white">Manage Data: {title}</h2>
@@ -1146,9 +1238,9 @@ const FinOpsDataEditorModal: React.FC<{
           </button>
         </div>
         <div className="p-4 overflow-auto flex-1">
-          <div className="bg-slate-950 rounded-lg ring-1 ring-slate-800 overflow-x-auto">
+          <div className="bg-[#07090E] rounded-lg ring-1 ring-slate-800 overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-[10px] uppercase tracking-wider text-slate-500 bg-slate-900/50">
+              <thead className="text-[10px] uppercase tracking-wider text-slate-500 bg-white/[0.03]">
                 <tr>
                   {columns.map(col => (
                     <th key={col} className="px-4 py-3 font-semibold">{col}</th>
@@ -1168,7 +1260,7 @@ const FinOpsDataEditorModal: React.FC<{
                             type="text"
                             value={row[col] ?? ''}
                             onChange={(e) => handleUpdate(idx, col, e.target.value)}
-                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                            className="w-full bg-white/[0.04] border border-white/[0.10] rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500/70 focus:ring-1 focus:ring-emerald-500/50 backdrop-blur-sm"
                           />
                         )}
                       </td>
@@ -1187,16 +1279,16 @@ const FinOpsDataEditorModal: React.FC<{
             )}
           </div>
           <div className="mt-4 flex justify-between items-center">
-            <button onClick={handleAddRow} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-md text-xs font-medium transition-colors ring-1 ring-slate-700">
+            <button onClick={handleAddRow} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.06] hover:bg-white/[0.10] text-white rounded-md text-xs font-medium transition-all ring-1 ring-white/[0.10]">
               <Plus size={14} /> Add Row
             </button>
           </div>
         </div>
-        <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex justify-end gap-3">
+        <div className="p-4 border-t border-white/[0.08] bg-white/[0.02] flex justify-end gap-3">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors">
             Cancel
           </button>
-          <button onClick={() => { onSave(localData); onClose(); }} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium shadow-lg shadow-emerald-500/20 transition-all">
+          <button onClick={() => { onSave(localData); onClose(); }} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:shadow-[0_0_28px_rgba(16,185,129,0.6)] transition-all">
             Save Changes
           </button>
         </div>
@@ -1284,10 +1376,10 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, ease: "easeOut" }}
-      className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col"
+      className="min-h-screen bg-[#07090E] text-slate-100 font-sans flex flex-col"
     >
       {/* richyrik: FinOps Header */}
-      <header className="bg-slate-900/80 border-b border-slate-800 backdrop-blur-sm px-6 py-4 flex items-center justify-between sticky top-0 z-50">
+      <header className="bg-[#07090E]/80 border-b border-white/[0.08] backdrop-blur-xl px-6 py-4 flex items-center justify-between sticky top-0 z-50">
         <div className="flex items-center gap-4">
           <button
             onClick={onNavigateHome}
@@ -1301,7 +1393,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
               <DollarSign size={18} className="text-emerald-400" />
             </div>
             <div>
-              <h1 className="text-base font-bold text-white">FinOps Dashboard</h1>
+              <h1 className="text-base font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 to-teal-400">FinOps Dashboard</h1>
               <p className="text-[10px] text-slate-500 uppercase tracking-widest">Financial Observability</p>
             </div>
           </div>
@@ -1309,7 +1401,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
         <div className="flex items-center gap-3">
           <button
             onClick={() => setIsManageDataOpen(true)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 hover:text-indigo-200 rounded-lg ring-1 ring-indigo-500/30 transition-all text-sm font-medium"
+            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 hover:text-indigo-200 rounded-lg ring-1 ring-indigo-500/30 transition-all text-sm font-medium hover:shadow-[0_0_15px_rgba(99,102,241,0.4)]"
           >
             <Edit2 size={14} /> Manage Data
           </button>
@@ -1325,14 +1417,14 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
 
       <div className="flex flex-1">
         {/* richyrik: FinOps left nav */}
-        <nav className="w-56 shrink-0 bg-slate-900/60 border-r border-slate-800 p-4 flex flex-col gap-1 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
+        <nav className="w-56 shrink-0 bg-white/[0.02] backdrop-blur-xl border-r border-white/[0.06] p-4 flex flex-col gap-1 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
           {nav.map((n) => (
             <button
               key={n.id}
               onClick={() => setActiveSection(n.id)}
               className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
                 activeSection === n.id
-                  ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30'
+                  ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
@@ -1346,7 +1438,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
               { label: 'Total Credits Left', value: fmt(creditPools.reduce((s, c) => s + (c.allocated - c.consumed), 0)), sub: 'across all pools', color: 'text-blue-400' },
               { label: 'Open Invoices', value: `₹${((billingData.reduce((s, d) => s + d.gcpOpen + d.awsOpen, 0)) / 1000).toFixed(0)}K`, sub: 'outstanding this year', color: 'text-amber-400' },
             ].map((kpi) => (
-              <div key={kpi.label} className="bg-slate-800/60 rounded-lg p-3 ring-1 ring-slate-700">
+              <div key={kpi.label} className="bg-white/[0.05] backdrop-blur-md rounded-lg p-3 border border-white/[0.08]">
                 <div className={`text-base font-bold ${kpi.color}`}>{kpi.value}</div>
                 <div className="text-[10px] text-slate-500 mt-0.5">{kpi.label}</div>
                 <div className={`text-[10px] mt-0.5 ${kpi.color}`}>{kpi.sub}</div>
@@ -1356,13 +1448,13 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
         </nav>
 
         {/* richyrik: Main content area */}
-        <main className="flex-1 p-6 overflow-auto">
+        <main className="flex-1 p-6 overflow-auto bg-transparent">
 
           {/* ── BILLING OBSERVABILITY ── */}
           {activeSection === 'billing' && (
             <div>
               <div className="mb-6">
-                <h2 className="text-xl font-bold text-white">Billing Observability</h2>
+                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 to-teal-400">Billing Observability</h2>
                 <p className="text-slate-400 text-sm mt-1">Month-by-month cloud spend — GCP & AWS split by Paid vs Outstanding invoices.</p>
               </div>
               {/* richyrik: Summary KPI row */}
@@ -1373,7 +1465,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                   { label: 'Total AWS Paid', value: billingData.reduce((s, d) => s + d.awsPaid, 0), color: 'text-orange-400', bg: 'bg-orange-500/10 ring-orange-500/20' },
                   { label: 'AWS Outstanding', value: billingData.reduce((s, d) => s + d.awsOpen, 0), color: 'text-red-400', bg: 'bg-red-500/10 ring-red-500/20' },
                 ].map((k) => (
-                  <div key={k.label} className={`rounded-xl p-4 ring-1 ${k.bg} bg-slate-900`}>
+                  <div key={k.label} className={`rounded-xl p-4 border ${k.bg} bg-white/[0.03] backdrop-blur-xl border-white/[0.08] hover:border-white/[0.15] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)]`}>
                     <div className={`text-2xl font-bold ${k.color}`}>
                       <CountUpComponent end={k.value} duration={2.5} separator="," formattingFn={(val) => fmt(val)} />
                     </div>
@@ -1382,7 +1474,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                 ))}
               </div>
               {/* richyrik: Stacked BarChart */}
-              <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5">
+              <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5">
                 <h3 className="text-sm font-semibold text-slate-300 mb-4">Monthly Cloud Spend Breakdown (₹)</h3>
                 <ResponsiveContainer width="100%" height={320}>
                   <BarChart data={billingData} barSize={32}>
@@ -1408,7 +1500,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
           {activeSection === 'credits' && (
             <div>
               <div className="mb-6">
-                <h2 className="text-xl font-bold text-white">Credit Discount Tracker</h2>
+                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-300 to-cyan-400">Credit Discount Tracker</h2>
                 <p className="text-slate-400 text-sm mt-1">Total allocated credits vs. consumed — see what remains at a glance.</p>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1420,7 +1512,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                     { name: 'Remaining', value: remaining },
                   ];
                   return (
-                    <div key={pool.name} className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5">
+                    <div key={pool.name} className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5">
                       <div className="flex items-start justify-between mb-4">
                         <div>
                           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{pool.provider}</span>
@@ -1491,14 +1583,14 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
           {activeSection === 'approvals' && (
             <div>
               <div className="mb-6">
-                <h2 className="text-xl font-bold text-white">NFA & GBPA Status Tracker</h2>
+                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-300 to-purple-400">NFA & GBPA Status Tracker</h2>
                 <p className="text-slate-400 text-sm mt-1">Track active approval notes, consumed vs balance, and full approval history.</p>
               </div>
               <div className="space-y-4">
                 {approvalItems.map((item) => {
                   const pct = Math.min(100, Math.round((item.consumed / item.allocated) * 100));
                   return (
-                    <div key={item.id} className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5">
+                    <div key={item.id} className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5">
                       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
@@ -1557,7 +1649,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
           {activeSection === 'aop' && (
             <div>
               <div className="mb-6">
-                <h2 className="text-xl font-bold text-white">AOP Dashboard — Annual Operating Plan</h2>
+                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-amber-300 to-orange-400">AOP Dashboard — Annual Operating Plan</h2>
                 <p className="text-slate-400 text-sm mt-1">Planned budget vs actual spend — identify over/under utilization by quarter.</p>
               </div>
               {/* richyrik: AOP KPI cards */}
@@ -1567,7 +1659,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                   { label: 'YTD Actual Spend', value: aopActual, icon: <Wallet size={18} />, color: aopActual > aopPlanned ? 'text-red-400' : 'text-emerald-400', bg: aopActual > aopPlanned ? 'bg-red-500/10 ring-red-500/20' : 'bg-emerald-500/10 ring-emerald-500/20' },
                   { label: `Variance (${aopVariance >= 0 ? 'Over' : 'Under'})`, value: Math.abs(aopVariance), icon: aopVariance >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />, color: aopVariance >= 0 ? 'text-red-400' : 'text-emerald-400', bg: aopVariance >= 0 ? 'bg-red-500/10 ring-red-500/20' : 'bg-emerald-500/10 ring-emerald-500/20' },
                 ].map((k) => (
-                  <motion.div whileHover={{ y: -5 }} key={k.label} className={`rounded-xl p-5 ring-1 ${k.bg} bg-slate-900 flex items-start gap-4`}>
+                  <motion.div whileHover={{ y: -5 }} key={k.label} className={`rounded-xl p-5 border ${k.bg} bg-white/[0.03] backdrop-blur-xl border-white/[0.08] flex items-start gap-4 hover:border-white/[0.18] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)]`}>
                     <div className={`p-2 rounded-lg bg-slate-800 ${k.color}`}>{k.icon}</div>
                     <div>
                       <div className={`text-2xl font-bold ${k.color}`}>
@@ -1579,7 +1671,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                 ))}
               </div>
               {/* richyrik: Grouped bar chart — Planned vs Actual by quarter */}
-              <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+              <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
                 <h3 className="text-sm font-semibold text-slate-300 mb-4">Planned vs Actual Spend by Quarter (₹)</h3>
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={aopData} barCategoryGap="30%" barGap={8}>
@@ -1597,7 +1689,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                 </ResponsiveContainer>
               </div>
               {/* richyrik: Quarter-by-quarter utilization table */}
-              <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl overflow-hidden">
+              <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl overflow-hidden">
                 <div className="px-5 py-3 border-b border-slate-800">
                   <h3 className="text-sm font-semibold text-slate-300">Quarter-by-Quarter Utilization</h3>
                 </div>
@@ -4210,10 +4302,10 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, ease: "easeOut" }}
-      className="min-h-screen font-sans bg-slate-950 text-slate-100"
+      className="min-h-screen font-sans bg-[#07090E] text-slate-100"
     >
       {/* richyrik: Sticky glassmorphism header — matches FinOps dashboard style */}
-      <header className="sticky top-0 z-50 bg-slate-900/80 border-b border-slate-800 backdrop-blur-sm px-6 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <header className="sticky top-0 z-50 bg-[#07090E]/85 border-b border-white/[0.08] backdrop-blur-xl px-6 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <img src="/airtel-logo.svg" alt="Airtel" className="h-9 w-auto" />
           <div className="h-7 w-px bg-slate-700" />
@@ -4273,7 +4365,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
       {/* richyrik: Overdue/due-today alert banner styled to match FinOps */}
       {(dueDateAlerts.overdue.length > 0 || dueDateAlerts.dueToday.length > 0) && (
-        <div className="mb-5 p-4 rounded-xl bg-slate-900 ring-1 ring-red-500/30 border-l-4 border-l-red-500 flex items-center justify-between">
+        <div className="mb-5 p-4 rounded-xl bg-red-500/[0.06] backdrop-blur-xl ring-1 ring-red-500/30 border-l-4 border-l-red-500 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <AlertCircle className="text-red-400" size={18} />
             <div className="flex items-center gap-5 text-sm">
@@ -4308,7 +4400,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
       {/* richyrik: View mode + format tab bars — FinOps pill style */}
       <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
-        <div className="flex p-1 rounded-xl bg-slate-900 ring-1 ring-slate-800">
+        <div className="flex p-1 rounded-xl bg-white/[0.04] ring-1 ring-white/[0.08]">
           {[
             { id: 'Optimized', label: 'Dashboard' },
             { id: 'Raw', label: 'Export View' },
@@ -4334,7 +4426,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
         </div>
 
         {/* richyrik: Format filter — purple accent pills matching CloudOps branding */}
-        <div className="flex items-center p-1 rounded-xl bg-slate-900 ring-1 ring-slate-800 mx-auto">
+        <div className="flex items-center p-1 rounded-xl bg-white/[0.04] ring-1 ring-white/[0.08] mx-auto">
           {[
             { id: "CONTAINER", label: "Container", icon: Server },
             { id: "VAPT", label: "VAPT", icon: Shield },
@@ -4413,7 +4505,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                   ))}
                 </tr>
               </thead>
-              <tbody className={darkMode ? "bg-slate-900" : "bg-white"}>
+              <tbody className="bg-transparent">
                 {activeIssues.map((issue, idx) => {
                   return (
                     <tr key={idx} className={`transition-colors ${darkMode ? "hover:bg-slate-800/50 border-b border-slate-800" : "hover:bg-slate-50 border-b border-slate-100"}`}>
@@ -4483,7 +4575,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
           {/* richyrik: Three-column analytics row — FinOps ring-panel style */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
             {/* SLA Compliance */}
-            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-6 hover:ring-slate-700 transition-all">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-6 hover:ring-slate-700 transition-all">
               <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
                 <div className="p-1.5 rounded-lg bg-emerald-500/15 ring-1 ring-emerald-500/30">
                   <Target size={15} className="text-emerald-400" />
@@ -4529,7 +4621,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
 
             {/* richyrik: Vulnerability Age Distribution */}
-            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 hover:ring-slate-700 transition-all">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 hover:ring-slate-700 transition-all">
               <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
                 <div className="p-1.5 rounded-lg bg-blue-500/15 ring-1 ring-blue-500/30">
                   <Clock size={15} className="text-blue-400" />
@@ -4561,7 +4653,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             </div>
 
             {/* richyrik: Resolution Tracking */}
-            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-6 hover:ring-slate-700 transition-all">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-6 hover:ring-slate-700 transition-all">
               <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
                 <div className="p-1.5 rounded-lg bg-purple-500/15 ring-1 ring-purple-500/30">
                   <CheckCircle size={15} className="text-purple-400" />
@@ -4592,7 +4684,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
           </div>
 
           {/* richyrik: Risk Heatmap — FinOps ring-panel style */}
-          <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+          <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
             <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
               <div className="p-1.5 rounded-lg bg-amber-500/15 ring-1 ring-amber-500/30">
                 <Zap size={15} className="text-amber-400" />
@@ -4637,7 +4729,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
           </div>
 
           {/* richyrik: Asset Resolution Pipeline — FinOps dark pill stage style */}
-          <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+          <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-bold text-sm flex items-center gap-2 text-slate-200">
                 <div className="p-1.5 rounded-lg bg-slate-700 ring-1 ring-slate-600">
@@ -4686,7 +4778,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
           {/* richyrik: Criticality Status + Vulnerability Types — FinOps ring-panel style */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
-            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 hover:ring-slate-700 transition-all">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 hover:ring-slate-700 transition-all">
               <h2 className="font-bold text-sm mb-4 text-slate-200 flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-red-500/15 ring-1 ring-red-500/30">
                   <AlertTriangle size={15} className="text-red-400" />
@@ -4730,7 +4822,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                 )}
               </div>
             </div>
-            <div className="lg:col-span-2 bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 hover:ring-slate-700 transition-all">
+            <div className="lg:col-span-2 bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 hover:ring-slate-700 transition-all">
               <h2 className="font-bold text-sm mb-4 text-slate-200 flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-indigo-500/15 ring-1 ring-indigo-500/30">
                   <Bug size={15} className="text-indigo-400" />
@@ -4759,7 +4851,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
           </div>
 
           {(currentFormat === "CONTAINER" || selectedFormatFilter === "CONTAINER") && (
-            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
               <div className="flex items-center justify-between mb-5">
                 <h2 className="font-bold text-sm text-slate-200 flex items-center gap-2">
                   <div className="p-1.5 rounded-lg bg-violet-500/15 ring-1 ring-violet-500/30">
@@ -4972,7 +5064,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
           )}
 
           {currentFormat !== "CSPM" && (
-            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
               <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
                 <div className="p-1.5 rounded-lg bg-sky-500/15 ring-1 ring-sky-500/30">
                   <Activity size={15} className="text-sky-400" />
@@ -5006,7 +5098,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             </div>
           )}
 
-          <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+          <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold text-sm text-slate-200 flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-cyan-500/15 ring-1 ring-cyan-500/30">
@@ -5097,7 +5189,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             </div>
           </div>
 
-          <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+          <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
             <h2 className="font-bold text-sm mb-5 text-slate-200 flex items-center gap-2">
               <div className="p-1.5 rounded-lg bg-orange-500/15 ring-1 ring-orange-500/30">
                 <Activity size={15} className="text-orange-400" />
@@ -5129,7 +5221,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
           </div>
 
           {(currentFormat === "VAPT" || selectedFormatFilter === "VAPT") && lobChartData.length > 0 && (
-            <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 mb-6">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
               <div className="flex items-center justify-between mb-5">
                 <h2 className="font-bold text-sm text-slate-200 flex items-center gap-2">
                   <div className="p-1.5 rounded-lg bg-amber-500/15 ring-1 ring-amber-500/30">
@@ -5229,7 +5321,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                   <input
                     type="text"
                     placeholder="Search vulnerabilities..."
-                    className={`flex-1 px-3 py-1.5 rounded border text-sm focus:border-purple-500 outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                    className={`flex-1 px-3 py-1.5 rounded border text-sm focus:border-purple-500 outline-none ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300"}`}
                     value={localSearch}
                     onChange={(e) => setLocalSearch(e.target.value)}
                   />
@@ -5470,7 +5562,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     <select
                       value={draftFilters.assignedTo}
                       onChange={e => setDraftFilters(prev => ({ ...prev, assignedTo: e.target.value }))}
-                      className={`p-2 rounded-lg border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                      className={`p-2 rounded-lg border text-sm outline-none ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300"}`}
                     >
                       <option value="All Owners">All Owners</option>
                       <option value="Unassigned">Unassigned</option>
@@ -5482,7 +5574,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
                   <div className="flex flex-col gap-2">
                     <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Cluster</label>
-                    <select value={draftFilters.cluster} onChange={e => setDraftFilters(prev => ({ ...prev, cluster: e.target.value }))} className={`p-2 rounded-lg border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}>
+                    <select value={draftFilters.cluster} onChange={e => setDraftFilters(prev => ({ ...prev, cluster: e.target.value }))} className={`p-2 rounded-lg border text-sm outline-none ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300"}`}>
                       <option value="All Clusters">All Clusters</option>
                       {metadataClusters.map(cluster => <option key={cluster} value={cluster}>{cluster}</option>)}
                     </select>
@@ -5494,7 +5586,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     <select
                       value={draftFilters.resolutionStatus}
                       onChange={e => setDraftFilters(prev => ({ ...prev, resolutionStatus: e.target.value }))}
-                      className={`p-2 rounded-lg border text-sm outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                      className={`p-2 rounded-lg border text-sm outline-none ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300"}`}
                     >
                       <option value="All">All</option>
                       <option value="Open">Open</option>
@@ -5553,7 +5645,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                           type="date"
                           value={draftFilters.dateFrom}
                           onChange={e => setDraftFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
-                          className={`flex-1 px-2 py-1 rounded border text-xs outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                          className={`flex-1 px-2 py-1 rounded border text-xs outline-none ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300"}`}
                         />
                       </div>
                       <div className="flex items-center gap-2">
@@ -5562,7 +5654,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                           type="date"
                           value={draftFilters.dateTo}
                           onChange={e => setDraftFilters(prev => ({ ...prev, dateTo: e.target.value }))}
-                          className={`flex-1 px-2 py-1 rounded border text-xs outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                          className={`flex-1 px-2 py-1 rounded border text-xs outline-none ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300"}`}
                         />
                       </div>
                       {(draftFilters.dateFrom || draftFilters.dateTo) && (
@@ -5630,7 +5722,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                       <select
                         value={draftFilters.searchField}
                         onChange={e => setDraftFilters(prev => ({ ...prev, searchField: e.target.value }))}
-                        className={`px-2 py-1.5 rounded border text-xs outline-none flex-none w-36 ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300"}`}
+                        className={`px-2 py-1.5 rounded border text-xs outline-none flex-none w-36 ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300"}`}
                       >
                         <option value="All">All Fields</option>
                         <option value="Issue ID">Issue ID</option>
@@ -5653,7 +5745,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                         onChange={e => setDraftFilters(prev => ({ ...prev, searchTerm: e.target.value }))}
                         onKeyDown={e => e.key === "Enter" && applyDraftFilters()}
                         placeholder="Search vulnerabilities…"
-                        className={`flex-1 px-3 py-1.5 rounded border text-xs outline-none ${darkMode ? "bg-slate-900 border-slate-600 text-white placeholder-slate-500" : "bg-white border-slate-300 placeholder-slate-400"}`}
+                        className={`flex-1 px-3 py-1.5 rounded border text-xs outline-none ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white placeholder-slate-500" : "bg-white border-slate-300 placeholder-slate-400"}`}
                       />
                     </div>
                   </div>
@@ -5793,7 +5885,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     ))}
                   </tr>
                 </thead>
-                <tbody className={darkMode ? "bg-slate-900" : "bg-white"}>
+                <tbody className="bg-transparent">
                   {paginatedIssues.length === 0 && (
                     <tr>
                       <td colSpan={tableCols.length} className={`px-4 py-12 text-center ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
@@ -7136,7 +7228,7 @@ const Card: React.FC<CardProps & { accentColor?: string; ringColor?: string }> =
   const accent = accentColor || 'text-purple-400';
   const ring   = ringColor   || 'bg-purple-500/15 ring-purple-500/30';
   return (
-    <div className="bg-slate-900 ring-1 ring-slate-800 rounded-xl p-5 flex items-start gap-4 hover:ring-slate-700 transition-all duration-200 group">
+    <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 flex items-start gap-4 hover:ring-slate-700 transition-all duration-200 group">
       <div className={`p-3 rounded-xl ${ring} ring-1 shrink-0`}>
         <Icon size={20} className={accent} />
       </div>
@@ -7240,7 +7332,7 @@ const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
       <div className="flex gap-2">
         <input
           type="text"
-          className="flex-1 p-2 bg-slate-900 border border-slate-600 rounded text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+          className="flex-1 p-2 bg-white/[0.06] border border-white/[0.12] rounded text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-400 backdrop-blur-sm"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && askAgent()}
@@ -7255,7 +7347,7 @@ const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
         </button>
       </div>
       {response && (
-        <div className="p-3 bg-slate-900 border border-slate-700 rounded mt-3 text-sm text-slate-300">
+        <div className="p-3 bg-white/[0.04] border border-white/[0.08] rounded mt-3 text-sm text-slate-300">
           {response}
         </div>
       )}
@@ -7468,18 +7560,18 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
         <div className="flex flex-col gap-1">
           <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Date From</label>
           <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`} />
+            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300 text-slate-800"}`} />
         </div>
         <div className="flex flex-col gap-1">
           <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Date To</label>
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`} />
+            className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300 text-slate-800"}`} />
         </div>
         {/* richyrik */}
         <div className="flex flex-col gap-1">
           <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Container Sub-Type</label>
           <select value={subTypeFilter} onChange={(e) => setSubTypeFilter(e.target.value)}
-            className={`px-3 py-1.5 text-sm rounded-md border w-40 ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`}>
+            className={`px-3 py-1.5 text-sm rounded-md border w-40 ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300 text-slate-800"}`}>
             <option value="All">All</option>
             <option value="Zero day VA">Zero day VA</option>
             <option value="Wiz CLI Integration">Wiz CLI Integration</option>
@@ -7494,7 +7586,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
             <Search size={14} className={`absolute left-2.5 top-2 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
             <input type="text" placeholder="Search..." value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-              className={`pl-8 pr-3 py-1.5 text-sm rounded-md border w-48 ${darkMode ? "bg-slate-900 border-slate-600 text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"}`} />
+              className={`pl-8 pr-3 py-1.5 text-sm rounded-md border w-48 ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"}`} />
           </div>
         </div>
         <button onClick={fetchReport} disabled={loading}
@@ -7508,7 +7600,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
           <label className={`text-xs font-bold ${darkMode ? "text-blue-400" : "text-blue-600"}`}>Closure Tracking Dates</label>
           <div className="flex items-center gap-2">
             <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)}
-              className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-slate-900 border-slate-600 text-white" : "bg-white border-slate-300 text-slate-800"}`} />
+              className={`px-3 py-1.5 text-sm rounded-md border ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300 text-slate-800"}`} />
             <button onClick={addTargetDate} disabled={!newDate}
               className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 disabled:opacity-40 transition-colors">
               + Add Date

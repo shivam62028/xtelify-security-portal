@@ -5,11 +5,36 @@
   color-scheme: dark;
 }
 
-/* Base typography */
+/* richyrik: Deep Space body — obsidian background for the entire app */
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: #07090E;
+  color: #e2e8f0;
 }
+
+/* richyrik: Premium scrollbars — thin, dark, with glow accent */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.5);
+}
+
+/* richyrik: Glassmorphism text-selection glow */
+::selection {
+  background-color: rgba(99, 102, 241, 0.3);
+  color: #fff;
+}
+
 
 /* Subtle hover effect for cards */
 .card-hover {
