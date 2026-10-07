@@ -15,6 +15,8 @@ import Tilt from "react-parallax-tilt";
 import CountUpMod from "react-countup";
 const CountUpComponent: any = (CountUpMod as any).default || CountUpMod;
 import { motion, AnimatePresence } from "framer-motion";
+// richyrik: import airtel logo
+import airtelLogo from './airtel-logo.png';
 import {
   Shield,
   AlertTriangle,
@@ -1067,7 +1069,8 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
           animate={{ opacity: 1, filter: "blur(0px)", y: 0 }}
           transition={{ type: "spring", stiffness: 100, damping: 20 }}
         >
-          <img src="/airtel-logo.svg" alt="Airtel" className="h-10 w-auto opacity-90" />
+          {/* richyrik: Updated landing page logo */}
+          <img src={airtelLogo} alt="Airtel Logo" className="h-10 w-10 object-contain rounded-md shadow-lg mr-3" />
           <div className="h-8 w-px bg-slate-600" />
           <motion.h1 className="text-xl tracking-tight font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-400">
             Wynk Cloud Portal
@@ -1449,9 +1452,8 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
           </button>
           <div className="h-6 w-px bg-slate-700" />
           <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-emerald-500/15 rounded-lg ring-1 ring-emerald-500/30">
-              <DollarSign size={18} className="text-emerald-400" />
-            </div>
+            {/* richyrik: Updated FinOps nav logo replacing DollarSign */}
+            <img src={airtelLogo} alt="Airtel Logo" className="h-8 w-8 object-contain rounded-sm mr-2" />
             <div>
               <h1 className="text-base font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 to-teal-400">FinOps Dashboard</h1>
               <p className="text-[10px] text-slate-500 uppercase tracking-widest">Financial Observability</p>
@@ -1731,7 +1733,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
                 ))}
               </div>
               {/* richyrik: Grouped bar chart — Planned vs Actual by quarter */}
-              <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
+              <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
                 <h3 className="text-sm font-semibold text-slate-300 mb-4">Planned vs Actual Spend by Quarter (₹)</h3>
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={aopData} barCategoryGap="30%" barGap={8}>
@@ -4367,7 +4369,8 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
       {/* richyrik: Sticky glassmorphism header — matches FinOps dashboard style */}
       <header className="sticky top-0 z-50 bg-[#07090E]/85 border-b border-white/[0.08] backdrop-blur-xl px-6 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex items-center gap-4">
-          <img src="/airtel-logo.svg" alt="Airtel" className="h-9 w-auto" />
+          {/* richyrik: Updated AppContent nav logo */}
+          <img src={airtelLogo} alt="Airtel Logo" className="h-8 w-8 object-contain rounded-sm mr-2" />
           <div className="h-7 w-px bg-slate-700" />
           {/* richyrik: CloudOps icon pill matching the landing page card */}
           <div className="flex items-center gap-2">
@@ -4635,7 +4638,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
           {/* richyrik: Three-column analytics row — FinOps ring-panel style */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
             {/* SLA Compliance */}
-            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-6 hover:ring-slate-700 transition-all">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-6 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
               <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
                 <div className="p-1.5 rounded-lg bg-emerald-500/15 ring-1 ring-emerald-500/30">
                   <Target size={15} className="text-emerald-400" />
@@ -4681,7 +4684,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
 
             {/* richyrik: Vulnerability Age Distribution */}
-            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 hover:ring-slate-700 transition-all">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
               <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
                 <div className="p-1.5 rounded-lg bg-blue-500/15 ring-1 ring-blue-500/30">
                   <Clock size={15} className="text-blue-400" />
@@ -4713,7 +4716,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             </div>
 
             {/* richyrik: Resolution Tracking */}
-            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-6 hover:ring-slate-700 transition-all">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-6 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
               <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
                 <div className="p-1.5 rounded-lg bg-purple-500/15 ring-1 ring-purple-500/30">
                   <CheckCircle size={15} className="text-purple-400" />
@@ -4744,7 +4747,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
           </div>
 
           {/* richyrik: Risk Heatmap — FinOps ring-panel style */}
-          <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
+          <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
             <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
               <div className="p-1.5 rounded-lg bg-amber-500/15 ring-1 ring-amber-500/30">
                 <Zap size={15} className="text-amber-400" />
@@ -4789,7 +4792,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
           </div>
 
           {/* richyrik: Asset Resolution Pipeline — FinOps dark pill stage style */}
-          <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
+          <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-bold text-sm flex items-center gap-2 text-slate-200">
                 <div className="p-1.5 rounded-lg bg-slate-700 ring-1 ring-slate-600">
@@ -4838,7 +4841,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
           {/* richyrik: Criticality Status + Vulnerability Types — FinOps ring-panel style */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
-            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 hover:ring-slate-700 transition-all">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
               <h2 className="font-bold text-sm mb-4 text-slate-200 flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-red-500/15 ring-1 ring-red-500/30">
                   <AlertTriangle size={15} className="text-red-400" />
@@ -4882,7 +4885,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                 )}
               </div>
             </div>
-            <div className="lg:col-span-2 bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 hover:ring-slate-700 transition-all">
+            <div className="lg:col-span-2 bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
               <h2 className="font-bold text-sm mb-4 text-slate-200 flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-indigo-500/15 ring-1 ring-indigo-500/30">
                   <Bug size={15} className="text-indigo-400" />
@@ -4911,7 +4914,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
           </div>
 
           {(currentFormat === "CONTAINER" || selectedFormatFilter === "CONTAINER") && (
-            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
               <div className="flex items-center justify-between mb-5">
                 <h2 className="font-bold text-sm text-slate-200 flex items-center gap-2">
                   <div className="p-1.5 rounded-lg bg-violet-500/15 ring-1 ring-violet-500/30">
@@ -5124,7 +5127,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
           )}
 
           {currentFormat !== "CSPM" && (
-            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
               <h2 className="font-bold text-sm mb-5 flex items-center gap-2 text-slate-200">
                 <div className="p-1.5 rounded-lg bg-sky-500/15 ring-1 ring-sky-500/30">
                   <Activity size={15} className="text-sky-400" />
@@ -5158,7 +5161,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             </div>
           )}
 
-          <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
+          <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold text-sm text-slate-200 flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-cyan-500/15 ring-1 ring-cyan-500/30">
@@ -5249,7 +5252,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             </div>
           </div>
 
-          <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
+          <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
             <h2 className="font-bold text-sm mb-5 text-slate-200 flex items-center gap-2">
               <div className="p-1.5 rounded-lg bg-orange-500/15 ring-1 ring-orange-500/30">
                 <Activity size={15} className="text-orange-400" />
@@ -5281,7 +5284,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
           </div>
 
           {(currentFormat === "VAPT" || selectedFormatFilter === "VAPT") && lobChartData.length > 0 && (
-            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6">
+            <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
               <div className="flex items-center justify-between mb-5">
                 <h2 className="font-bold text-sm text-slate-200 flex items-center gap-2">
                   <div className="p-1.5 rounded-lg bg-amber-500/15 ring-1 ring-amber-500/30">
@@ -7287,18 +7290,32 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 const Card: React.FC<CardProps & { accentColor?: string; ringColor?: string }> = ({ title, val, Icon, bg, accentColor, ringColor }) => {
   const accent = accentColor || 'text-purple-400';
   const ring   = ringColor   || 'bg-purple-500/15 ring-purple-500/30';
+  const isCritical = title.toLowerCase().includes('critical') || title.toLowerCase().includes('breach');
+
   return (
-    <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 flex items-start gap-4 hover:ring-slate-700 transition-all duration-200 group">
-      <div className={`p-3 rounded-xl ${ring} ring-1 shrink-0`}>
+    <motion.div 
+      whileHover={{ scale: 1.05, translateY: -5 }}
+      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+      className={`bg-white/[0.03] backdrop-blur-2xl border ${isCritical ? 'border-red-500/30 shadow-[0_8px_32px_0_rgba(239,68,68,0.15)] animate-pulse' : 'border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)]'} shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] hover:shadow-[0_16px_48px_0_rgba(0,0,0,0.5)] hover:border-white/[0.2] hover:bg-white/[0.05] rounded-xl p-5 flex items-start gap-4 transition-all duration-300 group overflow-hidden relative cursor-pointer`}
+    >
+      <motion.div 
+        initial={{ opacity: 0 }}
+        whileHover={{ opacity: 1, scale: 1.5, rotate: 45 }}
+        className={`absolute -right-10 -top-10 w-32 h-32 blur-3xl opacity-0 ${ring.split(' ')[0]} transition-opacity duration-500 pointer-events-none`}
+      />
+      <motion.div 
+        whileHover={{ rotate: 10, scale: 1.1 }}
+        className={`p-3 rounded-xl ${ring} ring-1 shrink-0 z-10`}
+      >
         <Icon size={20} className={accent} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">{title}</p>
-        <p className={`text-3xl font-bold text-white tabular-nums`}>
+      </motion.div>
+      <div className="flex-1 min-w-0 z-10">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 group-hover:text-slate-300 transition-colors mb-1.5">{title}</p>
+        <p className={`text-3xl font-black text-white tabular-nums drop-shadow-md`}>
           {typeof val === 'number' ? <CountUpComponent end={val} duration={2.5} separator="," /> : val}
         </p>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
