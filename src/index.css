@@ -141,3 +141,14 @@ tbody tr {
     display: none !important;
   }
 }
+
+/* richyrik: Shimmer Sweep animation */
+@keyframes shimmer {
+  to {
+    background-position: -200% center;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 3s linear infinite;
+}

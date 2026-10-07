@@ -931,6 +931,18 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
 const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> = ({ onNavigate }) => {
   const [hovered, setHovered] = useState<'cloudops' | 'finops' | null>(null);
 
+  // richyrik: Stagger variant
+  const itemVariant = {
+    hidden: { opacity: 0, y: 15 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } }
+  };
+
+  const viewVariants = {
+    hidden: { opacity: 0, y: 10 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.2, staggerChildren: 0.1 } },
+    exit: { opacity: 0, y: -10, transition: { duration: 0.2 } }
+  };
+
   // richyrik: Fetch live dashboard stats for CloudOps
   const [dashboardStats, setDashboardStats] = useState<any>(null);
   useEffect(() => {
@@ -995,6 +1007,20 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
 
   return (
     <div className="min-h-screen bg-[#07090E] flex flex-col items-center justify-center p-6 overflow-hidden relative">
+      {/* richyrik: Command Center Ticker Tape (Infinite Scrolling Text) */}
+      <div className="absolute top-0 w-full h-8 bg-black/40 border-b border-white/10 overflow-hidden flex items-center z-50">
+        <motion.div
+          className="text-xs font-mono tracking-widest text-emerald-400 whitespace-nowrap"
+          animate={{ x: ["100vw", "-100%"] }}
+          transition={{ repeat: Infinity, duration: 25, ease: "linear" }}
+        >
+          SYSTEM SECURE • 0 CRITICAL ALERTS • AWS BILLING SYNCED • ALL MODULES ONLINE • NO ACTIVE BREACHES • VULNERABILITY SCANNERS ACTIVE
+        </motion.div>
+      </div>
+      {/* richyrik: Animated Data Rings */}
+      <motion.div className="absolute top-1/2 left-1/2 w-[800px] h-[800px] border border-dashed border-white/5 rounded-full pointer-events-none" style={{ x: "-50%", y: "-50%" }} animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 100, ease: "linear" }} />
+      <motion.div className="absolute top-1/2 left-1/2 w-[600px] h-[600px] border border-dashed border-white/5 rounded-full pointer-events-none" style={{ x: "-50%", y: "-50%" }} animate={{ rotate: -360 }} transition={{ repeat: Infinity, duration: 100, ease: "linear" }} />
+      
       {/* richyrik: Animated grid background */}
       <div
         className="absolute inset-0 opacity-20"
@@ -1034,12 +1060,21 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
 
       {/* richyrik: Header branding */}
       <div className="relative z-10 mb-14 text-center">
-        <div className="flex items-center justify-center gap-3 mb-4">
+                {/* richyrik: Cyberpunk Text Reveal */}
+        <motion.div 
+          className="flex items-center justify-center gap-3 mb-4"
+          initial={{ opacity: 0, filter: "blur(10px)", y: -20 }}
+          animate={{ opacity: 1, filter: "blur(0px)", y: 0 }}
+          transition={{ type: "spring", stiffness: 100, damping: 20 }}
+        >
           <img src="/airtel-logo.svg" alt="Airtel" className="h-10 w-auto opacity-90" />
           <div className="h-8 w-px bg-slate-600" />
-          <span className="text-xl tracking-tight font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-400">Wynk Cloud Portal</span>
-        </div>
-        <p className="text-slate-500 text-sm font-medium tracking-widest uppercase">
+          <motion.h1 className="text-xl tracking-tight font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-400">
+            Wynk Cloud Portal
+          </motion.h1>
+        </motion.div>
+        {/* richyrik: Gradient Shimmer Sweep */}
+        <p className="text-sm font-medium tracking-widest uppercase bg-gradient-to-r from-slate-500 via-white to-slate-500 bg-[length:200%_auto] animate-shimmer text-transparent bg-clip-text">
           Select a module to continue
         </p>
         <div className="mt-3 h-px w-40 mx-auto bg-gradient-to-r from-transparent via-slate-600 to-transparent" />
@@ -1047,9 +1082,15 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
 
       {/* richyrik: Module cards */}
       <div className="relative z-10 flex flex-col md:flex-row gap-8 w-full max-w-5xl">
-        {cards.map((card) => (
-          <Tilt
+        {cards.map((card, index) => (
+          /* richyrik: Zero-Gravity Idle Float */
+          <motion.div
             key={card.id}
+            animate={{ y: [-5, 5, -5] }}
+            transition={{ repeat: Infinity, duration: 6, ease: "easeInOut", delay: index === 1 ? 1 : 0 }}
+            className="flex-1 flex"
+          >
+          <Tilt
             glareEnable={true}
             glareMaxOpacity={0.5}
             glareColor="white"
@@ -1058,14 +1099,14 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
             tiltMaxAngleY={15}
             scale={1.03}
             transitionSpeed={2500}
-            className="flex-1 flex"
+            className="w-full flex"
           >
             <button
               onClick={() => onNavigate(card.id)}
               onMouseEnter={() => setHovered(card.id)}
               onMouseLeave={() => setHovered(null)}
               className={[
-                'w-full text-left rounded-2xl p-8 cursor-pointer outline-none transition-all duration-500',
+                'group w-full text-left rounded-2xl p-8 cursor-pointer outline-none transition-all duration-500',
                 // richyrik: Premium glassmorphism card
                 'bg-white/[0.04] backdrop-blur-2xl',
                 'border border-white/[0.10]',
@@ -1076,89 +1117,108 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
               ].join(' ')}
               style={{ transform: hovered === card.id ? 'translateY(-14px) scale(1.02)' : 'translateY(0) scale(1)', transition: 'all 0.4s cubic-bezier(0.23,1,0.32,1)' }}
             >
+              {/* richyrik: Staggered Cascade Reveal (On Mount) */}
+              <motion.div variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.15 } } }} initial="hidden" animate="visible">
               {/* richyrik: Shimmer bar at top of card */}
-              <div className={`h-1 w-full rounded-full mb-7 ${card.id === 'cloudops' ? 'bg-gradient-to-r from-purple-600 via-violet-400 to-purple-600' : 'bg-gradient-to-r from-emerald-600 via-teal-400 to-emerald-600'}`} />
+              <motion.div variants={itemVariant} className={`h-1 w-full rounded-full mb-7 ${card.id === 'cloudops' ? 'bg-gradient-to-r from-purple-600 via-violet-400 to-purple-600' : 'bg-gradient-to-r from-emerald-600 via-teal-400 to-emerald-600'}`} />
 
               {/* richyrik: Framer Motion AnimatePresence for Live Data Reveal */}
               <div className="min-h-[220px]">
                 <AnimatePresence mode="wait">
                   {hovered !== card.id ? (
                     <motion.div
-                      key="default"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      transition={{ duration: 0.2 }}
+                      key="default-view"
+                      variants={viewVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      className="flex flex-col h-full"
                     >
-                      <div className="flex items-start justify-between mb-6">
+                      <motion.div variants={itemVariant} className="flex items-start justify-between mb-6">
                         <div className={`p-3 rounded-xl ${card.id === 'cloudops' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-emerald-500/10 ring-1 ring-emerald-500/30'}`}>
                           {card.icon}
                         </div>
                         <span className={`text-[10px] font-bold tracking-widest px-2.5 py-1 rounded-full ring-1 ${card.tagColor}`}>
                           {card.tag}
                         </span>
-                      </div>
+                      </motion.div>
 
-                      <h2 className={`text-2xl font-bold mb-1 bg-clip-text text-transparent ${card.id === 'cloudops' ? 'bg-gradient-to-r from-cyan-300 to-violet-400' : 'bg-gradient-to-r from-emerald-300 to-teal-400'}`}>{card.title}</h2>
-                      <p className={`text-xs font-semibold uppercase tracking-widest mb-4 ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
+                      <motion.h2 variants={itemVariant} className={`text-2xl font-bold mb-1 bg-clip-text text-transparent ${card.id === 'cloudops' ? 'bg-gradient-to-r from-cyan-300 to-violet-400' : 'bg-gradient-to-r from-emerald-300 to-teal-400'}`}>{card.title}</motion.h2>
+                      {/* richyrik: Continuous Shimmer Effect (Subheadings) */}
+                      <motion.p variants={itemVariant} className={`text-xs font-semibold uppercase tracking-widest mb-4 animate-shimmer text-transparent bg-clip-text bg-[length:200%_auto] ${card.id === 'cloudops' ? 'bg-gradient-to-r from-purple-400 via-white to-purple-400' : 'bg-gradient-to-r from-emerald-400 via-white to-emerald-400'}`}>
                         {card.subtitle}
-                      </p>
-                      <p className="text-slate-400 text-sm leading-relaxed mb-7">{card.description}</p>
+                      </motion.p>
+                      <motion.p variants={itemVariant} className="text-slate-400 text-sm leading-relaxed mb-7">{card.description}</motion.p>
 
-                      <div className="grid grid-cols-3 gap-3 mb-7">
+                      <motion.div variants={itemVariant} className="grid grid-cols-3 gap-3 mb-7">
                         {card.stats.map((s) => (
                           <div key={s.label} className="bg-white/[0.05] border border-white/[0.08] rounded-lg p-2.5 text-center backdrop-blur-sm">
                             <div className="text-white font-bold text-sm">{s.value}</div>
                             <div className="text-slate-500 text-[10px] mt-0.5">{s.label}</div>
                           </div>
                         ))}
-                      </div>
+                      </motion.div>
                     </motion.div>
                   ) : (
                     <motion.div
-                      key="hovered"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      transition={{ duration: 0.2 }}
-                      className="h-full flex flex-col justify-center"
+                      key="hover-view"
+                      variants={viewVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      className="grid grid-cols-2 gap-4 h-full content-start"
                     >
-                      <div className="mb-4">
-                        <h3 className={`text-lg font-bold bg-clip-text text-transparent ${card.id === 'cloudops' ? 'bg-gradient-to-r from-cyan-300 to-violet-400' : 'bg-gradient-to-r from-emerald-300 to-teal-400'}`}>Live Dashboard Stats</h3>
-                        <p className="text-slate-400 text-xs mt-1">Real-time metrics synced from production.</p>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-3 mb-7">
-                        {card.hoverStats?.map((s) => (
-                          <div key={s.label} className="bg-white/[0.06] border border-white/[0.12] rounded-xl p-4 backdrop-blur-md shadow-[0_8px_32px_0_rgba(0,0,0,0.2)] flex flex-col justify-center">
-                            <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">{s.label}</div>
-                            <div className={`text-2xl font-black bg-clip-text text-transparent bg-gradient-to-br ${s.color}`}>
-                              {s.isNumber ? (
-                                <CountUpComponent 
-                                  start={0} 
-                                  end={Number(s.value)} 
-                                  duration={1.5} 
-                                  separator="," 
-                                  prefix={s.prefix || ''} 
-                                  suffix={s.suffix || ''} 
-                                  decimals={s.decimals || 0}
-                                />
-                              ) : (
-                                s.value
-                              )}
-                            </div>
+                      {card.id === 'cloudops' ? (
+                        <>
+                          <div className="bg-white/[0.06] border border-white/[0.12] rounded-xl p-4 backdrop-blur-md shadow-[0_8px_32px_0_rgba(0,0,0,0.2)] flex flex-col justify-center">
+                            <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Total Issues</div>
+                            <div className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-br from-cyan-400 to-blue-500">{dashboardStats?.total || 0}</div>
                           </div>
-                        ))}
-                      </div>
+                          <div className="bg-white/[0.06] border border-white/[0.12] rounded-xl p-4 backdrop-blur-md shadow-[0_8px_32px_0_rgba(0,0,0,0.2)] flex flex-col justify-center">
+                            <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Critical</div>
+                            <div className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-br from-purple-400 to-pink-500">{dashboardStats?.severity?.critical || 0}</div>
+                          </div>
+                          <div className="bg-white/[0.06] border border-white/[0.12] rounded-xl p-4 backdrop-blur-md shadow-[0_8px_32px_0_rgba(0,0,0,0.2)] flex flex-col justify-center">
+                            <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Breached</div>
+                            <div className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-br from-amber-400 to-orange-500">0</div>
+                          </div>
+                          <div className="bg-white/[0.06] border border-white/[0.12] rounded-xl p-4 backdrop-blur-md shadow-[0_8px_32px_0_rgba(0,0,0,0.2)] flex flex-col justify-center">
+                            <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Sync</div>
+                            <div className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-br from-emerald-400 to-teal-500">Active</div>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="bg-white/[0.06] border border-white/[0.12] rounded-xl p-4 backdrop-blur-md shadow-[0_8px_32px_0_rgba(0,0,0,0.2)] flex flex-col justify-center">
+                            <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">MTD Spend</div>
+                            <div className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-br from-emerald-400 to-teal-500">$142K</div>
+                          </div>
+                          <div className="bg-white/[0.06] border border-white/[0.12] rounded-xl p-4 backdrop-blur-md shadow-[0_8px_32px_0_rgba(0,0,0,0.2)] flex flex-col justify-center">
+                            <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Active NFAs</div>
+                            <div className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-br from-amber-400 to-orange-500">3</div>
+                          </div>
+                          <div className="bg-white/[0.06] border border-white/[0.12] rounded-xl p-4 backdrop-blur-md shadow-[0_8px_32px_0_rgba(0,0,0,0.2)] flex flex-col justify-center">
+                            <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Credits</div>
+                            <div className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-br from-blue-400 to-cyan-500">85%</div>
+                          </div>
+                          <div className="bg-white/[0.06] border border-white/[0.12] rounded-xl p-4 backdrop-blur-md shadow-[0_8px_32px_0_rgba(0,0,0,0.2)] flex flex-col justify-center">
+                            <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Status</div>
+                            <div className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-br from-violet-400 to-purple-500">Healthy</div>
+                          </div>
+                        </>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>
               </div>
-<div className={`flex items-center gap-2 text-sm font-semibold ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
-                Enter Module <ArrowRight size={15} className={`transition-transform duration-300 ${hovered === card.id ? 'translate-x-1.5' : ''}`} />
-              </div>
+              {/* richyrik: Kinetic Enter Module Link */}
+              <motion.div variants={itemVariant} className={`flex items-center gap-2 text-sm font-semibold ${card.id === 'cloudops' ? 'text-purple-400' : 'text-emerald-400'}`}>
+                Enter Module <span className="transform transition-transform duration-300 group-hover:translate-x-2"><ArrowRight size={15} /></span>
+              </motion.div>
+              </motion.div>
             </button>
           </Tilt>
+          </motion.div>
         ))}
       </div>
 
