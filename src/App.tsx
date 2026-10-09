@@ -2833,6 +2833,45 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
     return activeIssues;
   }, [activeIssues, quickFilter]);
 
+  // richyrik: Dynamic Closure Report Data for Manager View
+  const closureReportData = useMemo(() => {
+    const dataMap: Record<string, { open: number; resolved: number }> = {};
+    
+    filteredActiveIssues.forEach(issue => {
+      const sourceFmt = issue.SourceFormat || "CONTAINER";
+      
+      let key = "Unknown";
+      if (currentFormat === "SAST_DAST" || currentFormat === "SAST/DAST") {
+        key = issue.ApplicationName || issue["Application Name"] || "Unknown";
+      } else if (currentFormat === "CSPM") {
+        key = issue.AccountName || issue["Account Name"] || issue.SubscriptionName || "Unknown";
+      } else if (currentFormat === "VAPT") {
+        key = issue.LOB || issue["LOB Name"] || "Unknown";
+      } else if (currentFormat === "CONTAINER") {
+        key = issue.SubType || issue.Namespace || "Unknown";
+      }
+
+      if (!key || String(key).trim() === "") {
+        key = "Unknown";
+      }
+
+      if (!dataMap[key]) {
+        dataMap[key] = { open: 0, resolved: 0 };
+      }
+
+      if (isResolved(issue.Status)) {
+        dataMap[key].resolved += 1;
+      } else {
+        dataMap[key].open += 1;
+      }
+    });
+
+    return Object.entries(dataMap).map(([name, counts]) => ({
+      name,
+      ...counts
+    }));
+  }, [filteredActiveIssues, currentFormat]);
+
   const tableAvailableCols = useMemo(() => {
     let fendralis = new Set<string>();
     if (currentFormat === "CONTAINER") {
@@ -4537,7 +4576,46 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
       {/* richyrik */}
       {viewMode === "Manager" ? (
-        <ManagerReportView darkMode={darkMode} />
+        <>
+          {closureReportData.length > 0 && (
+            <div className={`p-6 rounded-2xl border mb-6 ${darkMode ? "bg-slate-800/80 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
+              <h3 className={`font-extrabold text-lg mb-4 ${darkMode ? "text-slate-100" : "text-slate-800"}`}>
+                Closure Report
+              </h3>
+              <div className="h-72 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={closureReportData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                    <XAxis 
+                      dataKey="name" 
+                      tick={{ fill: darkMode ? "#94a3b8" : "#64748b", fontSize: 12 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis 
+                      tick={{ fill: darkMode ? "#94a3b8" : "#64748b", fontSize: 12 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip 
+                      cursor={{ fill: darkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)" }}
+                      contentStyle={{ 
+                        backgroundColor: darkMode ? "#1e293b" : "#ffffff",
+                        borderColor: darkMode ? "#334155" : "#e2e8f0",
+                        borderRadius: "8px",
+                        boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                        color: darkMode ? "#f8fafc" : "#0f172a"
+                      }}
+                    />
+                    <Legend iconType="circle" wrapperStyle={{ paddingTop: "20px" }} />
+                    <Bar dataKey="resolved" name="Resolved" stackId="a" fill="#10B981" radius={[0, 0, 4, 4]} />
+                    <Bar dataKey="open" name="Open" stackId="a" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+          <ManagerReportView darkMode={darkMode} />
+        </>
       ) : viewMode === "Calendar" ? <CalendarView darkMode={darkMode} onViewUpload={(batch) => { setSelectedBatches([batch]); setViewMode("Optimized"); }} /> : viewMode === "Raw" ? (
         <div className={`p-5 rounded-lg border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
           <div className="flex justify-between items-center mb-4">
