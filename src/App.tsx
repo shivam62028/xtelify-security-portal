@@ -2834,22 +2834,30 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   }, [activeIssues, quickFilter]);
 
   // richyrik: Dynamic Closure Report Data for Manager View
-  // Uses selectedFormatFilter (the active module toggle) to pick the correct grouping key.
-  // activeIssues is already pre-filtered by selectedFormatFilter, so no extra source check needed.
   const closureReportData = useMemo(() => {
     const dataMap: Record<string, { open: number; resolved: number }> = {};
 
+    // richyrik: Use activeIssues (or all issues available to the view)
     filteredActiveIssues.forEach(issue => {
+      // richyrik: CRITICAL FIX - strictly follow the active tab state
+      const issueFormat = issue.SourceFormat || "CONTAINER";
+      if (selectedFormatFilter !== "All" && issueFormat !== selectedFormatFilter) {
+        return;
+      }
+
       let key = "Unknown";
 
+      // richyrik: Implement Dynamic Grouping Keys
       if (selectedFormatFilter === "SAST_DAST" || selectedFormatFilter === "SAST/DAST") {
         key = issue.ApplicationName || issue["Application Name"] || "Unknown";
       } else if (selectedFormatFilter === "CSPM") {
         key = issue.AccountName || issue["Account Name"] || issue.SubscriptionName || "Unknown";
       } else if (selectedFormatFilter === "VAPT") {
         key = issue.LOB || issue["LOB Name"] || "Unknown";
+      } else if (selectedFormatFilter === "CONTAINER") {
+        key = issue.SubType || issue.Namespace || "Unknown";
       } else {
-        // CONTAINER or All — group by SubType
+        // Fallback for "All" or unknown tabs
         key = issue.SubType || issue.Namespace || "Unknown";
       }
 
