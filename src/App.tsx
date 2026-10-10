@@ -2834,24 +2834,26 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   }, [activeIssues, quickFilter]);
 
   // richyrik: Dynamic Closure Report Data for Manager View
+  // Uses selectedFormatFilter (the active module toggle) to pick the correct grouping key.
+  // activeIssues is already pre-filtered by selectedFormatFilter, so no extra source check needed.
   const closureReportData = useMemo(() => {
     const dataMap: Record<string, { open: number; resolved: number }> = {};
-    
+
     filteredActiveIssues.forEach(issue => {
-      const sourceFmt = issue.SourceFormat || "CONTAINER";
-      
       let key = "Unknown";
-      if (currentFormat === "SAST_DAST" || currentFormat === "SAST/DAST") {
+
+      if (selectedFormatFilter === "SAST_DAST" || selectedFormatFilter === "SAST/DAST") {
         key = issue.ApplicationName || issue["Application Name"] || "Unknown";
-      } else if (currentFormat === "CSPM") {
+      } else if (selectedFormatFilter === "CSPM") {
         key = issue.AccountName || issue["Account Name"] || issue.SubscriptionName || "Unknown";
-      } else if (currentFormat === "VAPT") {
+      } else if (selectedFormatFilter === "VAPT") {
         key = issue.LOB || issue["LOB Name"] || "Unknown";
-      } else if (currentFormat === "CONTAINER") {
+      } else {
+        // CONTAINER or All — group by SubType
         key = issue.SubType || issue.Namespace || "Unknown";
       }
 
-      if (!key || String(key).trim() === "") {
+      if (!key || String(key).trim() === "" || String(key).trim() === "NA") {
         key = "Unknown";
       }
 
@@ -2870,7 +2872,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
       name,
       ...counts
     }));
-  }, [filteredActiveIssues, currentFormat]);
+  }, [filteredActiveIssues, selectedFormatFilter]);
 
   const tableAvailableCols = useMemo(() => {
     let fendralis = new Set<string>();
