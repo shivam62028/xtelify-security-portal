@@ -2849,16 +2849,16 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
       // richyrik: Implement Dynamic Grouping Keys
       if (selectedFormatFilter === "SAST_DAST" || selectedFormatFilter === "SAST/DAST") {
-        key = issue.ApplicationName || issue["Application Name"] || "Unknown";
+        key = issue['Application Name'] || issue.ApplicationName || issue.application_name;
       } else if (selectedFormatFilter === "CSPM") {
-        key = issue.AccountName || issue["Account Name"] || issue.SubscriptionName || "Unknown";
+        key = issue['Account Name'] || issue.AccountName || issue.account_name;
       } else if (selectedFormatFilter === "VAPT") {
-        key = issue.LOB || issue["LOB Name"] || "Unknown";
+        key = issue['LOB'] || issue['LOB Name'] || issue.lob;
       } else if (selectedFormatFilter === "CONTAINER") {
-        key = issue.SubType || issue.Namespace || "Unknown";
+        key = issue['SubType'] || issue['Namespace'] || issue.subtype;
       } else {
         // Fallback for "All" or unknown tabs
-        key = issue.SubType || issue.Namespace || "Unknown";
+        key = issue.SubType || issue.Namespace || issue.ApplicationName || issue.AccountName || issue.LOB;
       }
 
       if (!key || String(key).trim() === "" || String(key).trim() === "NA") {
@@ -4408,6 +4408,12 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
     }
   };
 
+  // richyrik: Strict Empty State Handling check
+  const hasDataForActiveModule = useMemo(() => {
+    if (selectedFormatFilter === "All") return (allIssues || []).length > 0;
+    return (allIssues || []).some(issue => (issue.SourceFormat || "CONTAINER") === selectedFormatFilter);
+  }, [allIssues, selectedFormatFilter]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 30 }}
@@ -4586,46 +4592,48 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
       {/* richyrik */}
       {viewMode === "Manager" ? (
-        <>
-          {closureReportData.length > 0 && (
-            <div className={`p-6 rounded-2xl border mb-6 ${darkMode ? "bg-slate-800/80 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
-              <h3 className={`font-extrabold text-lg mb-4 ${darkMode ? "text-slate-100" : "text-slate-800"}`}>
-                Closure Report
-              </h3>
-              <div className="h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={closureReportData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                    <XAxis 
-                      dataKey="name" 
-                      tick={{ fill: darkMode ? "#94a3b8" : "#64748b", fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis 
-                      tick={{ fill: darkMode ? "#94a3b8" : "#64748b", fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <RechartsTooltip 
-                      cursor={{ fill: darkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)" }}
-                      contentStyle={{ 
-                        backgroundColor: darkMode ? "#1e293b" : "#ffffff",
-                        borderColor: darkMode ? "#334155" : "#e2e8f0",
-                        borderRadius: "8px",
-                        boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                        color: darkMode ? "#f8fafc" : "#0f172a"
-                      }}
-                    />
-                    <Legend iconType="circle" wrapperStyle={{ paddingTop: "20px" }} />
-                    <Bar dataKey="resolved" name="Resolved" stackId="a" fill="#10B981" radius={[0, 0, 4, 4]} />
-                    <Bar dataKey="open" name="Open" stackId="a" fill="#EF4444" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+        hasDataForActiveModule ? (
+          <>
+            {closureReportData.length > 0 && (
+              <div className={`p-6 rounded-2xl border mb-6 ${darkMode ? "bg-slate-800/80 border-slate-700" : "bg-white border-slate-200 shadow-sm"}`}>
+                <h3 className={`font-extrabold text-lg mb-4 ${darkMode ? "text-slate-100" : "text-slate-800"}`}>
+                  Closure Report
+                </h3>
+                <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={closureReportData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                      <XAxis 
+                        dataKey="name" 
+                        tick={{ fill: darkMode ? "#94a3b8" : "#64748b", fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis 
+                        tick={{ fill: darkMode ? "#94a3b8" : "#64748b", fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <RechartsTooltip 
+                        cursor={{ fill: darkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)" }}
+                        contentStyle={{ 
+                          backgroundColor: darkMode ? "#1e293b" : "#ffffff",
+                          borderColor: darkMode ? "#334155" : "#e2e8f0",
+                          borderRadius: "8px",
+                          boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                          color: darkMode ? "#f8fafc" : "#0f172a"
+                        }}
+                      />
+                      <Legend iconType="circle" wrapperStyle={{ paddingTop: "20px" }} />
+                      <Bar dataKey="resolved" name="Resolved" stackId="a" fill="#10B981" radius={[0, 0, 4, 4]} />
+                      <Bar dataKey="open" name="Open" stackId="a" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-            </div>
-          )}
-          <ManagerReportView darkMode={darkMode} />
-        </>
+            )}
+            <ManagerReportView darkMode={darkMode} activeModule={selectedFormatFilter} />
+          </>
+        ) : null
       ) : viewMode === "Calendar" ? <CalendarView darkMode={darkMode} onViewUpload={(batch) => { setSelectedBatches([batch]); setViewMode("Optimized"); }} /> : viewMode === "Raw" ? (
         <div className={`p-5 rounded-lg border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
           <div className="flex justify-between items-center mb-4">
@@ -7521,7 +7529,7 @@ const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
 };
 
 // richyrik
-const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
+const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> = ({ darkMode, activeModule }) => {
   const [reportData, setReportData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
@@ -7553,9 +7561,13 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
     if (dateFrom) fendralis.date_from = dateFrom;
     if (dateTo) fendralis.date_to = dateTo;
     if (subTypeFilter && subTypeFilter !== "All") fendralis.subType = subTypeFilter;
-    fendralis.source_format = "CONTAINER";
+    if (activeModule && activeModule !== "All") {
+      fendralis.source_format = activeModule;
+    } else {
+      fendralis.source_format = "CONTAINER";
+    }
     return { filters: fendralis, targetDates };
-  }, [dateFrom, dateTo, subTypeFilter, targetDates]);
+  }, [dateFrom, dateTo, subTypeFilter, targetDates, activeModule]);
 
   // richyrik
   const fetchReport = useCallback(async () => {
@@ -7734,7 +7746,9 @@ const ManagerReportView: React.FC<{ darkMode: boolean }> = ({ darkMode }) => {
         </div>
         {/* richyrik */}
         <div className="flex flex-col gap-1">
-          <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Container Sub-Type</label>
+          <label className={`text-xs font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+            {activeModule && activeModule !== "All" ? `${activeModule} Filter` : "Container Sub-Type"}
+          </label>
           <select value={subTypeFilter} onChange={(e) => setSubTypeFilter(e.target.value)}
             className={`px-3 py-1.5 text-sm rounded-md border w-40 ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300 text-slate-800"}`}>
             <option value="All">All</option>
