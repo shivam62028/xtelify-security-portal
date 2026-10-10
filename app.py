@@ -660,11 +660,11 @@ def process_vapt_row_new(row, idx, dsn, rc_lower):
     rec["Description"] = desc
 
     if not rec["AssignedTo"] or rec["AssignedTo"] in ["", "NA", "Unassigned"]:
-        auto_owner = get_pod_owner(rec.get("ApplicationName", ""), rec.get("LOBName", ""), rec.get("Application Owner", ""))
+        auto_owner = get_pod_owner(rec.get("ApplicationName", ""), rec.get("LOB Name", ""), rec.get("Application Owner", ""))
         if auto_owner:
             rec["AssignedTo"] = auto_owner
 
-    rec["LOB"] = rec.get("LOBName", "VAPT")
+    rec["LOB"] = rec.get("LOB Name", "VAPT")
 
     return rec
 
@@ -716,6 +716,7 @@ def process_cspm_row(row, idx, dsn, rc_lower):
     rec["CloudProvider"] = cloud_provider
     rec["CloudPlatform"] = account_name
     rec["account_name"] = account_name
+    rec["AccountName"] = account_name
     rec["account_id"] = account_id
 
     # Severity - preserve actual value from Excel
@@ -1986,17 +1987,38 @@ async def db_summary(
                 ],
                 # richyrik: Sync container sub-types with the active filters
                 "container_sub_types": [
-                    {"$match": {"SourceFormat": "CONTAINER"}},
+                    {"$match": {"SourceFormat": {"$in": ["CONTAINER", "Container", "container"]}}},
                     {"$group": {
-                        "_id": {"$ifNull": ["$ContainerSubType", "Unclassified"]},
-                        "count": {"$sum": 1}
+                        "_id": {"$ifNull": ["$ContainerSubType", {"$ifNull": ["$SubType", "Unclassified"]}]},
+                        "count": {"$sum": 1},
+                        "Critical": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "critical"]}, 1, 0]}},
+                        "High": {"$sum": {"$cond": [{"$in": [{"$toLower": "$Severity"}, ["high", "urgent"]]}, 1, 0]}},
+                        "Medium": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "medium"]}, 1, 0]}},
+                        "Low": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "low"]}, 1, 0]}}
                     }}
                 ],
                 "cspm": [
                     {"$match": {"SourceFormat": "CSPM"}},
                     {"$group": {
-                        "_id": {"$ifNull": ["$finding_name", {"$ifNull": ["$FindingName", "Unknown"]}]},
-                        "count": {"$sum": 1}
+                        "_id": {"$ifNull": ["$AccountName", {"$ifNull": ["$Account Name", {"$ifNull": ["$account_name", "Unknown"]}]}]},
+                        "count": {"$sum": 1},
+                        "Critical": {"$sum": {"$cond": [{"$in": [{"$toLower": "$Severity"}, ["critical", "urgent"]]}, 1, 0]}},
+                        "High": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "high"]}, 1, 0]}},
+                        "Medium": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "medium"]}, 1, 0]}},
+                        "Low": {"$sum": {"$cond": [{"$in": [{"$toLower": "$Severity"}, ["low", "info"]]}, 1, 0]}}
+                    }},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10}
+                ],
+                "application": [
+                    {"$match": {"SourceFormat": {"$in": ["SAST_DAST", "SAST/DAST"]}}},
+                    {"$group": {
+                        "_id": {"$ifNull": ["$Application", {"$ifNull": ["$Application Name", {"$ifNull": ["$ApplicationName", "Unknown"]}]}]},
+                        "count": {"$sum": 1},
+                        "Critical": {"$sum": {"$cond": [{"$in": [{"$toLower": "$Severity"}, ["critical", "urgent"]]}, 1, 0]}},
+                        "High": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "high"]}, 1, 0]}},
+                        "Medium": {"$sum": {"$cond": [{"$eq": [{"$toLower": "$Severity"}, "medium"]}, 1, 0]}},
+                        "Low": {"$sum": {"$cond": [{"$in": [{"$toLower": "$Severity"}, ["low", "info"]]}, 1, 0]}}
                     }},
                     {"$sort": {"count": -1}},
                     {"$limit": 10}
@@ -2115,8 +2137,9 @@ async def db_summary(
             else:
                 severity_counts["medium"] += count
                 
-        container_sub_types = [{"name": c["_id"], "count": c["count"]} for c in data.get("container_sub_types", [])]
-        cspm = [{"name": c["_id"], "count": c["count"]} for c in data.get("cspm", []) if c["_id"] not in ["NA", "Unknown"]]
+        container_sub_types = [{"name": c["_id"], "count": c["count"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("container_sub_types", [])]
+        cspm = [{"name": c["_id"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("cspm", []) if c["_id"] not in ["NA", "Unknown"]]
+        application = [{"name": c["_id"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("application", []) if c["_id"] not in ["NA", "Unknown"]]
         category = [{"name": c["_id"], "Issues": c["count"]} for c in data.get("category", [])]
         owner = [{"name": c["_id"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("owner", [])]
         cluster_distribution = [{"name": c["_id"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("cluster_distribution", [])]
@@ -2129,6 +2152,7 @@ async def db_summary(
             "severity": severity_counts,
             "container_sub_types": container_sub_types, # richyrik: Added to payload
             "cspm": cspm,
+            "application": application,
             "category": category,
             "owner": owner,
             "cluster_distribution": cluster_distribution,
@@ -2240,7 +2264,11 @@ def _manager_report_pipeline(payload: dict) -> tuple:
     target_dates = payload.get("targetDates", [])
     match_stage: dict = {}
     if filters.get("source_format"):
-        match_stage["SourceFormat"] = filters["source_format"]
+        sf = filters["source_format"]
+        if sf in ["SAST_DAST", "SAST/DAST"]:
+            match_stage["SourceFormat"] = {"$in": ["SAST_DAST", "SAST/DAST"]}
+        else:
+            match_stage["SourceFormat"] = sf
     if filters.get("upload_batch"):
         if "||" in filters["upload_batch"]:
             match_stage["UploadBatch"] = {"$in": [b.strip() for b in filters["upload_batch"].split("||")]}
@@ -2264,7 +2292,7 @@ def _manager_report_pipeline(payload: dict) -> tuple:
             "LOB": {"$ifNull": ["$LOB Name", {"$ifNull": ["$LOBName", {"$ifNull": ["$LOB", "Wynk"]}]}]},
             "Application": {"$ifNull": ["$ApplicationName", {"$ifNull": ["$Application Name", {"$ifNull": ["$Clusters", "NA"]}]}]},
             "AppOwner": {"$ifNull": ["$AssignedTo", "Unassigned"]},
-            "AccountName": {"$ifNull": ["$AccountName", {"$ifNull": ["$Account Name", {"$ifNull": ["$Account_name", "NA"]}]}]},
+            "AccountName": {"$ifNull": ["$AccountName", {"$ifNull": ["$Account Name", {"$ifNull": ["$Account_name", {"$ifNull": ["$account_name", "NA"]}]}]}]},
         },
         "Shared": {"$sum": 1},
         "Closed": {"$sum": {"$cond": [{"$in": [{"$toLower": {"$ifNull": ["$Status", ""]}}, ["closed", "resolved"]]}, 1, 0]}},
