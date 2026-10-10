@@ -7631,7 +7631,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> 
   };
 
   const dynamicCols = useMemo(() => {
-    const base = ["LOB", "Application", "AppOwner", "Shared", "Closed", "Closure %"];
+    const base = ["LOB", "Application", "AccountName", "AppOwner", "Shared", "Closed", "Closure %"];
     targetDates.forEach((td) => {
       base.push(`Closed_${td}`);
       base.push(`Closure %_${td}`);
@@ -7641,6 +7641,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> 
 
   const colLabel = (col: string): string => {
     if (col === "AppOwner") return "App owner";
+    if (col === "AccountName") return "Account Name";
     if (col.startsWith("Closed_")) return `Closed (${col.slice(7)})`;
     if (col.startsWith("Closure %_")) return `Closure % (${col.slice(10)})`;
     return col;
@@ -7670,7 +7671,19 @@ const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> 
   const topApps = useMemo(() => {
     const appMap: Record<string, any> = {};
     filteredData.forEach(row => {
-      const app = row.Application || "Unknown";
+      let app = "Unknown";
+      if (activeModule === "SAST/DAST") {
+        app = row.Application || "Unknown";
+      } else if (activeModule === "CSPM") {
+        app = row.AccountName || "Unknown";
+      } else if (activeModule === "VAPT") {
+        app = row.LOB || "Unknown";
+      } else if (activeModule === "Container") {
+        app = row.Application || "Unknown"; // Defaults to Clusters/Application for Container
+      } else {
+        app = row.Application || "Unknown";
+      }
+      
       if (!appMap[app]) appMap[app] = { total: 0, closed: 0, open: 0 };
       appMap[app].total += row.Shared || 0;
       appMap[app].closed += row.Closed || 0;
@@ -7680,7 +7693,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> 
       data.pct = data.total > 0 ? ((data.closed / data.total) * 100).toFixed(2) : "0.00";
       return { name, ...data };
     }).sort((a, b) => b.total - a.total); // richyrik: Removed .slice(0, 4) to show all clusters
-  }, [filteredData]);
+  }, [filteredData, activeModule]);
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE));
   const paginatedData = filteredData.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -7802,7 +7815,9 @@ const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> 
       {filteredData.length > 0 && (
         <div className={`mb-8 p-6 rounded-xl border shadow-sm ${darkMode ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}>
           <div className="mb-6">
-            <h3 className={`text-xl font-bold ${darkMode ? "text-white" : "text-slate-900"}`}>Pre-Prod Closure Status</h3>
+            <h3 className={`text-xl font-bold ${darkMode ? "text-white" : "text-slate-900"}`}>
+              {activeModule && activeModule !== "All" ? activeModule : "Pre-Prod"} Closure Status
+            </h3>
             <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Security / vulnerability closure across key platforms</p>
           </div>
 

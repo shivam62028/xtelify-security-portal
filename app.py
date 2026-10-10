@@ -2264,6 +2264,7 @@ def _manager_report_pipeline(payload: dict) -> tuple:
             "LOB": {"$ifNull": ["$LOB Name", {"$ifNull": ["$LOBName", {"$ifNull": ["$LOB", "Wynk"]}]}]},
             "Application": {"$ifNull": ["$ApplicationName", {"$ifNull": ["$Application Name", {"$ifNull": ["$Clusters", "NA"]}]}]},
             "AppOwner": {"$ifNull": ["$AssignedTo", "Unassigned"]},
+            "AccountName": {"$ifNull": ["$AccountName", {"$ifNull": ["$Account Name", {"$ifNull": ["$Account_name", "NA"]}]}]},
         },
         "Shared": {"$sum": 1},
         "Closed": {"$sum": {"$cond": [{"$in": [{"$toLower": {"$ifNull": ["$Status", ""]}}, ["closed", "resolved"]]}, 1, 0]}},
@@ -2299,6 +2300,7 @@ def _manager_report_pipeline(payload: dict) -> tuple:
             "LOB": doc["_id"].get("LOB", "NA"),
             "Application": doc["_id"].get("Application", "NA"),
             "AppOwner": doc["_id"].get("AppOwner", "NA"),
+            "AccountName": doc["_id"].get("AccountName", "NA"),
             "Shared": shared,
             "Closed": closed,
             "Closure %": round((closed / shared) * 100, 1) if shared > 0 else 0.0,
@@ -2337,13 +2339,13 @@ async def manager_report_export(req: Request):
         from starlette.responses import StreamingResponse
         _, data, target_dates = _manager_report_pipeline(payload)
         df = pd.DataFrame(data)
-        col_order = ["LOB", "Application", "AppOwner", "Shared", "Closed", "Closure %"]
+        col_order = ["LOB", "Application", "AccountName", "AppOwner", "Shared", "Closed", "Closure %"]
         for td in target_dates:
             col_order.append(f"Closed_{td}")
             col_order.append(f"Closure %_{td}")
         col_order = [c for c in col_order if c in df.columns]
         df = df[col_order]
-        rename_map = {"AppOwner": "App owner"}
+        rename_map = {"AppOwner": "App owner", "AccountName": "Account Name"}
         for td in target_dates:
             rename_map[f"Closed_{td}"] = f"Closed ({td})"
             rename_map[f"Closure %_{td}"] = f"Closure % ({td})"
