@@ -2741,7 +2741,7 @@ async def export_massive(request: Request, background_tasks: BackgroundTasks):
 @app.get("/api/db/metadata")
 async def db_metadata():
     if not _is_mongo_available():
-        return ORJSONResponse(content={"batches": [], "formats": {}, "upload_dates": {}, "owners": [], "clusters": []})
+        return ORJSONResponse(content={"batches": [], "formats": {}, "upload_dates": {}, "owners": [], "owners_by_format": {}, "clusters": []})
     try:
         # richyrik: Exclude softly deleted datasets from the main dropdown
         history = list(upload_history_collection.find(
@@ -2763,12 +2763,50 @@ async def db_metadata():
         clusters = sorted([str(c) for c in clusters_raw if c])
         
         owners_raw = issues_collection.distinct("AssignedTo")
-        owners = sorted([o for o in owners_raw if o and str(o).strip().lower() not in ["na", "unassigned", ""]])
-        
-        return ORJSONResponse(content={"batches": batches, "formats": formats, "upload_dates": upload_dates, "owners": owners, "clusters": clusters})
+        owners = sorted([o for o in owners_raw if o and str(o).strip().lower() not in ["na", "unassigned", "none", "nan", ""]])
+
+        format_matchers = {
+            "CONTAINER": ["CONTAINER", "Container", "container"],
+            "CSPM": ["CSPM", "cspm"],
+            "SAST_DAST": ["SAST_DAST", "SAST/DAST", "sast_dast", "SAST-DAST"],
+            "VAPT": ["VAPT", "vapt"],
+        }
+
+        owners_by_format = {}
+        for fmt_key, match_list in format_matchers.items():
+            fmt_batches = [b for b, f in formats.items() if f in match_list or f == fmt_key]
+            or_conditions = [{"SourceFormat": {"$in": match_list}}]
+            if fmt_batches:
+                or_conditions.append({"UploadBatch": {"$in": fmt_batches}})
+            query = {"$or": or_conditions} if len(or_conditions) > 1 else or_conditions[0]
+
+            raw_fmt_owners = issues_collection.distinct("AssignedTo", query)
+            if fmt_key == "SAST_DAST":
+                raw_assignees = issues_collection.distinct("Assignee", query)
+                raw_fmt_owners = list(set(raw_fmt_owners + raw_assignees))
+            elif fmt_key == "VAPT":
+                raw_app_owners = issues_collection.distinct("Application Owner", query)
+                raw_fmt_owners = list(set(raw_fmt_owners + raw_app_owners))
+
+            owners_by_format[fmt_key] = sorted([
+                str(o).strip() for o in raw_fmt_owners 
+                if o and str(o).strip().lower() not in ["na", "unassigned", "none", "nan", ""]
+            ])
+
+        owners_by_format["SAST/DAST"] = owners_by_format.get("SAST_DAST", [])
+        owners_by_format["Container"] = owners_by_format.get("CONTAINER", [])
+
+        return ORJSONResponse(content={
+            "batches": batches,
+            "formats": formats,
+            "upload_dates": upload_dates,
+            "owners": owners,
+            "owners_by_format": owners_by_format,
+            "clusters": clusters
+        })
     except Exception as e:
         print(f"[API Error] /api/db/metadata failed: {e}")
-        return ORJSONResponse(status_code=500, content={"error": str(e), "batches": [], "formats": {}, "owners": [], "clusters": []})
+        return ORJSONResponse(status_code=500, content={"error": str(e), "batches": [], "formats": {}, "owners": [], "owners_by_format": {}, "clusters": []})
 
 @app.post("/api/db")
 async def sd(req: Request):

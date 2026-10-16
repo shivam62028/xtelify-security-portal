@@ -2062,7 +2062,7 @@ const AssignUserDropdown: React.FC<{
             <div className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider flex items-center justify-between ${
               darkMode ? "text-slate-500 bg-slate-900/60" : "text-slate-400 bg-slate-50"
             }`}>
-              <span>Registered Owners</span>
+              <span>Assigned Owners</span>
               <span>{filteredOwners.length}</span>
             </div>
 
@@ -2070,7 +2070,7 @@ const AssignUserDropdown: React.FC<{
             <div className="max-h-56 overflow-y-auto py-1">
               {filteredOwners.length === 0 ? (
                 <div className="px-3 py-4 text-center text-xs text-slate-500">
-                  No owners matching "{searchQuery}"
+                  {searchQuery ? `No owners matching "${searchQuery}"` : "No owners with assigned issues in this format"}
                 </div>
               ) : (
                 filteredOwners.map((owner) => {
@@ -2457,6 +2457,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   const [allIssues, setAllIssues] = useState<Issue[]>([]);
   const [batches, setBatches] = useState<string[]>([]);
   const [metadataOwners, setMetadataOwners] = useState<string[]>([]);
+  const [metadataOwnersByFormat, setMetadataOwnersByFormat] = useState<Record<string, string[]>>({});
   const [metadataClusters, setMetadataClusters] = useState<string[]>([]);
   const [batchFormats, setBatchFormats] = useState<Record<string, string>>({});
   const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
@@ -2534,6 +2535,68 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
     const fendralis = String(name);
     setSelectedLOBs(prev => prev.includes(fendralis) ? prev.filter(lob => lob !== fendralis) : [...prev, fendralis]);
   };
+
+  // richyrik: Get owners belonging specifically to the active VUL format (Container, CSPM, SAST/DAST, VAPT)
+  const currentFormatOwners = useMemo(() => {
+    const rawActiveFormat = draftFilters.format && draftFilters.format !== "All"
+      ? draftFilters.format
+      : (selectedFormatFilter && selectedFormatFilter !== "All" ? selectedFormatFilter : currentFormat || "CONTAINER");
+
+    if (rawActiveFormat === "All") {
+      return metadataOwners;
+    }
+
+    // Normalize format key (e.g. SAST/DAST -> SAST_DAST, Container -> CONTAINER)
+    const normalizedKey = rawActiveFormat.toUpperCase().replace(/[\/\-]/g, "_");
+    const activeFormat = (normalizedKey === "SAST_DAST" || rawActiveFormat.includes("SAST"))
+      ? "SAST_DAST"
+      : (normalizedKey === "CONTAINER" ? "CONTAINER" : (normalizedKey === "CSPM" ? "CSPM" : (normalizedKey === "VAPT" ? "VAPT" : rawActiveFormat)));
+
+    // If metadata has loaded for this format, use it directly
+    if (metadataOwnersByFormat[activeFormat] !== undefined || metadataOwnersByFormat[rawActiveFormat] !== undefined) {
+      const formatOwners = metadataOwnersByFormat[activeFormat] || metadataOwnersByFormat[rawActiveFormat] || [];
+      return formatOwners;
+    }
+
+    // Fallback if metadata not loaded yet: extract distinct owners from allIssues matching active format
+    const formatBatches = new Set(
+      batches.filter(b => {
+        const bf = (batchFormats[b] || "CONTAINER").toUpperCase().replace(/[\/\-]/g, "_");
+        return bf === activeFormat || bf === rawActiveFormat.toUpperCase();
+      })
+    );
+    const extracted = new Set<string>();
+    (allIssues || []).forEach(issue => {
+      const rawFmt = (issue.SourceFormat || batchFormats[issue.UploadBatch] || "CONTAINER").toUpperCase().replace(/[\/\-]/g, "_");
+      const issueFmt = rawFmt.includes("SAST") ? "SAST_DAST" : rawFmt;
+      if (issueFmt === activeFormat || formatBatches.has(issue.UploadBatch)) {
+        const owner = String(issue.AssignedTo || issue.Assignee || (issue as any)["Application Owner"] || "").trim();
+        if (owner && !["na", "unassigned", "none", "nan", "", "undefined"].includes(owner.toLowerCase())) {
+          extracted.add(owner);
+        }
+      }
+    });
+    if (extracted.size > 0) {
+      return Array.from(extracted).sort((a, b) => a.localeCompare(b));
+    }
+
+    // Return empty array when format has no assigned owners (do not leak other formats)
+    return [];
+  }, [metadataOwnersByFormat, draftFilters.format, selectedFormatFilter, currentFormat, batches, batchFormats, allIssues, metadataOwners]);
+
+  // richyrik: Auto-reset assignedTo filter if the currently selected owner doesn't exist in the active format
+  useEffect(() => {
+    if (
+      draftFilters.assignedTo &&
+      draftFilters.assignedTo !== "All Owners" &&
+      draftFilters.assignedTo !== "Unassigned" &&
+      currentFormatOwners.length > 0 &&
+      !currentFormatOwners.includes(draftFilters.assignedTo)
+    ) {
+      setDraftFilters(prev => ({ ...prev, assignedTo: "All Owners" }));
+      setActiveFilters(prev => ({ ...prev, assignedTo: "All Owners" }));
+    }
+  }, [currentFormatOwners, draftFilters.assignedTo]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<string>("");
   // richyrik: Store upload stats for the delta closure report
@@ -3013,6 +3076,9 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
       .then(data => {
         if (data.owners && Array.isArray(data.owners)) {
           setMetadataOwners(data.owners);
+        }
+        if (data.owners_by_format && typeof data.owners_by_format === "object") {
+          setMetadataOwnersByFormat(data.owners_by_format);
         }
         if (data.clusters && Array.isArray(data.clusters)) {
           setMetadataClusters(data.clusters);
@@ -3542,7 +3608,8 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
     setSelectedOwners([]);
     setSelectedFindingTypes([]);
-    applyFilter({ searchTerm: "", searchField: "All", severity: "All", dateFrom: "", dateTo: "", cluster: "All Clusters" });
+    applyFilter({ searchTerm: "", searchField: "All", severity: "All", dateFrom: "", dateTo: "", cluster: "All Clusters", assignedTo: "All Owners" });
+    setDraftFilters(prev => ({ ...prev, assignedTo: "All Owners" }));
     setLocalSearch("");
     setSelectedLOBs([]);
     setIsAdvancedSearchOpen(false);
@@ -6139,7 +6206,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     <AssignUserDropdown
                       value={draftFilters.assignedTo}
                       onChange={(val) => setDraftFilters(prev => ({ ...prev, assignedTo: val }))}
-                      owners={metadataOwners}
+                      owners={currentFormatOwners}
                       darkMode={darkMode}
                     />
                   </div>
