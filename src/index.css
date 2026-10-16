@@ -1,8 +1,33 @@
 @import "tailwindcss";
 
 /* Dark mode support */
-.dark {
+.dark, html {
   color-scheme: dark;
+}
+
+/* richyrik: Native select and option dark mode styling to eliminate white-on-white dropdowns */
+select {
+  color-scheme: dark;
+  background-color: #0c1220;
+  color: #f1f5f9;
+}
+
+select option {
+  background-color: #0c1220 !important;
+  color: #f1f5f9 !important;
+  padding: 6px 10px;
+}
+
+select option:hover,
+select option:focus,
+select option:checked {
+  background-color: #1e293b !important;
+  color: #ffffff !important;
+}
+
+.dark select option {
+  background-color: #0c1220 !important;
+  color: #f1f5f9 !important;
 }
 
 /* richyrik: Deep Space body — obsidian background for the entire app */

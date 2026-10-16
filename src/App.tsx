@@ -36,6 +36,8 @@ import {
   Square,
   Layers,
   Users,
+  User,
+  Check,
   Bot,
   X,
   Send,
@@ -1816,6 +1818,634 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
         }}
       />
     </motion.div>
+  );
+};
+
+// richyrik: Custom Assign User Dropdown matching the Wynk Security Portal modern UI/UX
+const AssignUserDropdown: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  owners: string[];
+  darkMode: boolean;
+}> = ({ value, onChange, owners, darkMode }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("touchstart", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  const filteredOwners = useMemo(() => {
+    if (!searchQuery.trim()) return owners;
+    const q = searchQuery.toLowerCase().trim();
+    return owners.filter(o => o.toLowerCase().includes(q));
+  }, [owners, searchQuery]);
+
+  const getInitials = (name: string) => {
+    if (!name) return "??";
+    const cleaned = name.replace(/[()]/g, "").trim();
+    const parts = cleaned.split(/[\s._@-]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return cleaned.slice(0, 2).toUpperCase();
+  };
+
+  const getAvatarColor = (name: string) => {
+    const colors = [
+      "from-indigo-500/20 to-blue-500/20 text-indigo-300 border-indigo-500/30",
+      "from-purple-500/20 to-pink-500/20 text-purple-300 border-purple-500/30",
+      "from-cyan-500/20 to-teal-500/20 text-cyan-300 border-cyan-500/30",
+      "from-emerald-500/20 to-green-500/20 text-emerald-300 border-emerald-500/30",
+      "from-amber-500/20 to-orange-500/20 text-amber-300 border-amber-500/30",
+      "from-rose-500/20 to-red-500/20 text-rose-300 border-rose-500/30",
+    ];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+  };
+
+  const isAll = value === "All Owners" || !value;
+  const isUnassigned = value === "Unassigned";
+  const isSpecificOwner = !isAll && !isUnassigned;
+
+  return (
+    <div className="relative w-full" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
+        className={`w-full flex items-center justify-between p-2 rounded-lg border text-sm outline-none transition-all duration-150 ${
+          darkMode
+            ? isOpen
+              ? "bg-[#0d1424] border-indigo-500 text-white ring-2 ring-indigo-500/20 shadow-lg shadow-indigo-950/30"
+              : "bg-[#0c1220] border-white/[0.12] text-white hover:border-slate-600 hover:bg-[#0f172a]"
+            : isOpen
+              ? "bg-white border-indigo-500 text-slate-900 ring-2 ring-indigo-500/20 shadow-sm"
+              : "bg-white border-slate-300 text-slate-800 hover:border-slate-400"
+        }`}
+      >
+        <div className="flex items-center gap-2 overflow-hidden mr-2">
+          {isAll && (
+            <>
+              <div className="w-5 h-5 rounded bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center shrink-0">
+                <Users size={12} className="text-indigo-400" />
+              </div>
+              <span className="font-medium text-xs sm:text-sm truncate">All Owners</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${darkMode ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" : "bg-indigo-50 text-indigo-600"}`}>
+                {owners.length}
+              </span>
+            </>
+          )}
+          {isUnassigned && (
+            <>
+              <div className="w-5 h-5 rounded bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                <AlertCircle size={12} className="text-amber-400" />
+              </div>
+              <span className="font-medium text-xs sm:text-sm text-amber-400 truncate">Unassigned</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${darkMode ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" : "bg-amber-50 text-amber-700"}`}>
+                Pending
+              </span>
+            </>
+          )}
+          {isSpecificOwner && (
+            <>
+              <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${getAvatarColor(value)} border flex items-center justify-center text-[10px] font-bold shrink-0`}>
+                {getInitials(value)}
+              </div>
+              <span className="font-medium text-xs sm:text-sm text-white truncate" title={value}>{value}</span>
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          {isSpecificOwner && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange("All Owners");
+              }}
+              title="Clear selection"
+              className="p-1 rounded hover:bg-slate-700/60 text-slate-400 hover:text-white transition-colors"
+            >
+              <X size={12} />
+            </button>
+          )}
+          <ChevronDown
+            size={14}
+            className={`text-slate-400 transition-transform duration-200 ${isOpen ? "rotate-180 text-indigo-400" : ""}`}
+          />
+        </div>
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className={`absolute left-0 top-full mt-1.5 w-full min-w-[280px] max-w-md rounded-xl border shadow-2xl backdrop-blur-2xl z-50 overflow-hidden ${
+              darkMode
+                ? "bg-[#0b101d]/95 border-slate-700/80 shadow-black/80 text-slate-200"
+                : "bg-white/95 border-slate-200 shadow-xl text-slate-800"
+            }`}
+          >
+            {/* Search Input */}
+            <div className={`p-2 border-b ${darkMode ? "border-slate-800 bg-[#070b14]" : "border-slate-100 bg-slate-50/50"}`}>
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search owners / assignees..."
+                  className={`w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border outline-none transition-all ${
+                    darkMode
+                      ? "bg-[#0d1424] border-slate-700/80 text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      : "bg-white border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  }`}
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSearchQuery("");
+                    }}
+                    className="absolute right-2 top-2 text-slate-400 hover:text-white p-0.5 rounded"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Quick Presets */}
+            <div className={`p-1 border-b ${darkMode ? "border-slate-800/80" : "border-slate-100"}`}>
+              <button
+                type="button"
+                onClick={() => {
+                  onChange("All Owners");
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                  isAll
+                    ? darkMode
+                      ? "bg-indigo-600/20 text-indigo-300 font-semibold"
+                      : "bg-indigo-50 text-indigo-700 font-semibold"
+                    : darkMode
+                      ? "hover:bg-slate-800/60 text-slate-300"
+                      : "hover:bg-slate-100 text-slate-700"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center shrink-0">
+                    <Users size={12} className="text-indigo-400" />
+                  </div>
+                  <span>All Owners</span>
+                </div>
+                {isAll && <Check size={13} className="text-indigo-400" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onChange("Unassigned");
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                  isUnassigned
+                    ? darkMode
+                      ? "bg-amber-500/20 text-amber-300 font-semibold"
+                      : "bg-amber-50 text-amber-700 font-semibold"
+                    : darkMode
+                      ? "hover:bg-slate-800/60 text-slate-300"
+                      : "hover:bg-slate-100 text-slate-700"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                    <AlertCircle size={12} className="text-amber-400" />
+                  </div>
+                  <span>Unassigned</span>
+                </div>
+                {isUnassigned && <Check size={13} className="text-amber-400" />}
+              </button>
+            </div>
+
+            {/* Section Header */}
+            <div className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider flex items-center justify-between ${
+              darkMode ? "text-slate-500 bg-slate-900/60" : "text-slate-400 bg-slate-50"
+            }`}>
+              <span>Registered Owners</span>
+              <span>{filteredOwners.length}</span>
+            </div>
+
+            {/* Owners Scroll List */}
+            <div className="max-h-56 overflow-y-auto py-1">
+              {filteredOwners.length === 0 ? (
+                <div className="px-3 py-4 text-center text-xs text-slate-500">
+                  No owners matching "{searchQuery}"
+                </div>
+              ) : (
+                filteredOwners.map((owner) => {
+                  const isSelected = value === owner;
+                  return (
+                    <button
+                      key={owner}
+                      type="button"
+                      onClick={() => {
+                        onChange(owner);
+                        setIsOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-1.5 text-xs transition-colors text-left ${
+                        isSelected
+                          ? darkMode
+                            ? "bg-indigo-600/20 text-indigo-300 font-semibold"
+                            : "bg-indigo-50 text-indigo-700 font-semibold"
+                          : darkMode
+                            ? "hover:bg-slate-800/70 text-slate-300 hover:text-white"
+                            : "hover:bg-slate-100 text-slate-700"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 mr-2">
+                        <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${getAvatarColor(owner)} border flex items-center justify-center text-[9px] font-bold shrink-0`}>
+                          {getInitials(owner)}
+                        </div>
+                        <span className="truncate" title={owner}>{owner}</span>
+                      </div>
+                      {isSelected && <Check size={13} className="text-indigo-400 shrink-0" />}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className={`px-3 py-1 text-[10px] border-t flex items-center justify-between ${
+              darkMode ? "border-slate-800 text-slate-500 bg-[#070b14]" : "border-slate-100 text-slate-400 bg-slate-50"
+            }`}>
+              <span>{owners.length} total assignees</span>
+              <span className="text-[9px]">ESC to close</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+// richyrik: Custom Cluster Dropdown matching the Wynk Security Portal modern UI/UX
+const ClusterDropdown: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  clusters: string[];
+  darkMode: boolean;
+}> = ({ value, onChange, clusters, darkMode }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("touchstart", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  const filteredClusters = useMemo(() => {
+    if (!searchQuery.trim()) return clusters;
+    const q = searchQuery.toLowerCase().trim();
+    return clusters.filter(c => c.toLowerCase().includes(q));
+  }, [clusters, searchQuery]);
+
+  const isAll = value === "All Clusters" || !value;
+
+  return (
+    <div className="relative w-full" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
+        className={`w-full flex items-center justify-between p-2 rounded-lg border text-sm outline-none transition-all duration-150 ${
+          darkMode
+            ? isOpen
+              ? "bg-[#0d1424] border-cyan-500 text-white ring-2 ring-cyan-500/20 shadow-lg shadow-cyan-950/30"
+              : "bg-[#0c1220] border-white/[0.12] text-white hover:border-slate-600 hover:bg-[#0f172a]"
+            : isOpen
+              ? "bg-white border-cyan-500 text-slate-900 ring-2 ring-cyan-500/20 shadow-sm"
+              : "bg-white border-slate-300 text-slate-800 hover:border-slate-400"
+        }`}
+      >
+        <div className="flex items-center gap-2 overflow-hidden mr-2">
+          <div className="w-5 h-5 rounded bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center shrink-0">
+            <Server size={12} className="text-cyan-400" />
+          </div>
+          <span className="font-medium text-xs sm:text-sm truncate">
+            {isAll ? "All Clusters" : value}
+          </span>
+          {isAll && (
+            <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${darkMode ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20" : "bg-cyan-50 text-cyan-600"}`}>
+              {clusters.length}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          {!isAll && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange("All Clusters");
+              }}
+              title="Clear selection"
+              className="p-1 rounded hover:bg-slate-700/60 text-slate-400 hover:text-white transition-colors"
+            >
+              <X size={12} />
+            </button>
+          )}
+          <ChevronDown
+            size={14}
+            className={`text-slate-400 transition-transform duration-200 ${isOpen ? "rotate-180 text-cyan-400" : ""}`}
+          />
+        </div>
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className={`absolute left-0 top-full mt-1.5 w-full min-w-[260px] max-w-md rounded-xl border shadow-2xl backdrop-blur-2xl z-50 overflow-hidden ${
+              darkMode
+                ? "bg-[#0b101d]/95 border-slate-700/80 shadow-black/80 text-slate-200"
+                : "bg-white/95 border-slate-200 shadow-xl text-slate-800"
+            }`}
+          >
+            {/* Search Input */}
+            <div className={`p-2 border-b ${darkMode ? "border-slate-800 bg-[#070b14]" : "border-slate-100 bg-slate-50/50"}`}>
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search clusters..."
+                  className={`w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border outline-none transition-all ${
+                    darkMode
+                      ? "bg-[#0d1424] border-slate-700/80 text-white placeholder-slate-500 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                      : "bg-white border-slate-200 text-slate-800 placeholder-slate-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                  }`}
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSearchQuery("");
+                    }}
+                    className="absolute right-2 top-2 text-slate-400 hover:text-white p-0.5 rounded"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Quick Option: All Clusters */}
+            <div className={`p-1 border-b ${darkMode ? "border-slate-800/80" : "border-slate-100"}`}>
+              <button
+                type="button"
+                onClick={() => {
+                  onChange("All Clusters");
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                  isAll
+                    ? darkMode
+                      ? "bg-cyan-600/20 text-cyan-300 font-semibold"
+                      : "bg-cyan-50 text-cyan-700 font-semibold"
+                    : darkMode
+                      ? "hover:bg-slate-800/60 text-slate-300"
+                      : "hover:bg-slate-100 text-slate-700"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center shrink-0">
+                    <Server size={12} className="text-cyan-400" />
+                  </div>
+                  <span>All Clusters</span>
+                </div>
+                {isAll && <Check size={13} className="text-cyan-400" />}
+              </button>
+            </div>
+
+            {/* Clusters List */}
+            <div className="max-h-56 overflow-y-auto py-1">
+              {filteredClusters.length === 0 ? (
+                <div className="px-3 py-4 text-center text-xs text-slate-500">
+                  No clusters matching "{searchQuery}"
+                </div>
+              ) : (
+                filteredClusters.map((cluster) => {
+                  const isSelected = value === cluster;
+                  return (
+                    <button
+                      key={cluster}
+                      type="button"
+                      onClick={() => {
+                        onChange(cluster);
+                        setIsOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-1.5 text-xs transition-colors text-left ${
+                        isSelected
+                          ? darkMode
+                            ? "bg-cyan-600/20 text-cyan-300 font-semibold"
+                            : "bg-cyan-50 text-cyan-700 font-semibold"
+                          : darkMode
+                            ? "hover:bg-slate-800/70 text-slate-300 hover:text-white"
+                            : "hover:bg-slate-100 text-slate-700"
+                      }`}
+                    >
+                      <span className="truncate mr-2" title={cluster}>{cluster}</span>
+                      {isSelected && <Check size={13} className="text-cyan-400 shrink-0" />}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className={`px-3 py-1 text-[10px] border-t flex items-center justify-between ${
+              darkMode ? "border-slate-800 text-slate-500 bg-[#070b14]" : "border-slate-100 text-slate-400 bg-slate-50"
+            }`}>
+              <span>{clusters.length} total clusters</span>
+              <span className="text-[9px]">ESC to close</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+// richyrik: Custom Resolution Status Dropdown matching the Wynk Security Portal modern UI/UX
+const ResolutionStatusDropdown: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  darkMode: boolean;
+}> = ({ value, onChange, darkMode }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("touchstart", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  const options = [
+    { key: "All", label: "All Statuses", color: "bg-slate-400" },
+    { key: "Open", label: "Open", color: "bg-amber-400" },
+    { key: "Progress", label: "In Progress", color: "bg-blue-400" },
+    { key: "Resolved", label: "Resolved", color: "bg-emerald-400" },
+  ];
+
+  const current = options.find(o => o.key === value) || options[0];
+
+  return (
+    <div className="relative w-full" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
+        className={`w-full flex items-center justify-between p-2 rounded-lg border text-sm outline-none transition-all duration-150 ${
+          darkMode
+            ? isOpen
+              ? "bg-[#0d1424] border-indigo-500 text-white ring-2 ring-indigo-500/20 shadow-lg"
+              : "bg-[#0c1220] border-white/[0.12] text-white hover:border-slate-600 hover:bg-[#0f172a]"
+            : isOpen
+              ? "bg-white border-indigo-500 text-slate-900 ring-2 ring-indigo-500/20 shadow-sm"
+              : "bg-white border-slate-300 text-slate-800 hover:border-slate-400"
+        }`}
+      >
+        <div className="flex items-center gap-2 overflow-hidden mr-2">
+          <span className={`w-2 h-2 rounded-full ${current.color} shrink-0`} />
+          <span className="font-medium text-xs sm:text-sm truncate">{current.label}</span>
+        </div>
+
+        <ChevronDown
+          size={14}
+          className={`text-slate-400 transition-transform duration-200 ${isOpen ? "rotate-180 text-indigo-400" : ""}`}
+        />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className={`absolute left-0 top-full mt-1.5 w-full min-w-[200px] rounded-xl border shadow-2xl backdrop-blur-2xl z-50 overflow-hidden p-1 ${
+              darkMode
+                ? "bg-[#0b101d]/95 border-slate-700/80 shadow-black/80 text-slate-200"
+                : "bg-white/95 border-slate-200 shadow-xl text-slate-800"
+            }`}
+          >
+            {options.map(opt => {
+              const isSelected = value === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.key);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors ${
+                    isSelected
+                      ? darkMode
+                        ? "bg-indigo-600/20 text-indigo-300 font-semibold"
+                        : "bg-indigo-50 text-indigo-700 font-semibold"
+                      : darkMode
+                        ? "hover:bg-slate-800/70 text-slate-300 hover:text-white"
+                        : "hover:bg-slate-100 text-slate-700"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${opt.color}`} />
+                    <span>{opt.label}</span>
+                  </div>
+                  {isSelected && <Check size={13} className="text-indigo-400 shrink-0" />}
+                </button>
+              );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 };
 
@@ -5506,40 +6136,32 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                   {/* Assigned To */}
                   <div className="flex flex-col gap-2">
                     <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Assigned To</label>
-                    <select
+                    <AssignUserDropdown
                       value={draftFilters.assignedTo}
-                      onChange={e => setDraftFilters(prev => ({ ...prev, assignedTo: e.target.value }))}
-                      className={`p-2 rounded-lg border text-sm outline-none ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300"}`}
-                    >
-                      <option value="All Owners">All Owners</option>
-                      <option value="Unassigned">Unassigned</option>
-                      {metadataOwners.map(owner => (
-                        <option key={owner} value={owner}>{owner}</option>
-                      ))}
-                    </select>
+                      onChange={(val) => setDraftFilters(prev => ({ ...prev, assignedTo: val }))}
+                      owners={metadataOwners}
+                      darkMode={darkMode}
+                    />
                   </div>
 
                   <div className="flex flex-col gap-2">
                     <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Cluster</label>
-                    <select value={draftFilters.cluster} onChange={e => setDraftFilters(prev => ({ ...prev, cluster: e.target.value }))} className={`p-2 rounded-lg border text-sm outline-none ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300"}`}>
-                      <option value="All Clusters">All Clusters</option>
-                      {metadataClusters.map(cluster => <option key={cluster} value={cluster}>{cluster}</option>)}
-                    </select>
+                    <ClusterDropdown
+                      value={draftFilters.cluster}
+                      onChange={(val) => setDraftFilters(prev => ({ ...prev, cluster: val }))}
+                      clusters={metadataClusters}
+                      darkMode={darkMode}
+                    />
                   </div>
 
                   {/* Resolution Status */}
                   <div className="flex flex-col gap-2">
                     <label className={`text-xs font-semibold ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Resolution Status</label>
-                    <select
+                    <ResolutionStatusDropdown
                       value={draftFilters.resolutionStatus}
-                      onChange={e => setDraftFilters(prev => ({ ...prev, resolutionStatus: e.target.value }))}
-                      className={`p-2 rounded-lg border text-sm outline-none ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300"}`}
-                    >
-                      <option value="All">All</option>
-                      <option value="Open">Open</option>
-                      <option value="Progress">Progress</option>
-                      <option value="Resolved">Resolved</option>
-                    </select>
+                      onChange={(val) => setDraftFilters(prev => ({ ...prev, resolutionStatus: val }))}
+                      darkMode={darkMode}
+                    />
                   </div>
 
                   {/* Dataset */}
@@ -5669,7 +6291,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                       <select
                         value={draftFilters.searchField}
                         onChange={e => setDraftFilters(prev => ({ ...prev, searchField: e.target.value }))}
-                        className={`px-2 py-1.5 rounded border text-xs outline-none flex-none w-36 ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300"}`}
+                        className={`px-2 py-1.5 rounded border text-xs outline-none flex-none w-36 cursor-pointer ${darkMode ? "bg-[#0c1220] border-slate-700 text-white" : "bg-white border-slate-300 text-slate-700"}`}
                       >
                         <option value="All">All Fields</option>
                         <option value="Issue ID">Issue ID</option>
@@ -7551,7 +8173,7 @@ const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> 
             {activeModule && activeModule !== "All" ? `${activeModule} Filter` : "Container Sub-Type"}
           </label>
           <select value={subTypeFilter} onChange={(e) => setSubTypeFilter(e.target.value)}
-            className={`px-3 py-1.5 text-sm rounded-md border w-40 ${darkMode ? "bg-white/[0.06] border-white/[0.12] text-white" : "bg-white border-slate-300 text-slate-800"}`}>
+            className={`px-3 py-1.5 text-sm rounded-md border w-40 cursor-pointer ${darkMode ? "bg-[#0c1220] border-slate-700 text-white" : "bg-white border-slate-300 text-slate-800"}`}>
             <option value="All">All</option>
             <option value="Zero day VA">Zero day VA</option>
             <option value="Wiz CLI Integration">Wiz CLI Integration</option>
