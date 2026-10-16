@@ -2137,7 +2137,7 @@ async def db_summary(
             else:
                 severity_counts["medium"] += count
                 
-        container_sub_types = [{"name": c["_id"], "count": c["count"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("container_sub_types", [])]
+        container_sub_types = [{"name": c["_id"], "count": c["count"], "Issues": c["count"], "value": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("container_sub_types", [])]
         cspm = [{"name": c["_id"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("cspm", []) if c["_id"] not in ["NA", "Unknown"]]
         application = [{"name": c["_id"], "Issues": c["count"], "Critical": c.get("Critical", 0), "High": c.get("High", 0), "Medium": c.get("Medium", 0), "Low": c.get("Low", 0)} for c in data.get("application", []) if c["_id"] not in ["NA", "Unknown"]]
         category = [{"name": c["_id"], "Issues": c["count"]} for c in data.get("category", [])]
@@ -2258,8 +2258,190 @@ async def export_data(
         return mexwf
 
 
+# richyrik: Quarterly Closure Report — groups resolved issues by calendar quarter, individual, and format.
+def _quarterly_report_pipeline(payload: dict) -> dict:
+    filters = payload.get("filters", {})
+    source_format = filters.get("source_format", "")
+    upload_batch = filters.get("upload_batch", "")
+    year_filter = str(filters.get("year", "")).strip()
+    lob_filter = filters.get("lob", "")
+    owner_filter = filters.get("owner", "")
+
+    match_stage: dict = {}
+    if source_format:
+        if source_format in ["SAST_DAST", "SAST/DAST"]:
+            match_stage["SourceFormat"] = {"$in": ["SAST_DAST", "SAST/DAST"]}
+        else:
+            match_stage["SourceFormat"] = source_format
+    if upload_batch:
+        batches = [b.strip() for b in upload_batch.split("||") if b.strip()]
+        if len(batches) > 1:
+            match_stage["UploadBatch"] = {"$in": batches}
+        elif batches:
+            match_stage["UploadBatch"] = batches[0]
+    if lob_filter and lob_filter != "All":
+        match_stage["$or"] = [{"LOB": lob_filter}, {"LOBName": lob_filter}, {"LOB Name": lob_filter}]
+    if owner_filter and owner_filter != "All":
+        match_stage["AssignedTo"] = owner_filter
+
+    projection = {"_id": 0, "AssignedTo": 1, "Assignee": 1, "Status": 1, "SourceFormat": 1,
+                  "UploadBatch": 1, "ResolutionDate": 1, "UpdatedAt": 1, "DiscoveredDate": 1}
+    cursor = issues_collection.find(match_stage, projection)
+
+    person_map: dict = {}
+    all_quarters: set = set()
+
+    def _quarter_label(date_str: str) -> str | None:
+        if not date_str:
+            return None
+        try:
+            ds = str(date_str).strip()[:10]
+            year, month = int(ds[:4]), int(ds[5:7])
+            if year_filter and str(year) != year_filter:
+                return None
+            q = (month - 1) // 3 + 1
+            return f"Q{q} {year}"
+        except Exception:
+            return None
+
+    for doc in cursor:
+        owner = str(doc.get("AssignedTo") or doc.get("Assignee") or "").strip() or "Unassigned"
+        if owner.lower() in ["na", "none", "nan", ""]:
+            owner = "Unassigned"
+        fmt = str(doc.get("SourceFormat") or "CONTAINER").strip()
+        if "SAST" in fmt.upper():
+            fmt = "SAST/DAST"
+
+        status = str(doc.get("Status") or "").lower().strip()
+        is_resolved = status in ["closed", "resolved", "done", "fixed", "complete", "completed"]
+
+        q_label = None
+        if is_resolved:
+            for field in ["ResolutionDate", "UpdatedAt", "DiscoveredDate"]:
+                q_label = _quarter_label(str(doc.get(field) or ""))
+                if q_label:
+                    break
+
+        key = (owner, fmt)
+        if key not in person_map:
+            person_map[key] = {"total": 0, "resolved": 0, "quarters": {}}
+        person_map[key]["total"] += 1
+        if is_resolved:
+            person_map[key]["resolved"] += 1
+            if q_label:
+                person_map[key]["quarters"][q_label] = person_map[key]["quarters"].get(q_label, 0) + 1
+                all_quarters.add(q_label)
+
+    def _quarter_sort_key(ql: str) -> tuple:
+        try:
+            parts = ql.split()
+            return (int(parts[1]), int(parts[0][1]))
+        except Exception:
+            return (9999, 9)
+
+    sorted_quarters = sorted(all_quarters, key=_quarter_sort_key)
+
+    by_individual = []
+    quarter_totals: dict = {q: 0 for q in sorted_quarters}
+    quarter_total_issues: dict = {q: 0 for q in sorted_quarters}
+
+    for (owner, fmt), data in person_map.items():
+        total = data["total"]
+        resolved = data["resolved"]
+        closure_pct = round((resolved / total) * 100, 1) if total > 0 else 0.0
+        by_q = {q: data["quarters"].get(q, 0) for q in sorted_quarters}
+        by_individual.append({"name": owner, "format": fmt, "total_assigned": total,
+                              "total_resolved": resolved, "closure_pct": closure_pct, "by_quarter": by_q})
+        for q in sorted_quarters:
+            quarter_totals[q] = quarter_totals.get(q, 0) + data["quarters"].get(q, 0)
+            quarter_total_issues[q] = quarter_total_issues.get(q, 0) + total
+
+    by_individual.sort(key=lambda x: x["total_resolved"], reverse=True)
+
+    by_quarter_summary = []
+    for q in sorted_quarters:
+        resolved = quarter_totals.get(q, 0)
+        total = quarter_total_issues.get(q, 0)
+        by_quarter_summary.append({"quarter": q, "resolved": resolved, "total": total,
+                                   "pct": round((resolved / total) * 100, 1) if total > 0 else 0.0})
+
+    return {"quarters": sorted_quarters, "by_individual": by_individual, "by_quarter_summary": by_quarter_summary}
+
+
+@app.post("/api/quarterly-report")
+async def quarterly_report_endpoint(req: Request):
+    try:
+        payload = await req.json()
+    except Exception:
+        payload = {}
+    try:
+        result = _quarterly_report_pipeline(payload)
+        return ORJSONResponse(content=result)
+    except Exception as e:
+        print(f"[API Error] /api/quarterly-report failed: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.post("/api/quarterly-report/export")
+async def quarterly_report_export_endpoint(req: Request):
+    try:
+        from starlette.responses import StreamingResponse
+        payload = await req.json()
+    except Exception:
+        payload = {}
+    try:
+        result = _quarterly_report_pipeline(payload)
+        quarters = result["quarters"]
+        by_individual = result["by_individual"]
+        rows = []
+        for row in by_individual:
+            base = {"Name": row["name"], "Format": row["format"],
+                    "Total Assigned": row["total_assigned"], "Total Resolved": row["total_resolved"],
+                    "Closure %": row["closure_pct"]}
+            for q in quarters:
+                base[f"Resolved {q}"] = row["by_quarter"].get(q, 0)
+            rows.append(base)
+        df = pd.DataFrame(rows)
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+            df.to_excel(writer, sheet_name="Quarterly Report", index=False, startrow=1)
+            wb = writer.book
+            ws = writer.sheets["Quarterly Report"]
+            title_fmt = wb.add_format({"bold": True, "align": "center", "valign": "vcenter",
+                                        "bg_color": "#1a3a5c", "font_color": "#FFFFFF", "border": 1, "font_size": 13})
+            header_fmt = wb.add_format({"bold": True, "align": "center", "valign": "vcenter",
+                                         "font_color": "#8B0000", "bg_color": "#FFE4E1", "border": 1})
+            pct_fmt = wb.add_format({"num_format": "0.0%", "align": "center"})
+            num_fmt = wb.add_format({"align": "center"})
+            src_label = payload.get("filters", {}).get("source_format", "All Formats")
+            ws.merge_range(0, 0, 0, len(df.columns) - 1, f"Quarterly Closure Report — {src_label}", title_fmt)
+            for ci, cn in enumerate(df.columns):
+                ws.write(1, ci, cn, header_fmt)
+            for ri in range(len(df)):
+                for ci, cn in enumerate(df.columns):
+                    val = df.iloc[ri, ci]
+                    if cn == "Closure %":
+                        ws.write(ri + 2, ci, (val / 100) if isinstance(val, (int, float)) else 0, pct_fmt)
+                    elif isinstance(val, (int, float)):
+                        ws.write(ri + 2, ci, val, num_fmt)
+                    else:
+                        ws.write(ri + 2, ci, val)
+            for ci, cn in enumerate(df.columns):
+                col_width = max(df.iloc[:, ci].astype(str).map(len).max(), len(cn)) + 4
+                ws.set_column(ci, ci, min(col_width, 30))
+        buf.seek(0)
+        return StreamingResponse(buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="Quarterly_Closure_Report.xlsx"',
+                     "Access-Control-Expose-Headers": "Content-Disposition"})
+    except Exception as e:
+        print(f"[API Error] /api/quarterly-report/export failed: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 # richyrik
 def _manager_report_pipeline(payload: dict) -> tuple:
+
     filters = payload.get("filters", payload)
     target_dates = payload.get("targetDates", [])
     match_stage: dict = {}

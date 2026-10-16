@@ -75,6 +75,10 @@ import {
   Database,
   Plus,
   Edit2,
+  Award,
+  Trophy,
+  CalendarRange,
+  ArrowUpRight,
 } from "lucide-react";
 import {
   PieChart,
@@ -2492,7 +2496,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   const FILTER_DEFAULT: FilterState = {
     format: "All", searchTerm: "", searchField: "All",
     dateFrom: "", dateTo: "", severity: "All", quickFilter: "all",
-    owners: [], batches: [], assignedTo: "All Owners", cluster: "All Clusters", resolutionStatus: "Open"
+    owners: [], batches: [], assignedTo: "All Owners", cluster: "All Clusters", resolutionStatus: "All"
   };
   const [draftFilters, setDraftFilters] = useState<FilterState>(FILTER_DEFAULT);
   const [activeFilters, setActiveFilters] = useState<FilterState>(FILTER_DEFAULT);
@@ -3748,31 +3752,49 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
   // richyrik: Synchronize Container Sub-types exactly with active dashboard filters, use full stats if available
   const containerChartData = useMemo(() => {
+    let rawList: any[] = [];
     if (dashboardStats?.container_sub_types && dashboardStats.container_sub_types.length > 0) {
-      return dashboardStats.container_sub_types;
-    }
-    
-    // Fallback if no backend stats available
-    const counts: Record<string, any> = {
-      "Zero day VA": { name: "Zero day VA", Issues: 0, Critical: 0, High: 0, Medium: 0, Low: 0 },
-      "Wiz CLI Integration": { name: "Wiz CLI Integration", Issues: 0, Critical: 0, High: 0, Medium: 0, Low: 0 },
-      "Compliance VA": { name: "Compliance VA", Issues: 0, Critical: 0, High: 0, Medium: 0, Low: 0 },
-      "Quarterly VA": { name: "Quarterly VA", Issues: 0, Critical: 0, High: 0, Medium: 0, Low: 0 },
-      "Unclassified": { name: "Unclassified", Issues: 0, Critical: 0, High: 0, Medium: 0, Low: 0 }
-    };
+      rawList = dashboardStats.container_sub_types;
+    } else {
+      // Fallback if no backend stats available
+      const counts: Record<string, any> = {
+        "Zero day VA": { name: "Zero day VA", Issues: 0, count: 0, value: 0, Critical: 0, High: 0, Medium: 0, Low: 0 },
+        "Wiz CLI Integration": { name: "Wiz CLI Integration", Issues: 0, count: 0, value: 0, Critical: 0, High: 0, Medium: 0, Low: 0 },
+        "Compliance VA": { name: "Compliance VA", Issues: 0, count: 0, value: 0, Critical: 0, High: 0, Medium: 0, Low: 0 },
+        "Quarterly VA": { name: "Quarterly VA", Issues: 0, count: 0, value: 0, Critical: 0, High: 0, Medium: 0, Low: 0 },
+        "Unclassified": { name: "Unclassified", Issues: 0, count: 0, value: 0, Critical: 0, High: 0, Medium: 0, Low: 0 }
+      };
 
-    (tableFilteredIssues || []).forEach(issue => {
-      const subtype = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
-      const sev = (issue.Severity || "").toLowerCase();
-      const target = counts[subtype] || counts["Unclassified"];
-      
-      target.Issues++;
-      if (sev.includes("critical")) target.Critical++;
-      else if (sev.includes("high") || sev.includes("urgent")) target.High++;
-      else if (sev.includes("medium")) target.Medium++;
-      else if (sev.includes("low")) target.Low++;
+      (tableFilteredIssues || []).forEach(issue => {
+        const subtype = issue.SubType || issue.ContainerSubType || _classifySubtypeJS(issue);
+        const sev = (issue.Severity || "").toLowerCase();
+        const target = counts[subtype] || counts["Unclassified"];
+        
+        target.Issues++;
+        target.count++;
+        target.value++;
+        if (sev.includes("critical")) target.Critical++;
+        else if (sev.includes("high") || sev.includes("urgent")) target.High++;
+        else if (sev.includes("medium")) target.Medium++;
+        else if (sev.includes("low")) target.Low++;
+      });
+      rawList = Object.values(counts);
+    }
+
+    return rawList.map((c: any) => {
+      const val = Number(c.value ?? c.count ?? c.Issues ?? 0);
+      return {
+        ...c,
+        name: c.name || c._id || "Unknown",
+        value: val,
+        count: val,
+        Issues: val,
+        Critical: c.Critical || 0,
+        High: c.High || 0,
+        Medium: c.Medium || 0,
+        Low: c.Low || 0,
+      };
     });
-    return Object.values(counts);
   }, [tableFilteredIssues, dashboardStats]);
 
   const containerSubtypeStats = useMemo(() => {
@@ -5720,37 +5742,48 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={containerChartData}
-                      margin={{ left: 20, right: 30, bottom: 80 }}
+                      margin={{ left: 15, right: 30, bottom: 85, top: 15 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#374151" : "#e2e8f0"} />
                       <XAxis
                         dataKey="name"
                         axisLine={false}
                         tickLine={false}
-                        tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }}
+                        tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 11 }}
                         angle={-45}
                         textAnchor="end"
+                        interval={0}
+                        height={70}
                       />
                       <YAxis
+                        width={65}
                         axisLine={false}
                         tickLine={false}
-                        tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }}
+                        tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 11 }}
+                        tickFormatter={(v) => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
+                        allowDecimals={false}
                       />
                       <RechartsTooltip
-                        cursor={{ fill: darkMode ? "#374151" : "#f1f5f9" }}
+                        cursor={{ fill: darkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)" }}
                         contentStyle={{
                           backgroundColor: darkMode ? "#1e293b" : "#fff",
                           borderColor: darkMode ? "#374151" : "#e2e8f0",
                           color: darkMode ? "#e2e8f0" : "#1e293b",
                           fontSize: "12px",
-                          borderRadius: "4px",
+                          borderRadius: "8px",
+                          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
                         }}
+                        formatter={(value: any) => [`${Number(value).toLocaleString()} issues`, "Total Issues"]}
                       />
-                      <Bar isAnimationActive={true} animationDuration={1500}
+                      <Bar
+                        isAnimationActive={true}
+                        animationDuration={1200}
                         dataKey="value"
+                        name="Issues"
                         fill="#8b5cf6"
-                        radius={[0, 4, 4, 0]}
-                        barSize={30}
+                        radius={[4, 4, 0, 0]}
+                        barSize={36}
+                        minPointSize={6}
                         onClick={(data) => {
                           if (!data || !data.name) return;
                           const subtype = data.name;
@@ -5763,7 +5796,26 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                           });
                         }}
                         style={{ cursor: "pointer" }}
-                      />
+                      >
+                        {containerChartData.map((entry: any, index: number) => {
+                          const isFiltered = selectedContainerSubTypes.includes(entry.name);
+                          const SUBTYPE_COLORS: Record<string, string> = {
+                            "Zero day VA": "#ef4444",
+                            "Wiz CLI Integration": "#8b5cf6",
+                            "Compliance VA": "#f59e0b",
+                            "Quarterly VA": "#0ea5e9",
+                            "Unclassified": "#64748b",
+                          };
+                          const baseColor = SUBTYPE_COLORS[entry.name] || "#8b5cf6";
+                          return (
+                            <Cell
+                              key={`cell-${entry.name || index}`}
+                              fill={selectedContainerSubTypes.length > 0 ? (isFiltered ? baseColor : (darkMode ? "#334155" : "#cbd5e1")) : baseColor}
+                              opacity={selectedContainerSubTypes.length > 0 && !isFiltered ? 0.35 : 1}
+                            />
+                          );
+                        })}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
@@ -8005,9 +8057,374 @@ const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
   );
 };
 
+// richyrik: Dedicated Quarterly Closure Report Modal
+interface QuarterlyReportModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  darkMode: boolean;
+  activeModule?: string;
+}
+
+const QuarterlyReportModal: React.FC<QuarterlyReportModalProps> = ({
+  isOpen,
+  onClose,
+  darkMode,
+  activeModule,
+}) => {
+  const [reportData, setReportData] = useState<{
+    quarters: string[];
+    by_individual: any[];
+    by_quarter_summary: any[];
+  }>({ quarters: [], by_individual: [], by_quarter_summary: [] });
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [exporting, setExporting] = useState(false);
+
+  const fetchQuarterlyReport = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/quarterly-report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filters: {
+            source_format: activeModule && activeModule !== "All" ? activeModule : "CONTAINER",
+          },
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to fetch quarterly report");
+      const json = await res.json();
+      setReportData(json || { quarters: [], by_individual: [], by_quarter_summary: [] });
+    } catch (err) {
+      console.error("Quarterly report fetch error:", err);
+      setReportData({ quarters: [], by_individual: [], by_quarter_summary: [] });
+    } finally {
+      setLoading(false);
+    }
+  }, [activeModule]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchQuarterlyReport();
+    }
+  }, [isOpen, fetchQuarterlyReport]);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/quarterly-report/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filters: {
+            source_format: activeModule && activeModule !== "All" ? activeModule : "CONTAINER",
+          },
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to export");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Quarterly_Closure_Report_${activeModule || "All"}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Failed to export quarterly report.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const filteredIndividuals = useMemo(() => {
+    if (!search.trim()) return reportData.by_individual || [];
+    const q = search.toLowerCase();
+    return (reportData.by_individual || []).filter((ind: any) =>
+      (ind.name || "").toLowerCase().includes(q)
+    );
+  }, [reportData.by_individual, search]);
+
+  const totalResolved = useMemo(() => {
+    return (reportData.by_individual || []).reduce((acc: number, curr: any) => acc + (curr.total_resolved || 0), 0);
+  }, [reportData.by_individual]);
+
+  const totalAssigned = useMemo(() => {
+    return (reportData.by_individual || []).reduce((acc: number, curr: any) => acc + (curr.total_assigned || 0), 0);
+  }, [reportData.by_individual]);
+
+  const topPerformer = useMemo(() => {
+    if (!reportData.by_individual || reportData.by_individual.length === 0) return null;
+    return reportData.by_individual[0];
+  }, [reportData.by_individual]);
+
+  const overallClosurePct = totalAssigned > 0 ? ((totalResolved / totalAssigned) * 100).toFixed(1) : "0.0";
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+      <div
+        className={`w-full max-w-6xl max-h-[92vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden ${
+          darkMode ? "bg-slate-900 border-slate-700 text-slate-100" : "bg-white border-slate-200 text-slate-900"
+        }`}
+      >
+        {/* Modal Header */}
+        <div className={`p-6 border-b flex items-center justify-between shrink-0 ${darkMode ? "border-slate-800 bg-slate-900/60" : "border-slate-100 bg-slate-50"}`}>
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-violet-500/15 ring-1 ring-violet-500/30 text-violet-400">
+              <CalendarRange size={22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl font-bold tracking-tight">Quarterly Closure Report</h3>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-violet-500/15 text-violet-400 border border-violet-500/30">
+                  {activeModule && activeModule !== "All" ? activeModule : "CONTAINER"}
+                </span>
+              </div>
+              <p className={`text-xs mt-0.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                Individual vulnerability closures grouped across fiscal & calendar quarters
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExport}
+              disabled={exporting || !reportData.by_individual.length}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow transition-colors"
+            >
+              <Download size={14} />
+              {exporting ? "Exporting..." : "Export Excel"}
+            </button>
+            <button
+              onClick={fetchQuarterlyReport}
+              disabled={loading}
+              className={`p-2 rounded-lg border transition-colors ${darkMode ? "border-slate-700 text-slate-300 hover:bg-slate-800" : "border-slate-200 text-slate-600 hover:bg-slate-100"}`}
+              title="Refresh"
+            >
+              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+            </button>
+            <button
+              onClick={onClose}
+              className={`p-2 rounded-lg transition-colors ${darkMode ? "text-slate-400 hover:text-white hover:bg-slate-800" : "text-slate-400 hover:text-slate-700 hover:bg-slate-100"}`}
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Modal Body */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* KPI Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className={`p-4 rounded-xl border ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div className="flex items-center justify-between text-emerald-500 mb-1">
+                <span className="text-xs font-bold uppercase tracking-wider">Total Closures</span>
+                <CheckCircle size={16} />
+              </div>
+              <p className="text-2xl font-black">{totalResolved.toLocaleString()}</p>
+              <p className={`text-[11px] mt-1 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                Out of {totalAssigned.toLocaleString()} total issues
+              </p>
+            </div>
+
+            <div className={`p-4 rounded-xl border ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div className="flex items-center justify-between text-violet-400 mb-1">
+                <span className="text-xs font-bold uppercase tracking-wider">Overall Closure Rate</span>
+                <Trophy size={16} />
+              </div>
+              <p className="text-2xl font-black">{overallClosurePct}%</p>
+              <p className={`text-[11px] mt-1 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                Average across all team members
+              </p>
+            </div>
+
+            <div className={`p-4 rounded-xl border ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div className="flex items-center justify-between text-amber-400 mb-1">
+                <span className="text-xs font-bold uppercase tracking-wider">Top Performer</span>
+                <Award size={16} />
+              </div>
+              <p className="text-xl font-bold truncate" title={topPerformer?.name || "N/A"}>
+                {topPerformer?.name || "N/A"}
+              </p>
+              <p className={`text-[11px] mt-1 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                {topPerformer ? `${topPerformer.total_resolved} resolved (${topPerformer.closure_pct}%)` : "No data"}
+              </p>
+            </div>
+
+            <div className={`p-4 rounded-xl border ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div className="flex items-center justify-between text-sky-400 mb-1">
+                <span className="text-xs font-bold uppercase tracking-wider">Quarters Tracked</span>
+                <CalendarDays size={16} />
+              </div>
+              <p className="text-2xl font-black">{reportData.quarters?.length || 0}</p>
+              <p className={`text-[11px] mt-1 truncate ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                {reportData.quarters?.join(", ") || "No quarters"}
+              </p>
+            </div>
+          </div>
+
+          {/* Visual Trend Chart */}
+          {reportData.by_quarter_summary && reportData.by_quarter_summary.length > 0 && (
+            <div className={`p-5 rounded-xl border ${darkMode ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <h4 className="text-sm font-bold mb-4 flex items-center gap-2">
+                <BarChart3 size={16} className="text-violet-400" />
+                Quarterly Resolution Trend
+              </h4>
+              <div className="h-60 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={reportData.by_quarter_summary} margin={{ top: 10, right: 30, left: 10, bottom: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#334155" : "#e2e8f0"} />
+                    <XAxis
+                      dataKey="quarter"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: darkMode ? "#94a3b8" : "#64748b", fontSize: 12 }}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: darkMode ? "#94a3b8" : "#64748b", fontSize: 11 }}
+                      tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
+                    />
+                    <RechartsTooltip
+                      cursor={{ fill: darkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)" }}
+                      contentStyle={{
+                        backgroundColor: darkMode ? "#1e293b" : "#ffffff",
+                        borderColor: darkMode ? "#334155" : "#e2e8f0",
+                        borderRadius: "8px",
+                        color: darkMode ? "#f8fafc" : "#0f172a",
+                      }}
+                      formatter={(val: any) => [`${Number(val).toLocaleString()} issues resolved`, "Resolved"]}
+                    />
+                    <Bar dataKey="resolved" name="Resolved Issues" fill="#8b5cf6" radius={[6, 6, 0, 0]} barSize={42} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* Individual Performance Breakdown Table */}
+          <div className={`rounded-xl border overflow-hidden ${darkMode ? "bg-slate-800/40 border-slate-700" : "bg-white border-slate-200"}`}>
+            <div className={`p-4 border-b flex flex-wrap items-center justify-between gap-3 ${darkMode ? "border-slate-700 bg-slate-800/60" : "border-slate-100 bg-slate-50"}`}>
+              <div>
+                <h4 className="font-bold text-sm">Individual Resolution Performance</h4>
+                <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                  Showing {filteredIndividuals.length} individual contributors
+                </p>
+              </div>
+              <div className="relative">
+                <Search size={14} className={`absolute left-3 top-2.5 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
+                <input
+                  type="text"
+                  placeholder="Filter by person's name..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className={`pl-8 pr-3 py-1.5 text-xs rounded-lg border w-64 ${
+                    darkMode ? "bg-slate-900 border-slate-700 text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto max-h-[420px]">
+              <table className="w-full text-xs">
+                <thead className={`sticky top-0 z-10 uppercase tracking-wider text-[11px] font-semibold ${darkMode ? "bg-slate-800 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
+                  <tr>
+                    <th className="px-4 py-3 text-left"># Rank</th>
+                    <th className="px-4 py-3 text-left">Individual Name</th>
+                    <th className="px-4 py-3 text-left">Format</th>
+                    <th className="px-4 py-3 text-center">Total Assigned</th>
+                    <th className="px-4 py-3 text-center">Total Resolved</th>
+                    <th className="px-4 py-3 text-center">Closure %</th>
+                    {(reportData.quarters || []).map((q) => (
+                      <th key={q} className="px-4 py-3 text-center whitespace-nowrap bg-violet-500/10 text-violet-400">
+                        {q} Solved
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className={`divide-y ${darkMode ? "divide-slate-700/60" : "divide-slate-100"}`}>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={6 + (reportData.quarters?.length || 0)} className="p-8 text-center text-slate-400">
+                        <RefreshCw size={20} className="animate-spin inline mr-2 text-violet-500" />
+                        Generating quarterly performance report...
+                      </td>
+                    </tr>
+                  ) : filteredIndividuals.length === 0 ? (
+                    <tr>
+                      <td colSpan={6 + (reportData.quarters?.length || 0)} className="p-8 text-center text-slate-400">
+                        No records found for the selected format and filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredIndividuals.map((ind: any, idx: number) => {
+                      const isTop3 = idx < 3;
+                      const badgeEmoji = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : null;
+                      const pct = ind.closure_pct || 0;
+                      const pctColor = pct >= 80 ? "text-emerald-400 bg-emerald-500/15 border-emerald-500/30" : pct >= 50 ? "text-amber-400 bg-amber-500/15 border-amber-500/30" : "text-rose-400 bg-rose-500/15 border-rose-500/30";
+
+                      return (
+                        <tr key={`${ind.name}-${idx}`} className={`transition-colors ${darkMode ? "hover:bg-slate-700/30" : "hover:bg-slate-50"}`}>
+                          <td className="px-4 py-3 font-bold whitespace-nowrap">
+                            {badgeEmoji ? (
+                              <span className="inline-flex items-center gap-1">
+                                <span>{badgeEmoji}</span>
+                                <span>#{idx + 1}</span>
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">#{idx + 1}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 font-bold">
+                            <span className={isTop3 ? (darkMode ? "text-violet-300" : "text-violet-700") : ""}>
+                              {ind.name}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${darkMode ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-700"}`}>
+                              {ind.format}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center font-semibold text-slate-400">
+                            {ind.total_assigned?.toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 text-center font-bold text-emerald-500">
+                            {ind.total_resolved?.toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`inline-block px-2 py-0.5 rounded-full border text-[11px] font-bold ${pctColor}`}>
+                              {pct}%
+                            </span>
+                          </td>
+                          {(reportData.quarters || []).map((q) => {
+                            const val = ind.by_quarter?.[q] || 0;
+                            return (
+                              <td key={q} className={`px-4 py-3 text-center font-bold ${val > 0 ? (darkMode ? "text-violet-300 bg-violet-500/5" : "text-violet-700 bg-violet-50/50") : "text-slate-500"}`}>
+                                {val > 0 ? val.toLocaleString() : "—"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // richyrik
 const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> = ({ darkMode, activeModule }) => {
   const [reportData, setReportData] = useState<any[]>([]);
+  const [isQuarterlyModalOpen, setIsQuarterlyModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -8216,11 +8633,21 @@ const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> 
             {filteredData.length} groups &middot; {summaryTotals.shared} shared &middot; {summaryTotals.closed} closed &middot; {summaryTotals.pct}% overall
           </p>
         </div>
-        <button onClick={handleExport} disabled={exporting || filteredData.length === 0}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
-          <Download size={14} />
-          {exporting ? "Exporting..." : "Download Excel"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsQuarterlyModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-sm font-semibold rounded-lg shadow-sm hover:shadow transition-all"
+            title="View Quarterly Closure Report by Individual"
+          >
+            <CalendarRange size={15} />
+            Quarterly Report
+          </button>
+          <button onClick={handleExport} disabled={exporting || filteredData.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+            <Download size={14} />
+            {exporting ? "Exporting..." : "Download Excel"}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-end gap-3 mb-4">
@@ -8474,6 +8901,13 @@ const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> 
           </div>
         </div>
       )}
+
+      <QuarterlyReportModal
+        isOpen={isQuarterlyModalOpen}
+        onClose={() => setIsQuarterlyModalOpen(false)}
+        darkMode={darkMode}
+        activeModule={activeModule}
+      />
     </div>
   );
 };
