@@ -5289,11 +5289,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
       {/* richyrik */}
       {viewMode === "Manager" ? (
         hasDataForActiveModule ? (
-          <>
-
-            // richyrik: pass filteredIssues for dynamic quarterly resolution tracking
-            <ManagerReportView darkMode={darkMode} activeModule={selectedFormatFilter} filteredIssues={activeIssues} />
-          </>
+          <ManagerReportView darkMode={darkMode} activeModule={selectedFormatFilter} filteredIssues={activeIssues} />
         ) : null
       ) : viewMode === "Calendar" ? <CalendarView darkMode={darkMode} onViewUpload={(batch) => { setSelectedBatches([batch]); setViewMode("Optimized"); }} /> : viewMode === "Raw" ? (
         <div className={`p-5 rounded-lg border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
