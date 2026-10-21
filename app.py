@@ -2258,19 +2258,26 @@ async def export_data(
         return mexwf
 
 
-# richyrik: Quarterly Closure Report — groups resolved issues by calendar quarter, individual, and format.
+# richyrik: Quarterly Closure Report — groups issues by calendar quarter, individual, cluster, and format across entire database
 def _quarterly_report_pipeline(payload: dict) -> dict:
     filters = payload.get("filters", {})
-    source_format = filters.get("source_format", "")
+    source_format = str(filters.get("source_format", "")).strip()
     upload_batch = filters.get("upload_batch", "")
     year_filter = str(filters.get("year", "")).strip()
     lob_filter = filters.get("lob", "")
     owner_filter = filters.get("owner", "")
 
     match_stage: dict = {}
-    if source_format:
-        if source_format in ["SAST_DAST", "SAST/DAST"]:
-            match_stage["SourceFormat"] = {"$in": ["SAST_DAST", "SAST/DAST"]}
+    if source_format and source_format != "All":
+        sf_upper = source_format.upper().replace("/", "_")
+        if "SAST" in sf_upper or "DAST" in sf_upper:
+            match_stage["SourceFormat"] = {"$in": ["SAST_DAST", "SAST/DAST", "sast_dast", "SAST", "DAST"]}
+        elif "CONTAINER" in sf_upper:
+            match_stage["SourceFormat"] = {"$in": ["CONTAINER", "Container", "container"]}
+        elif "CSPM" in sf_upper:
+            match_stage["SourceFormat"] = {"$in": ["CSPM", "Cspm", "cspm"]}
+        elif "VAPT" in sf_upper:
+            match_stage["SourceFormat"] = {"$in": ["VAPT", "Vapt", "vapt"]}
         else:
             match_stage["SourceFormat"] = source_format
     if upload_batch:
@@ -2288,37 +2295,79 @@ def _quarterly_report_pipeline(payload: dict) -> dict:
         "_id": 0, "AssignedTo": 1, "Assignee": 1, "Status": 1, "SourceFormat": 1,
         "UploadBatch": 1, "ResolutionDate": 1, "UpdatedAt": 1, "DiscoveredDate": 1,
         "Date": 1, "Created Date": 1, "CreatedDate": 1, "UploadDate": 1, "ReportedOn": 1,
-        "UploadedAt": 1, "firstSeen": 1, "Quarter": 1, "Vulnerability Status": 1, "State": 1
+        "UploadedAt": 1, "firstSeen": 1, "FirstSeen": 1, "FirstDetected": 1, "firstDetected": 1,
+        "LastDetected": 1, "lastDetected": 1, "ResolvedAt": 1, "resolvedAt": 1,
+        "Quarter": 1, "Vulnerability Status": 1, "State": 1, "FindingStatus": 1,
+        "Severity": 1, "Clusters": 1, "Application": 1, "ApplicationName": 1, "LOB": 1
     }
-    cursor = issues_collection.find(match_stage, projection)
+    cursor = issues_collection.find(match_stage, projection).batch_size(10000)
 
     person_map: dict = {}
     quarter_counts: dict = {}
     all_quarters: set = set()
+    cluster_counts: dict = {}
+    severity_counts: dict = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
 
     def _quarter_label(date_str: str) -> str | None:
         if not date_str:
             return None
         try:
             ds = str(date_str).strip()
-            # Check Q1-Q4
-            m = re.search(r'\bQ([1-4])[\s\-_/]*(\d{4})\b', ds, re.IGNORECASE)
-            if m:
-                return f"Q{m.group(1)} {m.group(2)}"
-            # Check YYYY-MM
-            ds_sub = ds[:10]
-            year, month = int(ds_sub[:4]), int(ds_sub[5:7])
-            if year_filter and str(year) != year_filter:
+            if not ds or ds.lower() in ["na", "none", "nan", "null", "undefined", "-", "—"]:
                 return None
-            if 1 <= month <= 12:
-                q = (month - 1) // 3 + 1
-                return f"Q{q} {year}"
+            # 1. Direct Q1-Q4 patterns (e.g. "Q1 2026", "Q3-2026", "2026 Q2")
+            m = re.search(r'\bQ([1-4])[\s\-_/]*(\d{2,4})\b', ds, re.IGNORECASE)
+            if m:
+                y = m.group(2)
+                if len(y) == 2: y = "20" + y
+                if year_filter and y != year_filter:
+                    return None
+                return f"Q{m.group(1)} {y}"
+            m2 = re.search(r'\b(20\d{2})[\s\-_/]*Q([1-4])\b', ds, re.IGNORECASE)
+            if m2:
+                y = m2.group(1)
+                if year_filter and y != year_filter:
+                    return None
+                return f"Q{m2.group(2)} {y}"
+            # 2. Check ISO YYYY-MM-DD or YYYY/MM/DD
+            m_iso = re.search(r'\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b', ds)
+            if m_iso:
+                year, month = int(m_iso.group(1)), int(m_iso.group(2))
+                if year_filter and str(year) != year_filter:
+                    return None
+                if 1 <= month <= 12:
+                    q = (month - 1) // 3 + 1
+                    return f"Q{q} {year}"
+            # 3. Check DD-MM-YYYY or MM-DD-YYYY
+            m_dmy = re.search(r'\b(\d{1,2})[-/.](\d{1,2})[-/.](20\d{2})\b', ds)
+            if m_dmy:
+                year = int(m_dmy.group(3))
+                if year_filter and str(year) != year_filter:
+                    return None
+                p1, p2 = int(m_dmy.group(1)), int(m_dmy.group(2))
+                month = p2 if p1 > 12 else (p1 if p2 > 12 else p1)
+                if 1 <= month <= 12:
+                    q = (month - 1) // 3 + 1
+                    return f"Q{q} {year}"
+            # 4. Standard ISO datetime or date prefix
+            if len(ds) >= 7 and ds[:4].isdigit() and ds[4] in ["-", "/"]:
+                year = int(ds[:4])
+                month = int(ds[5:7])
+                if year_filter and str(year) != year_filter:
+                    return None
+                if 1 <= month <= 12:
+                    q = (month - 1) // 3 + 1
+                    return f"Q{q} {year}"
         except Exception:
             pass
         return None
 
-    date_fields = ["Date", "Created Date", "CreatedDate", "UploadDate", "DiscoveredDate",
-                   "ReportedOn", "ResolutionDate", "UpdatedAt", "UploadedAt", "firstSeen", "Quarter", "UploadBatch"]
+    date_fields = [
+        "FirstDetected", "firstDetected", "FirstSeen", "firstSeen", "DiscoveredDate",
+        "Date", "Created Date", "CreatedDate", "UploadDate", "UploadedAt",
+        "ReportedOn", "ResolutionDate", "ResolvedAt", "resolvedAt", "UpdatedAt",
+        "LastDetected", "Quarter", "UploadBatch"
+    ]
 
     for doc in cursor:
         owner = str(doc.get("AssignedTo") or doc.get("Assignee") or "").strip() or "Unassigned"
@@ -2328,8 +2377,19 @@ def _quarterly_report_pipeline(payload: dict) -> dict:
         if "SAST" in fmt.upper():
             fmt = "SAST/DAST"
 
-        status = str(doc.get("Status") or doc.get("Vulnerability Status") or doc.get("State") or "").lower().strip()
-        is_resolved = status in ["closed", "resolved", "done", "fixed", "complete", "completed", "mitigated"]
+        status = str(doc.get("Status") or doc.get("Vulnerability Status") or doc.get("State") or doc.get("FindingStatus") or "").lower().strip()
+        is_resolved = (
+            status in ["closed", "resolved", "done", "fixed", "complete", "completed", "mitigated"] or
+            "closed" in status or "resolved" in status or "fixed" in status or "mitigated" in status
+        )
+
+        cluster = str(doc.get("Clusters") or doc.get("Application") or doc.get("ApplicationName") or "NA").strip()
+        if cluster and cluster != "NA":
+            cluster_counts[cluster] = cluster_counts.get(cluster, 0) + 1
+
+        sev = str(doc.get("Severity") or "").capitalize().strip()
+        if sev in severity_counts:
+            severity_counts[sev] += 1
 
         q_label = None
         for field in date_fields:
@@ -2340,8 +2400,10 @@ def _quarterly_report_pipeline(payload: dict) -> dict:
                     break
 
         if not q_label:
-            # Fallback to current year/quarter if unparseable
             now = datetime.now()
+            q_year = str(now.year)
+            if year_filter and year_filter != q_year:
+                continue
             q_label = f"Q{(now.month - 1) // 3 + 1} {now.year}"
 
         all_quarters.add(q_label)
@@ -2396,7 +2458,24 @@ def _quarterly_report_pipeline(payload: dict) -> dict:
             "pct": round((res / tot) * 100, 1) if tot > 0 else 0.0
         })
 
-    return {"quarters": sorted_quarters, "by_individual": by_individual, "by_quarter_summary": by_quarter_summary}
+    total_issues = sum(qc["total"] for qc in quarter_counts.values())
+    total_open = sum(qc["open"] for qc in quarter_counts.values())
+    total_resolved = sum(qc["resolved"] for qc in quarter_counts.values())
+    overall_pct = round((total_resolved / total_issues) * 100, 1) if total_issues > 0 else 0.0
+
+    top_clusters = sorted([{"name": k, "count": v} for k, v in cluster_counts.items()], key=lambda x: x["count"], reverse=True)[:10]
+
+    return {
+        "quarters": sorted_quarters,
+        "by_individual": by_individual,
+        "by_quarter_summary": by_quarter_summary,
+        "total_issues": total_issues,
+        "total_open": total_open,
+        "total_resolved": total_resolved,
+        "overall_closure_pct": overall_pct,
+        "by_severity": severity_counts,
+        "top_clusters": top_clusters
+    }
 
 
 @app.post("/api/quarterly-report")
