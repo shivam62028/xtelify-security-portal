@@ -5291,7 +5291,8 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
         hasDataForActiveModule ? (
           <>
 
-            <ManagerReportView darkMode={darkMode} activeModule={selectedFormatFilter} />
+            // richyrik: pass filteredIssues for dynamic quarterly resolution tracking
+            <ManagerReportView darkMode={darkMode} activeModule={selectedFormatFilter} filteredIssues={activeIssues} />
           </>
         ) : null
       ) : viewMode === "Calendar" ? <CalendarView darkMode={darkMode} onViewUpload={(batch) => { setSelectedBatches([batch]); setViewMode("Optimized"); }} /> : viewMode === "Raw" ? (
@@ -8057,116 +8058,318 @@ const SecurityAgent: React.FC<SecurityAgentProps> = ({ contextData = [] }) => {
   );
 };
 
-// richyrik: Dedicated Quarterly Closure Report Modal
+// richyrik: Dedicated Quarterly Closure Report Modal & Time-based Trend
 interface QuarterlyReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   darkMode: boolean;
   activeModule?: string;
+  filteredIssues?: any[];
 }
 
+// richyrik: Check if an issue status equals Closed, Resolved, Fixed, or Mitigated (case-insensitive)
+const isResolvedIssue = (issue: any): boolean => {
+  const statusValues = [
+    issue.Status,
+    issue.status,
+    issue.State,
+    issue.state,
+    issue["Vulnerability Status"],
+    issue.VulnerabilityStatus,
+    issue["vulnerability status"],
+    issue.FindingStatus,
+    issue.finding_status,
+    issue.Compliant_NonCompliant,
+    issue["Compliant/Non-compliant"],
+  ];
+  for (const val of statusValues) {
+    if (val === undefined || val === null) continue;
+    const s = String(val).trim().toLowerCase();
+    if (!s) continue;
+    if (
+      s === "closed" ||
+      s === "resolved" ||
+      s === "fixed" ||
+      s === "mitigated" ||
+      /\b(closed|resolved|fixed|mitigated)\b/.test(s)
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
+
+// richyrik: Helper to extract and convert issue date to Quarter format ("Q1 2026")
+const parseQuarterFromIssue = (issue: any): string | null => {
+  const dateCandidates = [
+    issue.Date,
+    issue.date,
+    issue["Created Date"],
+    issue.CreatedDate,
+    issue["Created date"],
+    issue.Created,
+    issue.UploadDate,
+    issue["Upload Date"],
+    issue.UploadedAt,
+    issue.uploaded_at,
+    issue.DiscoveredDate,
+    issue["Discovered Date"],
+    issue.ReportedOn,
+    issue["Reported on"],
+    issue.ResolutionDate,
+    issue["Resolution Date"],
+    issue.ResolvedAt,
+    issue.UpdatedAt,
+    issue["Updated At"],
+    issue.DueDate,
+    issue["Due Date"],
+    issue.firstSeen,
+    issue.FirstSeen,
+    issue["First Seen"],
+    issue.lastSeen,
+    issue.LastSeen,
+    issue["Last Seen"],
+    issue.vulnPubDate,
+    issue.VulnPubDate,
+    issue.Quarter,
+    issue.quarter,
+    issue.UploadBatch,
+    issue.upload_batch,
+  ];
+
+  for (const raw of dateCandidates) {
+    if (raw === undefined || raw === null) continue;
+    const s = String(raw).trim();
+    if (!s || s === "NA" || s === "None" || s === "null" || s === "undefined" || s === "—" || s === "-") continue;
+
+    // Check direct Quarter pattern (e.g. "Q1 2026", "Q3-2026", "2026 Q2")
+    const qMatch = s.match(/\bQ([1-4])[\s-_/]*'?(\d{2,4})\b/i);
+    if (qMatch) {
+      let y = qMatch[2];
+      if (y.length === 2) y = "20" + y;
+      return `Q${qMatch[1]} ${y}`;
+    }
+    const yqMatch = s.match(/\b(20\d{2})[\s-_/]*Q([1-4])\b/i);
+    if (yqMatch) {
+      return `Q${yqMatch[2]} ${yqMatch[1]}`;
+    }
+
+    // Check YYYY-MM-DD or YYYY/MM/DD
+    const ymd = s.match(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/);
+    if (ymd) {
+      const y = parseInt(ymd[1], 10);
+      const m = parseInt(ymd[2], 10);
+      if (m >= 1 && m <= 12) {
+        const q = Math.floor((m - 1) / 3) + 1;
+        return `Q${q} ${y}`;
+      }
+    }
+
+    // Check DD-MM-YYYY or MM-DD-YYYY or DD/MM/YYYY
+    const dmy = s.match(/\b(\d{1,2})[-/.](\d{1,2})[-/.](20\d{2})\b/);
+    if (dmy) {
+      const y = parseInt(dmy[3], 10);
+      const p1 = parseInt(dmy[1], 10);
+      const p2 = parseInt(dmy[2], 10);
+      const m = p1 > 12 ? p2 : (p2 > 12 ? p1 : p2);
+      if (m >= 1 && m <= 12) {
+        const q = Math.floor((m - 1) / 3) + 1;
+        return `Q${q} ${y}`;
+      }
+    }
+
+    // Fallback standard Date parsing
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      const y = parsed.getFullYear();
+      if (y >= 2000 && y <= 2099) {
+        const m = parsed.getMonth() + 1;
+        const q = Math.floor((m - 1) / 3) + 1;
+        return `Q${q} ${y}`;
+      }
+    }
+  }
+
+  return null;
+};
+
+// richyrik: Dedicated Quarterly Closure Report Modal
 const QuarterlyReportModal: React.FC<QuarterlyReportModalProps> = ({
   isOpen,
   onClose,
   darkMode,
   activeModule,
+  filteredIssues = [],
 }) => {
-  const [reportData, setReportData] = useState<{
-    quarters: string[];
-    by_individual: any[];
-    by_quarter_summary: any[];
-  }>({ quarters: [], by_individual: [], by_quarter_summary: [] });
+  const [internalIssues, setInternalIssues] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [chartMode, setChartMode] = useState<"sideBySide" | "stacked">("sideBySide");
 
-  const fetchQuarterlyReport = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/quarterly-report`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filters: {
-            source_format: activeModule && activeModule !== "All" ? activeModule : "CONTAINER",
-          },
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to fetch quarterly report");
-      const json = await res.json();
-      setReportData(json || { quarters: [], by_individual: [], by_quarter_summary: [] });
-    } catch (err) {
-      console.error("Quarterly report fetch error:", err);
-      setReportData({ quarters: [], by_individual: [], by_quarter_summary: [] });
-    } finally {
-      setLoading(false);
-    }
-  }, [activeModule]);
-
+  // richyrik: Fetch issues if not provided in props
   useEffect(() => {
-    if (isOpen) {
-      fetchQuarterlyReport();
+    if (isOpen && (!filteredIssues || filteredIssues.length === 0)) {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (activeModule && activeModule !== "All") {
+        params.append("format", activeModule);
+      }
+      fetch(`${BACKEND_URL}/api/db?${params.toString()}`)
+        .then((res) => res.json())
+        .then((data) => {
+          const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+          setInternalIssues(list);
+        })
+        .catch((err) => {
+          console.error("Quarterly report fallback fetch error:", err);
+          setInternalIssues([]);
+        })
+        .finally(() => setLoading(false));
     }
-  }, [isOpen, fetchQuarterlyReport]);
+  }, [isOpen, filteredIssues, activeModule]);
 
-  const handleExport = async () => {
+  const rawIssues = filteredIssues && filteredIssues.length > 0 ? filteredIssues : internalIssues;
+
+  // richyrik: Dynamic module filtering (remove hardcoded Container)
+  const scopedIssues = useMemo(() => {
+    if (!rawIssues || rawIssues.length === 0) return [];
+    if (!activeModule || activeModule === "All") return rawIssues;
+
+    const target = activeModule.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return rawIssues.filter((issue: any) => {
+      const fmt = String(issue.SourceFormat || issue.Format || issue.format || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (target.includes("sast") || target.includes("dast")) {
+        return fmt.includes("sast") || fmt.includes("dast");
+      }
+      if (target.includes("container")) {
+        return fmt.includes("container") || (!fmt && Boolean(issue.Clusters || issue.SubscriptionName));
+      }
+      if (target.includes("cspm")) {
+        return fmt.includes("cspm") || (!fmt && Boolean(issue.account_name || issue.resource_id));
+      }
+      if (target.includes("vapt")) {
+        return fmt.includes("vapt") || (!fmt && Boolean(issue.IP || issue["Vulnerability Status"] || issue.UUID));
+      }
+      return fmt === target || fmt.includes(target);
+    });
+  }, [rawIssues, activeModule]);
+
+  // richyrik: Fix aggregation logic & 0 quarters bug using robust useMemo hook
+  const { quarterlyData, totalOpen, totalResolved, totalIssues, overallClosurePct, quartersList } = useMemo(() => {
+    let openCount = 0;
+    let resolvedCount = 0;
+    const quarterMap: Record<string, { quarter: string; open: number; resolved: number; total: number; year: number; qNum: number }> = {};
+
+    (scopedIssues || []).forEach((issue: any) => {
+      const isResolved = isResolvedIssue(issue);
+      if (isResolved) {
+        resolvedCount++;
+      } else {
+        openCount++;
+      }
+
+      const qLabel = parseQuarterFromIssue(issue);
+      const targetQuarter = qLabel || "Unspecified";
+
+      if (!quarterMap[targetQuarter]) {
+        let year = 9999;
+        let qNum = 9;
+        if (targetQuarter !== "Unspecified") {
+          const parts = targetQuarter.split(" ");
+          qNum = parseInt(parts[0].replace("Q", ""), 10) || 1;
+          year = parseInt(parts[1], 10) || 2026;
+        }
+        quarterMap[targetQuarter] = {
+          quarter: targetQuarter,
+          open: 0,
+          resolved: 0,
+          total: 0,
+          year,
+          qNum,
+        };
+      }
+
+      if (isResolved) {
+        quarterMap[targetQuarter].resolved++;
+      } else {
+        quarterMap[targetQuarter].open++;
+      }
+      quarterMap[targetQuarter].total++;
+    });
+
+    // Chronological order by year and quarter
+    const sorted = Object.values(quarterMap)
+      .filter((q) => q.quarter !== "Unspecified")
+      .sort((a, b) => (a.year !== b.year ? a.year - b.year : a.qNum - b.qNum));
+
+    // Handle unspecified quarter fallback
+    if (quarterMap["Unspecified"] && sorted.length > 0) {
+      sorted.push(quarterMap["Unspecified"]);
+    } else if (quarterMap["Unspecified"] && sorted.length === 0) {
+      const now = new Date();
+      const currentQuarter = `Q${Math.floor(now.getMonth() / 3) + 1} ${now.getFullYear()}`;
+      sorted.push({
+        quarter: currentQuarter,
+        open: quarterMap["Unspecified"].open,
+        resolved: quarterMap["Unspecified"].resolved,
+        total: quarterMap["Unspecified"].total,
+        year: now.getFullYear(),
+        qNum: Math.floor(now.getMonth() / 3) + 1,
+      });
+    }
+
+    const total = openCount + resolvedCount;
+    const closurePct = total > 0 ? ((resolvedCount / total) * 100).toFixed(1) : "0.0";
+    const distinctQuarters = sorted.map((q) => q.quarter);
+
+    return {
+      quarterlyData: sorted.map(({ quarter, open, resolved, total }) => ({
+        quarter,
+        open,
+        resolved,
+        total,
+        closureRate: total > 0 ? Number(((resolved / total) * 100).toFixed(1)) : 0,
+      })),
+      totalOpen: openCount,
+      totalResolved: resolvedCount,
+      totalIssues: total,
+      overallClosurePct: closurePct,
+      quartersList: distinctQuarters,
+    };
+  }, [scopedIssues]);
+
+  // richyrik: Export quarterly summary directly to Excel
+  const handleExport = () => {
     setExporting(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/quarterly-report/export`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filters: {
-            source_format: activeModule && activeModule !== "All" ? activeModule : "CONTAINER",
-          },
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to export");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `Quarterly_Closure_Report_${activeModule || "All"}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
+      const exportRows = quarterlyData.map((d) => ({
+        "Quarter": d.quarter,
+        "Module": activeModule && activeModule !== "All" ? activeModule : "All Modules",
+        "Open Issues": d.open,
+        "Resolved Issues": d.resolved,
+        "Total Issues": d.total,
+        "Closure Rate (%)": `${d.closureRate}%`,
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Quarterly Trend");
+      const filename = `Quarterly_Closure_Report_${activeModule || "All"}.xlsx`;
+      XLSX.writeFile(wb, filename);
+    } catch (err) {
+      console.error("Export quarterly report error:", err);
       alert("Failed to export quarterly report.");
     } finally {
       setExporting(false);
     }
   };
 
-  const filteredIndividuals = useMemo(() => {
-    if (!search.trim()) return reportData.by_individual || [];
-    const q = search.toLowerCase();
-    return (reportData.by_individual || []).filter((ind: any) =>
-      (ind.name || "").toLowerCase().includes(q)
-    );
-  }, [reportData.by_individual, search]);
-
-  const totalResolved = useMemo(() => {
-    return (reportData.by_individual || []).reduce((acc: number, curr: any) => acc + (curr.total_resolved || 0), 0);
-  }, [reportData.by_individual]);
-
-  const totalAssigned = useMemo(() => {
-    return (reportData.by_individual || []).reduce((acc: number, curr: any) => acc + (curr.total_assigned || 0), 0);
-  }, [reportData.by_individual]);
-
-  const topPerformer = useMemo(() => {
-    if (!reportData.by_individual || reportData.by_individual.length === 0) return null;
-    return reportData.by_individual[0];
-  }, [reportData.by_individual]);
-
-  const overallClosurePct = totalAssigned > 0 ? ((totalResolved / totalAssigned) * 100).toFixed(1) : "0.0";
-
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
       <div
-        className={`w-full max-w-6xl max-h-[92vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden ${
+        className={`w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden ${
           darkMode ? "bg-slate-900 border-slate-700 text-slate-100" : "bg-white border-slate-200 text-slate-900"
         }`}
       >
@@ -8180,30 +8383,22 @@ const QuarterlyReportModal: React.FC<QuarterlyReportModalProps> = ({
               <div className="flex items-center gap-2">
                 <h3 className="text-xl font-bold tracking-tight">Quarterly Closure Report</h3>
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-violet-500/15 text-violet-400 border border-violet-500/30">
-                  {activeModule && activeModule !== "All" ? activeModule : "CONTAINER"}
+                  {activeModule && activeModule !== "All" ? activeModule : "All Modules"}
                 </span>
               </div>
               <p className={`text-xs mt-0.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                Individual vulnerability closures grouped across fiscal & calendar quarters
+                Quarterly vulnerability resolution trend over time: Open vs Resolved issues
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={handleExport}
-              disabled={exporting || !reportData.by_individual.length}
+              disabled={exporting || quarterlyData.length === 0}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow transition-colors"
             >
               <Download size={14} />
               {exporting ? "Exporting..." : "Export Excel"}
-            </button>
-            <button
-              onClick={fetchQuarterlyReport}
-              disabled={loading}
-              className={`p-2 rounded-lg border transition-colors ${darkMode ? "border-slate-700 text-slate-300 hover:bg-slate-800" : "border-slate-200 text-slate-600 hover:bg-slate-100"}`}
-              title="Refresh"
-            >
-              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
             </button>
             <button
               onClick={onClose}
@@ -8218,75 +8413,122 @@ const QuarterlyReportModal: React.FC<QuarterlyReportModalProps> = ({
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* KPI Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Total Closures (Emerald Green) */}
             <div className={`p-4 rounded-xl border ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
               <div className="flex items-center justify-between text-emerald-500 mb-1">
                 <span className="text-xs font-bold uppercase tracking-wider">Total Closures</span>
                 <CheckCircle size={16} />
               </div>
-              <p className="text-2xl font-black">{totalResolved.toLocaleString()}</p>
+              <p className="text-2xl font-black text-emerald-500">{totalResolved.toLocaleString()}</p>
               <p className={`text-[11px] mt-1 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                Out of {totalAssigned.toLocaleString()} total issues
+                Out of {totalIssues.toLocaleString()} total issues
               </p>
             </div>
 
+            {/* Total Open Issues (Airtel Red: #EF4444) */}
+            <div className={`p-4 rounded-xl border ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div className="flex items-center justify-between text-red-500 mb-1">
+                <span className="text-xs font-bold uppercase tracking-wider">Total Open</span>
+                <AlertCircle size={16} />
+              </div>
+              <p className="text-2xl font-black text-red-500">{totalOpen.toLocaleString()}</p>
+              <p className={`text-[11px] mt-1 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                Active unresolved vulnerabilities
+              </p>
+            </div>
+
+            {/* Overall Closure Rate (Violet) */}
             <div className={`p-4 rounded-xl border ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
               <div className="flex items-center justify-between text-violet-400 mb-1">
                 <span className="text-xs font-bold uppercase tracking-wider">Overall Closure Rate</span>
-                <Trophy size={16} />
+                <TrendingUp size={16} />
               </div>
-              <p className="text-2xl font-black">{overallClosurePct}%</p>
+              <p className="text-2xl font-black text-violet-400">{overallClosurePct}%</p>
               <p className={`text-[11px] mt-1 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                Average across all team members
+                {totalResolved.toLocaleString()} closed of {totalIssues.toLocaleString()} tracked
               </p>
             </div>
 
-            <div className={`p-4 rounded-xl border ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-              <div className="flex items-center justify-between text-amber-400 mb-1">
-                <span className="text-xs font-bold uppercase tracking-wider">Top Performer</span>
-                <Award size={16} />
-              </div>
-              <p className="text-xl font-bold truncate" title={topPerformer?.name || "N/A"}>
-                {topPerformer?.name || "N/A"}
-              </p>
-              <p className={`text-[11px] mt-1 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                {topPerformer ? `${topPerformer.total_resolved} resolved (${topPerformer.closure_pct}%)` : "No data"}
-              </p>
-            </div>
-
+            {/* Quarters Tracked (Sky Blue) */}
             <div className={`p-4 rounded-xl border ${darkMode ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
               <div className="flex items-center justify-between text-sky-400 mb-1">
                 <span className="text-xs font-bold uppercase tracking-wider">Quarters Tracked</span>
                 <CalendarDays size={16} />
               </div>
-              <p className="text-2xl font-black">{reportData.quarters?.length || 0}</p>
-              <p className={`text-[11px] mt-1 truncate ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                {reportData.quarters?.join(", ") || "No quarters"}
+              <p className="text-2xl font-black text-sky-400">{quartersList.length}</p>
+              <p className={`text-[11px] mt-1 truncate ${darkMode ? "text-slate-400" : "text-slate-500"}`} title={quartersList.join(", ") || "No quarters"}>
+                {quartersList.join(", ") || "No quarters"}
               </p>
             </div>
           </div>
 
-          {/* Visual Trend Chart */}
-          {reportData.by_quarter_summary && reportData.by_quarter_summary.length > 0 && (
-            <div className={`p-5 rounded-xl border ${darkMode ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-              <h4 className="text-sm font-bold mb-4 flex items-center gap-2">
-                <BarChart3 size={16} className="text-violet-400" />
-                Quarterly Resolution Trend
-              </h4>
-              <div className="h-60 w-full">
+          {/* richyrik: Time-based Quarterly Trend Chart (Replaces Individual Table) */}
+          <div className={`p-5 rounded-xl border ${darkMode ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+              <div>
+                <h4 className="text-sm font-bold flex items-center gap-2">
+                  <BarChart3 size={16} className="text-violet-400" />
+                  Quarterly Trend: Open vs Resolved ({activeModule && activeModule !== "All" ? activeModule : "All Modules"})
+                </h4>
+                <p className={`text-xs mt-0.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                  Issue count progression across calendar quarters (Airtel Red: Open vs Emerald Green: Resolved)
+                </p>
+              </div>
+
+              {/* Chart Mode Toggle: Side-by-Side vs Stacked */}
+              <div className={`flex items-center gap-1 p-1 rounded-lg border text-xs font-medium ${darkMode ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}>
+                <button
+                  onClick={() => setChartMode("sideBySide")}
+                  className={`px-3 py-1 rounded transition-colors ${
+                    chartMode === "sideBySide"
+                      ? "bg-violet-600 text-white font-semibold shadow-sm"
+                      : darkMode ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Side-by-Side
+                </button>
+                <button
+                  onClick={() => setChartMode("stacked")}
+                  className={`px-3 py-1 rounded transition-colors ${
+                    chartMode === "stacked"
+                      ? "bg-violet-600 text-white font-semibold shadow-sm"
+                      : darkMode ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Stacked
+                </button>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="h-72 flex items-center justify-center text-slate-400 gap-2">
+                <RefreshCw size={20} className="animate-spin text-violet-500" />
+                <span>Loading quarterly trend data...</span>
+              </div>
+            ) : quarterlyData.length === 0 ? (
+              <div className="h-72 flex flex-col items-center justify-center text-slate-400 gap-2">
+                <CalendarDays size={32} className="text-slate-500 opacity-60" />
+                <p className="text-sm">No quarterly records found for this module.</p>
+              </div>
+            ) : (
+              <div className="h-80 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={reportData.by_quarter_summary} margin={{ top: 10, right: 30, left: 10, bottom: 20 }}>
+                  <BarChart
+                    data={quarterlyData}
+                    margin={{ top: 15, right: 30, left: 10, bottom: 20 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? "#334155" : "#e2e8f0"} />
                     <XAxis
                       dataKey="quarter"
                       axisLine={false}
                       tickLine={false}
-                      tick={{ fill: darkMode ? "#94a3b8" : "#64748b", fontSize: 12 }}
+                      tick={{ fill: darkMode ? "#94a3b8" : "#64748b", fontSize: 12, fontWeight: 600 }}
                     />
                     <YAxis
                       axisLine={false}
                       tickLine={false}
                       tick={{ fill: darkMode ? "#94a3b8" : "#64748b", fontSize: 11 }}
-                      tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
+                      tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v))}
                     />
                     <RechartsTooltip
                       cursor={{ fill: darkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)" }}
@@ -8295,125 +8537,82 @@ const QuarterlyReportModal: React.FC<QuarterlyReportModalProps> = ({
                         borderColor: darkMode ? "#334155" : "#e2e8f0",
                         borderRadius: "8px",
                         color: darkMode ? "#f8fafc" : "#0f172a",
+                        boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.3)",
                       }}
-                      formatter={(val: any) => [`${Number(val).toLocaleString()} issues resolved`, "Resolved"]}
+                      formatter={(val: any, name: any) => [
+                        `${Number(val).toLocaleString()} issues`,
+                        name,
+                      ]}
                     />
-                    <Bar dataKey="resolved" name="Resolved Issues" fill="#8b5cf6" radius={[6, 6, 0, 0]} barSize={42} />
+                    <Legend
+                      wrapperStyle={{ paddingTop: "12px" }}
+                      formatter={(value) => (
+                        <span style={{ color: darkMode ? "#cbd5e1" : "#475569", fontSize: "12px", fontWeight: 500 }}>
+                          {value}
+                        </span>
+                      )}
+                    />
+                    {/* richyrik: Airtel Red: #EF4444 for Open */}
+                    <Bar
+                      dataKey="open"
+                      name="Open"
+                      fill="#EF4444"
+                      stackId={chartMode === "stacked" ? "quarterStack" : undefined}
+                      radius={chartMode === "stacked" ? [0, 0, 0, 0] : [6, 6, 0, 0]}
+                      maxBarSize={48}
+                    />
+                    {/* richyrik: Emerald Green: #10B981 for Resolved */}
+                    <Bar
+                      dataKey="resolved"
+                      name="Resolved"
+                      fill="#10B981"
+                      stackId={chartMode === "stacked" ? "quarterStack" : undefined}
+                      radius={[6, 6, 0, 0]}
+                      maxBarSize={48}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Individual Performance Breakdown Table */}
-          <div className={`rounded-xl border overflow-hidden ${darkMode ? "bg-slate-800/40 border-slate-700" : "bg-white border-slate-200"}`}>
-            <div className={`p-4 border-b flex flex-wrap items-center justify-between gap-3 ${darkMode ? "border-slate-700 bg-slate-800/60" : "border-slate-100 bg-slate-50"}`}>
-              <div>
-                <h4 className="font-bold text-sm">Individual Resolution Performance</h4>
-                <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                  Showing {filteredIndividuals.length} individual contributors
-                </p>
+            {/* Quarter Breakdown Cards */}
+            {quarterlyData.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-700/40">
+                {quarterlyData.map((d) => (
+                  <div
+                    key={d.quarter}
+                    className={`p-3 rounded-lg border ${
+                      darkMode ? "bg-slate-900/50 border-slate-700/60" : "bg-white border-slate-200"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs font-bold mb-1.5">
+                      <span className={darkMode ? "text-slate-200" : "text-slate-800"}>{d.quarter}</span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                          d.closureRate >= 70
+                            ? "bg-emerald-500/20 text-emerald-400"
+                            : d.closureRate >= 40
+                            ? "bg-amber-500/20 text-amber-400"
+                            : "bg-rose-500/20 text-rose-400"
+                        }`}
+                      >
+                        {d.closureRate}% Rate
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-400">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-[#EF4444]" />
+                        Open: <strong className={darkMode ? "text-white" : "text-slate-800"}>{d.open.toLocaleString()}</strong>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-[#10B981]" />
+                        Resolved: <strong className={darkMode ? "text-white" : "text-slate-800"}>{d.resolved.toLocaleString()}</strong>
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="relative">
-                <Search size={14} className={`absolute left-3 top-2.5 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
-                <input
-                  type="text"
-                  placeholder="Filter by person's name..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className={`pl-8 pr-3 py-1.5 text-xs rounded-lg border w-64 ${
-                    darkMode ? "bg-slate-900 border-slate-700 text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"
-                  }`}
-                />
-              </div>
-            </div>
-
-            <div className="overflow-x-auto max-h-[420px]">
-              <table className="w-full text-xs">
-                <thead className={`sticky top-0 z-10 uppercase tracking-wider text-[11px] font-semibold ${darkMode ? "bg-slate-800 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
-                  <tr>
-                    <th className="px-4 py-3 text-left"># Rank</th>
-                    <th className="px-4 py-3 text-left">Individual Name</th>
-                    <th className="px-4 py-3 text-left">Format</th>
-                    <th className="px-4 py-3 text-center">Total Assigned</th>
-                    <th className="px-4 py-3 text-center">Total Resolved</th>
-                    <th className="px-4 py-3 text-center">Closure %</th>
-                    {(reportData.quarters || []).map((q) => (
-                      <th key={q} className="px-4 py-3 text-center whitespace-nowrap bg-violet-500/10 text-violet-400">
-                        {q} Solved
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className={`divide-y ${darkMode ? "divide-slate-700/60" : "divide-slate-100"}`}>
-                  {loading ? (
-                    <tr>
-                      <td colSpan={6 + (reportData.quarters?.length || 0)} className="p-8 text-center text-slate-400">
-                        <RefreshCw size={20} className="animate-spin inline mr-2 text-violet-500" />
-                        Generating quarterly performance report...
-                      </td>
-                    </tr>
-                  ) : filteredIndividuals.length === 0 ? (
-                    <tr>
-                      <td colSpan={6 + (reportData.quarters?.length || 0)} className="p-8 text-center text-slate-400">
-                        No records found for the selected format and filters.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredIndividuals.map((ind: any, idx: number) => {
-                      const isTop3 = idx < 3;
-                      const badgeEmoji = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : null;
-                      const pct = ind.closure_pct || 0;
-                      const pctColor = pct >= 80 ? "text-emerald-400 bg-emerald-500/15 border-emerald-500/30" : pct >= 50 ? "text-amber-400 bg-amber-500/15 border-amber-500/30" : "text-rose-400 bg-rose-500/15 border-rose-500/30";
-
-                      return (
-                        <tr key={`${ind.name}-${idx}`} className={`transition-colors ${darkMode ? "hover:bg-slate-700/30" : "hover:bg-slate-50"}`}>
-                          <td className="px-4 py-3 font-bold whitespace-nowrap">
-                            {badgeEmoji ? (
-                              <span className="inline-flex items-center gap-1">
-                                <span>{badgeEmoji}</span>
-                                <span>#{idx + 1}</span>
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">#{idx + 1}</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 font-bold">
-                            <span className={isTop3 ? (darkMode ? "text-violet-300" : "text-violet-700") : ""}>
-                              {ind.name}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${darkMode ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-700"}`}>
-                              {ind.format}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-center font-semibold text-slate-400">
-                            {ind.total_assigned?.toLocaleString()}
-                          </td>
-                          <td className="px-4 py-3 text-center font-bold text-emerald-500">
-                            {ind.total_resolved?.toLocaleString()}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className={`inline-block px-2 py-0.5 rounded-full border text-[11px] font-bold ${pctColor}`}>
-                              {pct}%
-                            </span>
-                          </td>
-                          {(reportData.quarters || []).map((q) => {
-                            const val = ind.by_quarter?.[q] || 0;
-                            return (
-                              <td key={q} className={`px-4 py-3 text-center font-bold ${val > 0 ? (darkMode ? "text-violet-300 bg-violet-500/5" : "text-violet-700 bg-violet-50/50") : "text-slate-500"}`}>
-                                {val > 0 ? val.toLocaleString() : "—"}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -8421,8 +8620,8 @@ const QuarterlyReportModal: React.FC<QuarterlyReportModalProps> = ({
   );
 };
 
-// richyrik
-const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> = ({ darkMode, activeModule }) => {
+// richyrik: ManagerReportView receives activeModule & filteredIssues
+const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string; filteredIssues?: any[] }> = ({ darkMode, activeModule, filteredIssues }) => {
   const [reportData, setReportData] = useState<any[]>([]);
   const [isQuarterlyModalOpen, setIsQuarterlyModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -8634,10 +8833,11 @@ const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> 
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* richyrik: Open Quarterly Closure Trend Report */}
           <button
             onClick={() => setIsQuarterlyModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-sm font-semibold rounded-lg shadow-sm hover:shadow transition-all"
-            title="View Quarterly Closure Report by Individual"
+            title="View Quarterly Closure Report"
           >
             <CalendarRange size={15} />
             Quarterly Report
@@ -8902,11 +9102,13 @@ const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string }> 
         </div>
       )}
 
+      {/* richyrik: Quarterly Closure Report Modal */}
       <QuarterlyReportModal
         isOpen={isQuarterlyModalOpen}
         onClose={() => setIsQuarterlyModalOpen(false)}
         darkMode={darkMode}
         activeModule={activeModule}
+        filteredIssues={filteredIssues}
       />
     </div>
   );

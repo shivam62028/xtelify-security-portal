@@ -2284,25 +2284,41 @@ def _quarterly_report_pipeline(payload: dict) -> dict:
     if owner_filter and owner_filter != "All":
         match_stage["AssignedTo"] = owner_filter
 
-    projection = {"_id": 0, "AssignedTo": 1, "Assignee": 1, "Status": 1, "SourceFormat": 1,
-                  "UploadBatch": 1, "ResolutionDate": 1, "UpdatedAt": 1, "DiscoveredDate": 1}
+    projection = {
+        "_id": 0, "AssignedTo": 1, "Assignee": 1, "Status": 1, "SourceFormat": 1,
+        "UploadBatch": 1, "ResolutionDate": 1, "UpdatedAt": 1, "DiscoveredDate": 1,
+        "Date": 1, "Created Date": 1, "CreatedDate": 1, "UploadDate": 1, "ReportedOn": 1,
+        "UploadedAt": 1, "firstSeen": 1, "Quarter": 1, "Vulnerability Status": 1, "State": 1
+    }
     cursor = issues_collection.find(match_stage, projection)
 
     person_map: dict = {}
+    quarter_counts: dict = {}
     all_quarters: set = set()
 
     def _quarter_label(date_str: str) -> str | None:
         if not date_str:
             return None
         try:
-            ds = str(date_str).strip()[:10]
-            year, month = int(ds[:4]), int(ds[5:7])
+            ds = str(date_str).strip()
+            # Check Q1-Q4
+            m = re.search(r'\bQ([1-4])[\s\-_/]*(\d{4})\b', ds, re.IGNORECASE)
+            if m:
+                return f"Q{m.group(1)} {m.group(2)}"
+            # Check YYYY-MM
+            ds_sub = ds[:10]
+            year, month = int(ds_sub[:4]), int(ds_sub[5:7])
             if year_filter and str(year) != year_filter:
                 return None
-            q = (month - 1) // 3 + 1
-            return f"Q{q} {year}"
+            if 1 <= month <= 12:
+                q = (month - 1) // 3 + 1
+                return f"Q{q} {year}"
         except Exception:
-            return None
+            pass
+        return None
+
+    date_fields = ["Date", "Created Date", "CreatedDate", "UploadDate", "DiscoveredDate",
+                   "ReportedOn", "ResolutionDate", "UpdatedAt", "UploadedAt", "firstSeen", "Quarter", "UploadBatch"]
 
     for doc in cursor:
         owner = str(doc.get("AssignedTo") or doc.get("Assignee") or "").strip() or "Unassigned"
@@ -2312,15 +2328,31 @@ def _quarterly_report_pipeline(payload: dict) -> dict:
         if "SAST" in fmt.upper():
             fmt = "SAST/DAST"
 
-        status = str(doc.get("Status") or "").lower().strip()
-        is_resolved = status in ["closed", "resolved", "done", "fixed", "complete", "completed"]
+        status = str(doc.get("Status") or doc.get("Vulnerability Status") or doc.get("State") or "").lower().strip()
+        is_resolved = status in ["closed", "resolved", "done", "fixed", "complete", "completed", "mitigated"]
 
         q_label = None
-        if is_resolved:
-            for field in ["ResolutionDate", "UpdatedAt", "DiscoveredDate"]:
-                q_label = _quarter_label(str(doc.get(field) or ""))
+        for field in date_fields:
+            val = doc.get(field)
+            if val:
+                q_label = _quarter_label(str(val))
                 if q_label:
                     break
+
+        if not q_label:
+            # Fallback to current year/quarter if unparseable
+            now = datetime.now()
+            q_label = f"Q{(now.month - 1) // 3 + 1} {now.year}"
+
+        all_quarters.add(q_label)
+
+        if q_label not in quarter_counts:
+            quarter_counts[q_label] = {"open": 0, "resolved": 0, "total": 0}
+        quarter_counts[q_label]["total"] += 1
+        if is_resolved:
+            quarter_counts[q_label]["resolved"] += 1
+        else:
+            quarter_counts[q_label]["open"] += 1
 
         key = (owner, fmt)
         if key not in person_map:
@@ -2328,9 +2360,7 @@ def _quarterly_report_pipeline(payload: dict) -> dict:
         person_map[key]["total"] += 1
         if is_resolved:
             person_map[key]["resolved"] += 1
-            if q_label:
-                person_map[key]["quarters"][q_label] = person_map[key]["quarters"].get(q_label, 0) + 1
-                all_quarters.add(q_label)
+            person_map[key]["quarters"][q_label] = person_map[key]["quarters"].get(q_label, 0) + 1
 
     def _quarter_sort_key(ql: str) -> tuple:
         try:
@@ -2342,9 +2372,6 @@ def _quarterly_report_pipeline(payload: dict) -> dict:
     sorted_quarters = sorted(all_quarters, key=_quarter_sort_key)
 
     by_individual = []
-    quarter_totals: dict = {q: 0 for q in sorted_quarters}
-    quarter_total_issues: dict = {q: 0 for q in sorted_quarters}
-
     for (owner, fmt), data in person_map.items():
         total = data["total"]
         resolved = data["resolved"]
@@ -2352,18 +2379,22 @@ def _quarterly_report_pipeline(payload: dict) -> dict:
         by_q = {q: data["quarters"].get(q, 0) for q in sorted_quarters}
         by_individual.append({"name": owner, "format": fmt, "total_assigned": total,
                               "total_resolved": resolved, "closure_pct": closure_pct, "by_quarter": by_q})
-        for q in sorted_quarters:
-            quarter_totals[q] = quarter_totals.get(q, 0) + data["quarters"].get(q, 0)
-            quarter_total_issues[q] = quarter_total_issues.get(q, 0) + total
 
     by_individual.sort(key=lambda x: x["total_resolved"], reverse=True)
 
     by_quarter_summary = []
     for q in sorted_quarters:
-        resolved = quarter_totals.get(q, 0)
-        total = quarter_total_issues.get(q, 0)
-        by_quarter_summary.append({"quarter": q, "resolved": resolved, "total": total,
-                                   "pct": round((resolved / total) * 100, 1) if total > 0 else 0.0})
+        qc = quarter_counts.get(q, {"open": 0, "resolved": 0, "total": 0})
+        res = qc["resolved"]
+        tot = qc["total"]
+        opn = qc["open"]
+        by_quarter_summary.append({
+            "quarter": q,
+            "open": opn,
+            "resolved": res,
+            "total": tot,
+            "pct": round((res / tot) * 100, 1) if tot > 0 else 0.0
+        })
 
     return {"quarters": sorted_quarters, "by_individual": by_individual, "by_quarter_summary": by_quarter_summary}
 

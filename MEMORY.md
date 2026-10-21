@@ -31,11 +31,14 @@
 - Bar radius set to `[4, 4, 0, 0]` with color-coded `<Cell />` matching the metric cards (red for Zero day VA, violet for Wiz CLI Integration, amber for Compliance VA, sky for Quarterly VA, slate for Unclassified).
 - `YAxis` updated with `width={65}` and `tickFormatter` (formatting `k` and `M`) to avoid clipping large values.
 
-### Quarterly Closure Report Feature
-- **Backend (`app.py`)**:
-  - `_quarterly_report_pipeline(payload)`: Groups closed/resolved vulnerabilities by calendar quarter (`Q1 YYYY` through `Q4 YYYY`) and individual assignee (`AssignedTo` / `Assignee`).
-  - `/api/quarterly-report`: Returns sorted quarters, individual performance breakdown with quarter closure metrics, and aggregate quarter summaries.
-  - `/api/quarterly-report/export`: Generates formatted Excel export (`Quarterly_Closure_Report.xlsx`) with styling, quarter columns, and closure rates.
+### Quarterly Closure Report Feature Overhaul
 - **Frontend (`src/App.tsx`)**:
-  - `QuarterlyReportModal`: Full-screen modal with KPI summary cards (Total Closures, Overall Closure Rate, Top Performer, Quarters Tracked), quarterly resolution trend chart, individual search filter, and ranked contributor table with per-quarter closure figures.
-  - Integrated via a "Quarterly Report" button in `ManagerReportView`.
+  - `QuarterlyReportModal`: Overhauled into a pure time-based quarterly trend modal.
+  - Replaced the "Individual Resolution Performance" table with a Recharts `<BarChart>` plotting calendar quarters on the X-axis and Open (Airtel Red: `#EF4444`) vs Resolved (Emerald Green: `#10B981`) on the Y-axis. Includes a Side-by-Side vs Stacked view toggle.
+  - Robust `useMemo` aggregation hook parses dates across all possible fields (`Date`, `Created Date`, `UploadDate`, `DiscoveredDate`, `ReportedOn`, `ResolutionDate`, `UpdatedAt`, `UploadedAt`, `firstSeen`, `Quarter`, `UploadBatch`) into calendar quarters (`Q1 = Jan-Mar, Q2 = Apr-Jun, Q3 = Jul-Sep, Q4 = Oct-Dec`).
+  - Resolved counting logic (`isResolvedIssue`): Checks `Status`, `State`, `Vulnerability Status`, `FindingStatus`, `Compliant_NonCompliant` for "Closed", "Resolved", "Fixed", or "Mitigated" (case-insensitive) to fix the 0% closure bug.
+  - Dynamic module filtering: Filters issues dynamically based on `activeModule` (SAST, CSPM, VAPT, Container, All) rather than hardcoding "CONTAINER".
+  - Clean KPI cards: Total Closures (Emerald), Total Open (Airtel Red), Overall Closure Rate (Violet), and Quarters Tracked (Sky Blue).
+  - Client-side Excel export generates formatted `.xlsx` with quarterly totals and closure percentages.
+- **Backend (`app.py`)**:
+  - `_quarterly_report_pipeline(payload)`: Updated projection and aggregation to parse dates for both open and resolved issues, count closures accurately, and produce `open`, `resolved`, `total`, and `pct` per quarter across all modules.
