@@ -427,59 +427,40 @@ Answer only: VALID or SKIP"""
 
 
 def is_pivot_or_summary_row(row, use_ollama_for_edge_cases=False):
-    """Skip pivot table rows, summary rows, blank rows, and count rows
+    """Skip pivot table rows, summary rows, and blank rows.
 
-    Hybrid approach:
-    1. Quick keyword filter (catches 95%)
-    2. If uncertain, ask Ollama to verify (disabled by default for performance)
+    richyrik: Never skip legitimate VUL rows. Only true blank rows or explicit
+    Excel pivot summary headers like 'grand total' / '(blank)' are skipped.
     """
     row_values = [str(v).strip().lower() for v in row.values() if v is not None]
     row_str = ' '.join(row_values)
 
-    # DEFINITE SKIP - keyword match (fast)
-    skip_keywords = ['grand total', 'row labels', 'count of', 'sum of', 'average of',
-                   '(blank)', 'total', 'subtotal', 'pivot', 'summary']
-    if any(kw in row_str for kw in skip_keywords):
+    # DEFINITE SKIP — completely empty rows
+    non_empty = [v for v in row_values if v and v not in ['nan', 'none', 'na', 'null', '']]
+    if len(non_empty) == 0:
         return True
 
-    # DEFINITE SKIP - too few values
-    non_empty = [v for v in row_values if v and v not in ['nan', 'none', 'na', '']]
-    if len(non_empty) < 3:
-        return True
-
-    # DEFINITE SKIP - blank/invalid ID
-    # Check various ID column names (case-insensitive)
-    id_col = None
-    for key in row.keys():
-        key_lower = str(key).lower().replace(" ", "").replace("_", "")
-        if key_lower in ['id', 'issueid', 'issuekey', 'issue_key']:
-            id_col = row.get(key)
-            break
-
-    if id_col:
-        id_str = str(id_col).strip().lower()
-        if id_str in ['', 'nan', 'none', 'na', 'null'] or id_str.startswith('('):
-            return True
-
-    # DEFINITE VALID - has CVE pattern or looks like a valid issue key
+    # DEFINITE VALID — contains a CVE ID → always a real finding
     if 'cve-' in row_str:
         return False
 
-    # Check if any value looks like a SAST_DAST issue key (e.g., contains letters and numbers)
+    # DEFINITE VALID — any value looks like an alphanumeric issue key (e.g. VULN-1234)
     for v in row_values:
         if v and len(v) > 3 and any(c.isalpha() for c in v) and any(c.isdigit() for c in v):
-            if not any(skip in v for skip in ['nan', 'none', 'total', 'count']):
-                return False  # Looks like valid data
+            if not any(bad in v for bad in ['nan', 'none']):
+                return False
 
-    # EDGE CASE - uncertain, ask Ollama
-    uncertain_patterns = ['count', 'total', 'blank', 'label', 'header']
-    is_uncertain = any(p in row_str for p in uncertain_patterns)
+    # DEFINITE SKIP — explicit pivot header phrases
+    definite_pivot_keywords = ['grand total', 'row labels', 'column labels',
+                               'count of', 'sum of', 'average of', '(blank)']
+    if any(kw in row_str for kw in definite_pivot_keywords):
+        return True
 
-    if is_uncertain and use_ollama_for_edge_cases:
-        row_sample = dict(list(row.items())[:5])  # First 5 columns
-        is_valid = ask_ollama_is_valid_row(row_sample)
-        print(f"Ollama edge case check: {row_sample} -> {'VALID' if is_valid else 'SKIP'}")
-        return not is_valid
+    # SOFT SKIP — only if almost empty AND contains summary keyword
+    soft_summary_keywords = ['total', 'subtotal', 'pivot table']
+    looks_summary = any(kw in row_str for kw in soft_summary_keywords)
+    if looks_summary and len(non_empty) <= 2:
+        return True
 
     return False
 
@@ -764,12 +745,9 @@ def process_cspm_row(row, idx, dsn, rc_lower):
     days = 7 if sev == "Critical" else (30 if sev == "High" else 60)
     rec["DueDate"] = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
 
-    # LOB filter
+    # LOB - preserve value for every vulnerability
     lob = get_val(["LOB", "Line of Business", "BusinessUnit"])
     rec["LOB"] = lob
-    lob_value = lob.lower().strip() if lob else ""
-    if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
-        return None
 
     # Auto-assign for CSPM based on account_id and account_name
     assigned_owner = get_cspm_pod_owner(account_id, account_name, resource_id, resource_name)
@@ -953,10 +931,8 @@ def process_container_row(row, idx, dsn, rc_lower):
     )
     rec["VulnDescription"] = rec["Description"]
 
-    # LOB filter - skip non-Wynk
-    lob_value = lob.lower().strip() if lob else ""
-    if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
-        return None
+    # LOB - preserve value for every vulnerability
+    rec["LOB"] = lob
 
     return rec
 
@@ -1542,6 +1518,40 @@ def log_upload_history(upload_batch, file_name, source_format, record_count):
     except Exception as e:
         print(f"[DB] Error logging upload history: {e}")
 
+def annotate_duplicates_in_batch(records):
+    """
+    richyrik: Within a single upload batch, find rows that represent the same
+    logical VUL (same DisplayID/CVE + AffectedAsset, or same DisplayID) and
+    annotate ALL of them with:
+      - DuplicateCount    : total occurrences of that VUL in this batch
+      - DuplicateExcelRows: list of 1-based Excel row numbers where it appears
+      - DuplicateSerialNos: list of 1-based serial numbers where it appears
+      - IsDuplicate       : boolean (True if count > 1)
+      - SerialNo          : 1-based index within the batch
+    """
+    from collections import defaultdict
+    sig_map = defaultdict(list)
+
+    for idx, rec in enumerate(records):
+        rec["SerialNo"] = idx + 1
+        disp = str(rec.get("DisplayID", "") or rec.get("IssueID", "") or rec.get("Name", "")).strip().lower()
+        asset = str(rec.get("AffectedAsset", "") or rec.get("AssetID", "")).strip().lower()
+        sig = f"{disp}___{asset}" if (disp and asset) else (disp or f"__row_{idx}")
+        sig_map[sig].append(idx)
+
+    for sig, indices in sig_map.items():
+        count = len(indices)
+        excel_rows = [records[i].get("ExcelRowIndex", i + 2) for i in indices]
+        serial_nos = [records[i].get("SerialNo", i + 1) for i in indices]
+        for i in indices:
+            records[i]["DuplicateCount"] = count
+            records[i]["DuplicateExcelRows"] = excel_rows
+            records[i]["DuplicateSerialNos"] = serial_nos
+            records[i]["IsDuplicate"] = (count > 1)
+
+    return records
+
+
 def insert_records(records, skip_existing_check=False):
     if not records:
         return {"inserted": 0, "new": 0, "resolved_existing": 0}
@@ -1553,31 +1563,40 @@ def insert_records(records, skip_existing_check=False):
         if not prepared:
             return {"inserted": 0, "new": 0, "resolved_existing": 0}
 
+        # richyrik: Annotate duplicates within this batch BEFORE inserting
+        prepared = annotate_duplicates_in_batch(prepared)
+
         to_insert = []
         new_findings = 0
         resolved_existing = 0
-        
+
         # richyrik: Closure tracking logic - compare against DB before inserting
         for rec in prepared:
             disp_id = rec.get("DisplayID", "")
             asset = rec.get("AffectedAsset", "")
             fmt = rec.get("SourceFormat", "")
-            
+
             # Find the most recent existing record for this specific vulnerability
             existing = issues_collection.find_one(
-                {"DisplayID": disp_id, "AffectedAsset": asset, "SourceFormat": fmt}, 
+                {"DisplayID": disp_id, "AffectedAsset": asset, "SourceFormat": fmt},
                 sort=[("UploadedAt", -1)]
             )
-            
+
             if not existing:
                 new_findings += 1
             else:
                 # Check if it transitioned from open to resolved
                 if not is_resolved(existing.get("Status", "")) and is_resolved(rec.get("Status", "")):
                     resolved_existing += 1
-                    
+
+            # richyrik: skip_existing_check=True (used by all Excel uploads) means we
+            # insert EVERY row from the sheet — including exact duplicates — because
+            # the ExcelRowIndex field makes every record unique in MongoDB.
             if not skip_existing_check:
-                dup_query = {k: v for k, v in rec.items() if k not in ["UploadedAt", "UploadBatch"]}
+                # Legacy path: only insert if not already in DB (ignoring UploadedAt/Batch/ExcelRowIndex)
+                dup_query = {k: v for k, v in rec.items()
+                             if k not in ["UploadedAt", "UploadBatch", "ExcelRowIndex",
+                                          "DuplicateCount", "DuplicateExcelRows", "IsDuplicate"]}
                 if issues_collection.find_one(dup_query) is None:
                     to_insert.append(rec)
             else:
@@ -1860,7 +1879,7 @@ async def gd(
                 issues_collection.bulk_write(owner_updates, ordered=False)
             except Exception as e:
                 print(f"[DB Update Error] {e}")
-        unique_data = remove_duplicates(records)
+        unique_data = records  # richyrik: preserve every record, do NOT drop duplicate VULs
         print(f"[API] /api/db returning {len(unique_data)} records for page {page} out of {total_records} total")
         fendralis = {
             "data": unique_data,
@@ -3715,8 +3734,10 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                                 continue
                             sheet_records = []
                             ri = sheet_df.to_dict(orient="records")
+                            excel_row_counter = 2  # row 1 is header
                             for idx, row in enumerate(ri):
                                 if is_pivot_or_summary_row(row):
+                                    excel_row_counter += 1
                                     continue
                                 if sheet_format == "VAPT":
                                     rec = process_vapt_row_new(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
@@ -3728,7 +3749,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                                     rec = process_container_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
                                 if rec:
                                     rec["SourceSheet"] = sheet_name
+                                    rec["ExcelRowIndex"] = excel_row_counter  # richyrik: 1-based row# for dup tracking
                                     sheet_records.append(rec)
+                                excel_row_counter += 1
                             if sheet_records:
                                 all_records.extend(sheet_records)
                                 sheet_summary.append({"name": sheet_name, "format": sheet_format, "rows": len(sheet_records), "status": "processed"})
@@ -3777,12 +3800,16 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
 
             if file_format == "VAPT":
                 ni = []
+                excel_row_counter = 2
                 for idx, row in enumerate(df.to_dict(orient="records")):
                     if is_pivot_or_summary_row(row):
+                        excel_row_counter += 1
                         continue
                     rec = process_vapt_row_new(row, idx, dsn, rc_lower)
                     if rec:
+                        rec["ExcelRowIndex"] = excel_row_counter
                         ni.append(rec)
+                    excel_row_counter += 1
                 attach_file_hash(ni, file_hash)
                 stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "VAPT", len(ni))
@@ -3790,12 +3817,16 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
 
             elif file_format == "SAST_DAST":
                 ni = []
+                excel_row_counter = 2
                 for idx, row in enumerate(df.to_dict(orient="records")):
                     if is_pivot_or_summary_row(row):
+                        excel_row_counter += 1
                         continue
                     rec = process_vapt_row(row, idx, dsn, rc_lower)
                     if rec:
+                        rec["ExcelRowIndex"] = excel_row_counter
                         ni.append(rec)
+                    excel_row_counter += 1
                 attach_file_hash(ni, file_hash)
                 stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "SAST_DAST", len(ni))
@@ -3803,12 +3834,16 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
 
             elif file_format == "CSPM":
                 ni = []
+                excel_row_counter = 2
                 for idx, row in enumerate(df.to_dict(orient="records")):
                     if is_pivot_or_summary_row(row):
+                        excel_row_counter += 1
                         continue
                     rec = process_cspm_row(row, idx, dsn, rc_lower)
                     if rec:
+                        rec["ExcelRowIndex"] = excel_row_counter
                         ni.append(rec)
+                    excel_row_counter += 1
                 attach_file_hash(ni, file_hash)
                 stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "CSPM", len(ni))
@@ -3877,12 +3912,16 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                 return ""
 
             ni = []
+            excel_row_counter = 2
             for idx, row in enumerate(df.to_dict(orient="records")):
                 if is_pivot_or_summary_row(row):
+                    excel_row_counter += 1
                     continue
                 rec = {k: (str(v).strip() if v is not None else "") for k, v in row.items()}
                 rec["UploadBatch"] = dsn
                 rec["SourceFormat"] = "CONTAINER"
+                rec["ExcelRowIndex"] = excel_row_counter
+                excel_row_counter += 1
                 issue_id = gv(row, "IssueID")
                 rec["IssueID"] = issue_id if issue_id else f"VULN-{idx}"
                 display_id = gv(row, "DisplayID")
@@ -3956,9 +3995,6 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                     auto_owner = get_pod_owner(rec.get("SubscriptionName"), rec.get("SubscriptionId"), rec.get("AffectedAsset"), rec.get("Projects"))
                     if auto_owner:
                         rec["AssignedTo"] = auto_owner
-                lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
-                if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
-                    continue
                 subtype = classify_container_subtype({"ExploitAvailable": rec.get("HasExploit", ""), "Description": rec.get("Description", ""), "Tags": rec.get("Tags", ""), "DetectionMethod": rec.get("FindingStatus", ""), "Category": rec.get("Category", ""), "UploadBatch": rec.get("UploadBatch", "")})
                 rec["SubType"] = subtype
                 rec["ContainerSubType"] = subtype
@@ -4025,12 +4061,16 @@ async def pu_with_sheet(
 
             if file_format == "VAPT":
                 ni = []
+                excel_row_counter = 2
                 for idx, row in enumerate(df.to_dict(orient="records")):
                     if is_pivot_or_summary_row(row):
+                        excel_row_counter += 1
                         continue
                     rec = process_vapt_row_new(row, idx, dsn, rc_lower)
                     if rec:
+                        rec["ExcelRowIndex"] = excel_row_counter
                         ni.append(rec)
+                    excel_row_counter += 1
                 attach_file_hash(ni, file_hash)
                 stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "VAPT", len(ni))
@@ -4038,12 +4078,16 @@ async def pu_with_sheet(
 
             elif file_format == "SAST_DAST":
                 ni = []
+                excel_row_counter = 2
                 for idx, row in enumerate(df.to_dict(orient="records")):
                     if is_pivot_or_summary_row(row):
+                        excel_row_counter += 1
                         continue
                     rec = process_vapt_row(row, idx, dsn, rc_lower)
                     if rec:
+                        rec["ExcelRowIndex"] = excel_row_counter
                         ni.append(rec)
+                    excel_row_counter += 1
                 attach_file_hash(ni, file_hash)
                 stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "SAST_DAST", len(ni))
@@ -4051,12 +4095,16 @@ async def pu_with_sheet(
 
             elif file_format == "CSPM":
                 ni = []
+                excel_row_counter = 2
                 for idx, row in enumerate(df.to_dict(orient="records")):
                     if is_pivot_or_summary_row(row):
+                        excel_row_counter += 1
                         continue
                     rec = process_cspm_row(row, idx, dsn, rc_lower)
                     if rec:
+                        rec["ExcelRowIndex"] = excel_row_counter
                         ni.append(rec)
+                    excel_row_counter += 1
                 attach_file_hash(ni, file_hash)
                 stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "CSPM", len(ni))
@@ -4125,12 +4173,16 @@ async def pu_with_sheet(
                 return ""
 
             ni = []
+            excel_row_counter = 2
             for idx, row in enumerate(df.to_dict(orient="records")):
                 if is_pivot_or_summary_row(row):
+                    excel_row_counter += 1
                     continue
                 rec = {k: (str(v).strip() if v is not None else "") for k, v in row.items()}
                 rec["UploadBatch"] = dsn
                 rec["SourceFormat"] = "CONTAINER"
+                rec["ExcelRowIndex"] = excel_row_counter
+                excel_row_counter += 1
                 issue_id = gv(row, "IssueID")
                 rec["IssueID"] = issue_id if issue_id else f"VULN-{idx}"
                 display_id = gv(row, "DisplayID")
@@ -4204,9 +4256,6 @@ async def pu_with_sheet(
                     auto_owner = get_pod_owner(rec.get("SubscriptionName", ""), rec.get("SubscriptionId", ""), rec.get("AffectedAsset", ""), rec.get("Projects", ""))
                     if auto_owner:
                         rec["AssignedTo"] = auto_owner
-                lob_value = rec["LOB"].lower().strip() if rec["LOB"] else ""
-                if lob_value and lob_value not in ALLOWED_LOB and "wynk" not in lob_value:
-                    continue
                 ni.append(rec)
 
             attach_file_hash(ni, file_hash)

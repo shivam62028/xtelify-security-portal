@@ -59,6 +59,7 @@ import {
   CalendarDays,
   Sparkles,
   Copy,
+  Hash,
   RefreshCw,
   Bug,
   Share2,
@@ -2502,6 +2503,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   const [activeFilters, setActiveFilters] = useState<FilterState>(FILTER_DEFAULT);
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState<boolean>(false);
   const [localSearch, setLocalSearch] = useState<string>("");
+  const [showDuplicatesOnly, setShowDuplicatesOnly] = useState<boolean>(false);
 
   const selectedFormatFilter = activeFilters.format;
   const setSelectedFormatFilter = (v: string) => {
@@ -3268,8 +3270,36 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             };
           });
 
-          setAllIssues(safeData);
-          setTotalRecords(totalCount || safeData.length);
+          // richyrik: Map duplicates dynamically so all datasets in the portal accurately track duplicate VULs
+          const dupSigMap: Record<string, number[]> = {};
+          safeData.forEach((it, idx) => {
+            const disp = String(it.DisplayID || it.IssueID || (it as any).Name || "").trim().toLowerCase();
+            const asset = String(it.AffectedAsset || (it as any).AssetID || "").trim().toLowerCase();
+            const sig = (disp && asset) ? `${disp}___${asset}` : (disp || `__row_${idx}`);
+            if (!dupSigMap[sig]) dupSigMap[sig] = [];
+            dupSigMap[sig].push(idx);
+          });
+
+          const enrichedData = safeData.map((it, idx) => {
+            const disp = String(it.DisplayID || it.IssueID || (it as any).Name || "").trim().toLowerCase();
+            const asset = String(it.AffectedAsset || (it as any).AssetID || "").trim().toLowerCase();
+            const sig = (disp && asset) ? `${disp}___${asset}` : (disp || `__row_${idx}`);
+            const matchingIndices = dupSigMap[sig] || [idx];
+            const count = (it as any).DuplicateCount || matchingIndices.length;
+            const excelRows = (it as any).DuplicateExcelRows || matchingIndices.map(i => (safeData[i] as any).ExcelRowIndex || (i + 2));
+            const serialNos = (it as any).DuplicateSerialNos || matchingIndices.map(i => i + 1);
+            return {
+              ...it,
+              SerialNo: (it as any).SerialNo || (idx + 1),
+              DuplicateCount: count,
+              DuplicateExcelRows: excelRows,
+              DuplicateSerialNos: serialNos,
+              IsDuplicate: (it as any).IsDuplicate !== undefined ? (it as any).IsDuplicate : count > 1
+            };
+          });
+
+          setAllIssues(enrichedData);
+          setTotalRecords(totalCount || enrichedData.length);
           setDashboardStats(summaryPayload);
         } else if (vulnResult.status === 'fulfilled') {
           setAllIssues([]);
@@ -3747,8 +3777,16 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
         return selectedContainerSubTypes.includes(subtype);
       });
     }
+    // richyrik - Catch Duplicates filter
+    if (showDuplicatesOnly) {
+      filtered = filtered.filter(issue => Boolean((issue as any).IsDuplicate));
+    }
     return filtered;
-  }, [displayedIssues, selectedOwners, selectedFindingTypes, selectedLOBs, selectedContainerSubTypes]);
+  }, [displayedIssues, selectedOwners, selectedFindingTypes, selectedLOBs, selectedContainerSubTypes, showDuplicatesOnly]);
+
+  const totalDuplicateCount = useMemo(() => {
+    return (displayedIssues || []).filter(issue => Boolean((issue as any).IsDuplicate)).length;
+  }, [displayedIssues]);
 
   // richyrik: Synchronize Container Sub-types exactly with active dashboard filters, use full stats if available
   const containerChartData = useMemo(() => {
@@ -6092,6 +6130,26 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
+                {/* richyrik: Catch Duplicates toggle button */}
+                <button
+                  onClick={() => setShowDuplicatesOnly(!showDuplicatesOnly)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-sm text-xs font-semibold transition-all shadow-sm ${
+                    showDuplicatesOnly
+                      ? "bg-amber-500 border-amber-600 text-white shadow-amber-500/20"
+                      : totalDuplicateCount > 0
+                        ? darkMode
+                          ? "bg-amber-950/40 border-amber-600/60 text-amber-300 hover:bg-amber-900/50"
+                          : "bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100"
+                        : darkMode
+                          ? "bg-slate-800 border-slate-700 text-slate-500 opacity-60"
+                          : "bg-slate-50 border-slate-200 text-slate-400 opacity-60"
+                  }`}
+                  title={totalDuplicateCount > 0 ? "Click to view all duplicate vulnerabilities in this dataset" : "No duplicate vulnerabilities detected"}
+                >
+                  <Copy size={13} className={showDuplicatesOnly ? "text-white" : totalDuplicateCount > 0 ? "text-amber-500" : "text-slate-400"} />
+                  <span>Catch Duplicates {totalDuplicateCount > 0 ? `(${totalDuplicateCount})` : ''}</span>
+                </button>
+
                 <div className="relative" ref={dropdownRef}>
                   <button
                     onClick={() => setIsBatchDropdownOpen(!isBatchDropdownOpen)}
@@ -6559,10 +6617,31 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             )}
 
 
+            {showDuplicatesOnly && (
+              <div className={`p-3 rounded-lg mb-3 flex items-center justify-between border ${darkMode ? "bg-amber-950/40 border-amber-500/50 text-amber-200" : "bg-amber-50 border-amber-300 text-amber-900"}`}>
+                <div className="flex items-center gap-2 text-xs font-semibold">
+                  <Copy size={14} className="text-amber-500 animate-pulse" />
+                  <span>
+                    Catch Duplicates Mode: Showing <strong>{paginatedIssues.length} duplicate findings</strong> in the portal. Click any row to inspect its exact serial numbers and source Excel rows.
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowDuplicatesOnly(false)}
+                  className="text-xs font-bold underline hover:opacity-80 ml-4 whitespace-nowrap"
+                >
+                  Show All Findings
+                </button>
+              </div>
+            )}
+
             <div className={`overflow-x-auto max-h-[700px] rounded-lg border ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
               <table className="w-full text-left border-collapse">
                 <thead className={`sticky top-0 z-10 ${darkMode ? "bg-slate-800" : "bg-slate-50"}`}>
                   <tr>
+                    {/* richyrik: Serial number column */}
+                    <th className={`px-3 py-3 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap text-center w-14 ${darkMode ? "text-slate-400 border-b border-slate-700" : "text-slate-500 border-b border-slate-200"}`}>
+                      S.No.
+                    </th>
                     {tableCols.map(col => (
                       <th key={col} className={`px-4 py-3 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap ${darkMode ? "text-slate-400 border-b border-slate-700" : "text-slate-500 border-b border-slate-200"}`}>
                         {colHeaderMap[col] || col}
@@ -6573,13 +6652,15 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                 <tbody className="bg-transparent">
                   {paginatedIssues.length === 0 && (
                     <tr>
-                      <td colSpan={tableCols.length} className={`px-4 py-12 text-center ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
+                      <td colSpan={tableCols.length + 1} className={`px-4 py-12 text-center ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle size={24} />
                           <span className="text-sm font-medium">
-                            {dateFrom || dateTo
-                              ? `No ${selectedFormatFilter !== "All" ? selectedFormatFilter : ""} data found for the selected date range.`
-                              : `No ${selectedFormatFilter !== "All" ? selectedFormatFilter : "vulnerability"} data available.`}
+                            {showDuplicatesOnly
+                              ? "No duplicate vulnerabilities detected in the current view."
+                              : dateFrom || dateTo
+                                ? `No ${selectedFormatFilter !== "All" ? selectedFormatFilter : ""} data found for the selected date range.`
+                                : `No ${selectedFormatFilter !== "All" ? selectedFormatFilter : "vulnerability"} data available.`}
                           </span>
                         </div>
                       </td>
@@ -6590,6 +6671,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     const resolved = isResolved(issue.Status);
                     const rowKey = `${issue.IssueID}-${idx}`;
                     const isExpanded = expandedRow === rowKey;
+                    const issueSerialNo = (issue as any).SerialNo || ((currentPage - 1) * rowsPerPage + idx + 1);
 
                     return (
                       <React.Fragment key={rowKey}>
@@ -6600,12 +6682,25 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                           onClick={() => setExpandedRow(isExpanded ? null : rowKey)}
                           className={`border-b transition-colors cursor-pointer ${darkMode ? "border-slate-800 hover:bg-slate-800/50" : "border-slate-100 hover:bg-slate-50"} ${isExpanded ? (darkMode ? "bg-slate-800/50" : "bg-slate-50") : ""} ${resolved ? (darkMode ? "opacity-60 bg-slate-900/50" : "opacity-60 bg-slate-50") : ""}`}
                         >
+                          {/* richyrik: Serial number cell */}
+                          <td className={`px-3 py-3 text-xs font-mono text-center font-bold whitespace-nowrap ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                            #{issueSerialNo}
+                          </td>
                           {tableCols.map(col => {
-                            if (col === "DisplayID") {
+                            if (col === "DisplayID" || col === "ID") {
+                              const displayVal = issue.DisplayID || (issue as any).ID || issue.IssueID || "—";
                               return <td key={col} className={`px-4 py-3 font-semibold text-sm ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <ChevronDown size={14} className={`transition-transform ${isExpanded ? "rotate-180" : ""} ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
-                                  {issue.DisplayID}
+                                  <span>{displayVal}</span>
+                                  {(issue as any).IsDuplicate && (
+                                    <span
+                                      title={`This VUL appears ${(issue as any).DuplicateCount}× in the portal at Serial Nos: ${((issue as any).DuplicateSerialNos || []).map((s: number) => `#${s}`).join(', ')} (Excel rows: ${((issue as any).DuplicateExcelRows || []).join(', ')})`}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-500 text-white text-[10px] font-bold rounded-full uppercase tracking-wide shadow-sm animate-pulse cursor-help"
+                                    >
+                                      <Copy size={10} /> {(issue as any).DuplicateCount}× DUP
+                                    </span>
+                                  )}
                                 </div>
                               </td>;
                             }
@@ -6741,7 +6836,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                         </motion.tr>
                         {isExpanded && (
                           <tr className={darkMode ? "bg-slate-800/30" : "bg-slate-50"}>
-                            <td colSpan={tableCols.length} className="px-6 py-5">
+                            <td colSpan={tableCols.length + 1} className="px-6 py-5">
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <div className={`p-4 rounded-lg ${darkMode ? "bg-slate-800" : "bg-white border border-slate-200"}`}>
                                   <div className="flex items-center justify-between mb-3">
@@ -6849,6 +6944,77 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                                       </p>
                                     </div>
                                   )}
+                                </div>
+                              )}
+
+                              {/* Duplicate VUL Info Section */}
+                              {(issue as any).IsDuplicate && (
+                                <div className={`mt-4 p-4 rounded-xl border-2 ${darkMode ? "bg-amber-950/20 border-amber-500/40 text-amber-200" : "bg-amber-50 border-amber-300 text-amber-900"}`}>
+                                  <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                                    <div className="flex items-center gap-2">
+                                      <span className="px-2.5 py-1 bg-amber-600 text-white text-xs font-bold rounded-md uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                                        <Copy size={13} /> Duplicate Vulnerability Detected
+                                      </span>
+                                      <span className="text-sm font-semibold">
+                                        This exact vulnerability appears <strong>{(issue as any).DuplicateCount} times</strong> in the portal
+                                      </span>
+                                    </div>
+                                    <span className="text-xs font-mono font-medium px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+                                      ID: {issue.DisplayID || (issue as any).ID || issue.IssueID}
+                                    </span>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-2">
+                                    <div className={`p-3 rounded-lg ${darkMode ? "bg-slate-900/70" : "bg-white"} border ${darkMode ? "border-amber-900/40" : "border-amber-200"}`}>
+                                      <p className="text-[11px] font-bold uppercase tracking-wider mb-2 opacity-80 flex items-center gap-1.5">
+                                        <Hash size={12} className="text-amber-500" /> Locations in Portal (Serial Numbers)
+                                      </p>
+                                      <div className="flex flex-wrap gap-2">
+                                        {((issue as any).DuplicateSerialNos || []).map((sNo: number, i: number) => {
+                                          const isCurrent = sNo === issueSerialNo;
+                                          return (
+                                            <span
+                                              key={i}
+                                              className={`px-3 py-1 rounded-md font-mono text-xs font-bold flex items-center gap-1 shadow-sm ${
+                                                isCurrent
+                                                  ? "bg-amber-500 text-white ring-2 ring-amber-400"
+                                                  : darkMode ? "bg-slate-800 text-amber-300 border border-amber-700/50" : "bg-amber-100 text-amber-800 border border-amber-200"
+                                              }`}
+                                            >
+                                              Serial No. #{sNo} {isCurrent ? "(this row)" : ""}
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+
+                                    <div className={`p-3 rounded-lg ${darkMode ? "bg-slate-900/70" : "bg-white"} border ${darkMode ? "border-amber-900/40" : "border-amber-200"}`}>
+                                      <p className="text-[11px] font-bold uppercase tracking-wider mb-2 opacity-80 flex items-center gap-1.5">
+                                        <Layers size={12} className="text-amber-500" /> Source Excel Sheet Row Numbers
+                                      </p>
+                                      <div className="flex flex-wrap gap-2">
+                                        {((issue as any).DuplicateExcelRows || []).map((rowNo: number, i: number) => {
+                                          const isCurrent = rowNo === (issue as any).ExcelRowIndex;
+                                          return (
+                                            <span
+                                              key={i}
+                                              className={`px-3 py-1 rounded-md font-mono text-xs font-bold flex items-center gap-1 shadow-sm ${
+                                                isCurrent
+                                                  ? "bg-amber-500 text-white ring-2 ring-amber-400"
+                                                  : darkMode ? "bg-slate-800 text-amber-300 border border-amber-700/50" : "bg-amber-100 text-amber-800 border border-amber-200"
+                                              }`}
+                                            >
+                                              Excel Row {rowNo} {isCurrent ? "(this row)" : ""}
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <p className={`mt-2.5 text-xs ${darkMode ? "text-amber-300/80" : "text-amber-800/80"}`}>
+                                    ✓ Every duplicate occurrence from your Excel file is completely preserved in the portal and tracked with its own serial number.
+                                  </p>
                                 </div>
                               )}
 
