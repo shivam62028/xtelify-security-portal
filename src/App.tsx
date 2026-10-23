@@ -17,6 +17,8 @@ const CountUpComponent: any = (CountUpMod as any).default || CountUpMod;
 import { motion, AnimatePresence } from "framer-motion";
 // richyrik: import airtel logo
 import airtelLogo from './airtel-logo.png';
+// richyrik: Multi-Upload Historical Tracking & Trend Analysis
+import { MultiUploadTrendAnalysis } from "./components/MultiUploadTrendAnalysis";
 import {
   Shield,
   AlertTriangle,
@@ -842,42 +844,28 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
         </div>
       )}
 
-      <div className="flex justify-between items-center mb-4">
+      {/* richyrik: Multi-Upload Historical Tracking & Trend Analysis */}
+      <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
         <h3 className="font-bold text-lg">Datasets in Range</h3>
-        <button onClick={() => setCompareMode(!compareMode)} className="px-3 py-1.5 bg-purple-100 text-purple-700 rounded text-sm font-bold">Compare Datasets</button>
+        <button
+          onClick={() => setCompareMode(!compareMode)}
+          className={`px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1.5 transition-all ${
+            compareMode
+              ? "bg-purple-600 text-white shadow"
+              : darkMode ? "bg-purple-900/40 text-purple-300 hover:bg-purple-900/60" : "bg-purple-100 text-purple-700 hover:bg-purple-200"
+          }`}
+        >
+          <TrendingUp size={15} />
+          {compareMode ? "Hide Trend Analysis" : "Multi-Upload Trend Analysis"}
+        </button>
       </div>
 
       {compareMode && (
-        <div className={`mb-6 p-4 rounded-lg border ${darkMode ? "bg-slate-800 border-slate-700" : "bg-purple-50 border-purple-200"}`}>
-          <h4 className="font-bold mb-2">Select exactly 2 datasets to compare:</h4>
-          <div className="flex gap-2 mb-4">
-            {compareBatches.map(b => <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} layout key={b} className="bg-purple-200 text-purple-800 px-2 py-1 rounded text-xs">{b}</motion.span>)}
-          </div>
-          <button onClick={handleCompare} disabled={compareBatches.length !== 2 || compareLoading} className="px-4 py-2 bg-purple-600 text-white rounded disabled:opacity-50">Run Comparison</button>
-
-          {compareData && (
-            <div className="mt-4 p-4 bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] rounded">
-              <div className="flex gap-4 mb-4 font-bold text-sm">
-                <span className="text-red-500">New: {compareData.summary.NewFindings}</span>
-                <span className="text-green-500">Resolved: {compareData.summary.ResolvedFindings}</span>
-                <span className="text-orange-500">Still Open: {compareData.summary.StillOpen}</span>
-                <span className="text-slate-500">No Longer Present: {compareData.summary.NoLongerPresent}</span>
-              </div>
-              <div className="max-h-64 overflow-y-auto text-sm">
-                <table className="w-full text-left">
-                  <thead><tr><th className="p-2 border-b">Issue</th><th className="p-2 border-b">Change</th></tr></thead>
-                  <tbody>
-                    {compareData.comparison.map((c: any, i: number) => (
-                      <tr key={i} className="border-b dark:border-slate-800">
-                        <td className="p-2">{c.Title}</td>
-                        <td className={`p-2 font-bold ${c.Change.includes('New') ? 'text-red-500' : c.Change.includes('Resolved') ? 'text-green-500' : 'text-slate-500'}`}>{c.Change}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+        <div className="mb-8">
+          <MultiUploadTrendAnalysis
+            darkMode={darkMode}
+            activeModule={selectedFormats[0] || "CONTAINER"}
+          />
         </div>
       )}
 
@@ -2615,7 +2603,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   const [selectedContainerSubTypes, setSelectedContainerSubTypes] = useState<string[]>([]);
 
   // richyrik
-  const [viewMode, setViewMode] = useState<"Optimized" | "Raw" | "Calendar" | "Manager">("Optimized");
+  const [viewMode, setViewMode] = useState<"Optimized" | "Raw" | "Calendar" | "Manager" | "Trend">("Optimized");
 
   // richyrik: Force dark mode to always-on to match FinOps aesthetic
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -5258,6 +5246,8 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             { id: 'Raw', label: 'Export View' },
             { id: 'Calendar', label: 'Calendar', icon: CalendarDays },
             { id: 'Manager', label: 'Manager View', icon: Users },
+            // richyrik: Multi-Upload Historical Tracking & Trend Analysis
+            { id: 'Trend', label: 'Trend Analysis', icon: TrendingUp },
           ].map((tab) => {
             const Icon = (tab as any).icon;
             return (
@@ -5325,9 +5315,24 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
       </div>
 
       {/* richyrik */}
-      {viewMode === "Manager" ? (
+      {viewMode === "Trend" ? (
+        <MultiUploadTrendAnalysis
+          darkMode={darkMode}
+          activeModule={selectedFormatFilter}
+          allIssues={allIssues}
+          batches={batches}
+          batchFormats={batchFormats}
+          onSelectModule={(fmt) => setSelectedFormatFilter(fmt)}
+          onBack={() => setViewMode("Optimized")}
+        />
+      ) : viewMode === "Manager" ? (
         hasDataForActiveModule ? (
-          <ManagerReportView darkMode={darkMode} activeModule={selectedFormatFilter} filteredIssues={activeIssues} />
+          <ManagerReportView
+            darkMode={darkMode}
+            activeModule={selectedFormatFilter}
+            filteredIssues={activeIssues}
+            onOpenTrend={() => setViewMode("Trend")}
+          />
         ) : null
       ) : viewMode === "Calendar" ? <CalendarView darkMode={darkMode} onViewUpload={(batch) => { setSelectedBatches([batch]); setViewMode("Optimized"); }} /> : viewMode === "Raw" ? (
         <div className={`p-5 rounded-lg border mb-6 ${darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"}`}>
@@ -9251,8 +9256,8 @@ const QuarterlyReportModal: React.FC<QuarterlyReportModalProps> = ({
   );
 };
 
-// richyrik: ManagerReportView receives activeModule & filteredIssues
-const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string; filteredIssues?: any[] }> = ({ darkMode, activeModule, filteredIssues }) => {
+// richyrik: ManagerReportView receives activeModule, filteredIssues & onOpenTrend
+const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string; filteredIssues?: any[]; onOpenTrend?: () => void }> = ({ darkMode, activeModule, filteredIssues, onOpenTrend }) => {
   const [reportData, setReportData] = useState<any[]>([]);
   const [isQuarterlyModalOpen, setIsQuarterlyModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -9464,6 +9469,17 @@ const ManagerReportView: React.FC<{ darkMode: boolean; activeModule?: string; fi
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* richyrik: Open Multi-Upload Trend Analysis */}
+          {onOpenTrend && (
+            <button
+              onClick={onOpenTrend}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-sm font-semibold rounded-lg shadow-sm hover:shadow transition-all"
+              title="View Multi-Upload Trend Analysis"
+            >
+              <TrendingUp size={15} />
+              Trend Analysis
+            </button>
+          )}
           {/* richyrik: Open Quarterly Closure Trend Report */}
           <button
             onClick={() => setIsQuarterlyModalOpen(true)}

@@ -42,3 +42,16 @@
   - Client-side Excel export generates formatted `.xlsx` with quarterly totals and closure percentages.
 - **Backend (`app.py`)**:
   - `_quarterly_report_pipeline(payload)`: Updated projection and aggregation to parse dates for both open and resolved issues, count closures accurately, and produce `open`, `resolved`, `total`, and `pct` per quarter across all modules.
+
+### Multi-Upload Historical Tracking & Trend Analysis
+- **Frontend (`src/components/MultiUploadTrendAnalysis.tsx`, `src/App.tsx`)**:
+  - Expanded the portal's Trend Analysis section from simple 2-dataset comparison to a full **multi-upload historical tracking engine**.
+  - **Sequential Comparison Engine (`useMemo`)**: Extracts all historical upload datasets for the active module (Container, VAPT, CSPM, SAST/DAST, All) chronologically, and compares each upload against its immediate predecessor (Upload 1 vs 2, 2 vs 3, etc.) calculating **Newly Resolved**, **Newly Introduced**, and **Persistent Open** items.
+  - **Aggregated KPI Cards**: Total Uploads Tracked, Cumulative Newly Resolved (highlighted in Emerald Green `#10B981`), Net Influx Rate (with reduction/growth trending), and Active Open Backlog.
+  - **Multi-Point Trend Chart**: Recharts `<LineChart>` and stacked `<BarChart>` with toggle, plotting Total Open, Newly Introduced, and Newly Resolved curves across all historical scan versions.
+  - **Historical Delta Audit Table**: Allows stakeholders to select any comparison point (Upload $X$ vs Upload $Y$) to audit status changes for specific CVEs and assets, with search, filters, pagination, and Excel (`.xlsx`) export.
+  - **Navigation Integration**: First-class `Trend Analysis` tab in the top navigation bar (`Dashboard`, `Export View`, `Calendar`, `Manager View`, `Trend Analysis`), linked in `ManagerReportView` header and embedded inside `HistoricalAnalyticsModule` (Calendar -> Dataset Uploads).
+  - **Zero Dummy Data Guarantee**: Completely stripped all mock datasets (`buildCuratedHistoricalDatasets` removed). When no database records exist, renders a clean, professional empty state ("No Historical Datasets Found in Database") across all module views.
+  - **Arbitrary Multi-Dataset Selection**: Added an interactive dataset selection panel allowing users to select any number of datasets ($1, 2, 3, \dots, N$) via checkboxes, with "Select All", "Clear All", "Last 2", "Last 3", and "Last 5" quick controls. When $\ge 2$ datasets are selected, the sequential comparison engine evaluates the chosen subset in chronological order.
+  - All additions tagged with `// richyrik`.
+

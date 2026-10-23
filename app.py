@@ -5304,6 +5304,245 @@ async def get_analytics_owners(
         print(traceback.format_exc())
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+@app.get("/api/analytics/snapshot-delta")
+async def snapshot_delta(baseline: str, target: str, format_filter: str = None):
+    """Comprehensive snapshot delta engine: compares two upload batches and returns
+    detailed transition data, severity flows, and per-vulnerability change tracking."""
+    if not _is_mongo_available():
+        return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
+    try:
+        import hashlib
+
+        base_query = {"UploadBatch": baseline}
+        target_query = {"UploadBatch": target}
+        if format_filter:
+            base_query["SourceFormat"] = format_filter
+            target_query["SourceFormat"] = format_filter
+
+        baseline_issues = list(issues_collection.find(base_query))
+        target_issues = list(issues_collection.find(target_query))
+
+        def make_composite_key(issue):
+            """Deterministic composite key from IssueID + Description hash."""
+            iid = str(issue.get("IssueID") or issue.get("Vulnerability Name") or issue.get("Title") or "")
+            desc = str(issue.get("Description") or issue.get("Vulnerability Name") or "")
+            desc_hash = hashlib.md5(desc.encode("utf-8", errors="ignore")).hexdigest()[:8]
+            return f"{iid}||{desc_hash}"
+
+        def classify_status(status_str):
+            s = str(status_str or "Open").lower().strip()
+            resolved_keywords = ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"]
+            if any(kw in s for kw in resolved_keywords):
+                return "Resolved"
+            return "Open"
+
+        def normalize_severity(sev):
+            s = str(sev or "Unknown").strip().lower()
+            if s in ("critical", "crit"):
+                return "Critical"
+            elif s in ("high",):
+                return "High"
+            elif s in ("medium", "med"):
+                return "Medium"
+            elif s in ("low",):
+                return "Low"
+            elif s in ("info", "informational", "note"):
+                return "Info"
+            return "Unknown"
+
+        # Build lookup dicts, handling duplicate keys by collecting lists
+        baseline_dict = {}
+        for issue in baseline_issues:
+            key = make_composite_key(issue)
+            if key not in baseline_dict:
+                baseline_dict[key] = issue
+        target_dict = {}
+        for issue in target_issues:
+            key = make_composite_key(issue)
+            if key not in target_dict:
+                target_dict[key] = issue
+
+        all_keys = set(baseline_dict.keys()).union(set(target_dict.keys()))
+
+        transitions = []
+        category_counts = {
+            "NewFindings": 0,
+            "Resolved": 0,
+            "StillOpen": 0,
+            "Reopened": 0,
+            "SeverityChanged": 0,
+            "NoLongerPresent": 0,
+            "AlreadyResolved": 0,
+        }
+        severity_flow = []  # For Sankey-like visualization
+        severity_summary = {
+            "baseline": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0, "Unknown": 0},
+            "target": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0, "Unknown": 0},
+        }
+
+        for key in sorted(all_keys):
+            b_issue = baseline_dict.get(key)
+            t_issue = target_dict.get(key)
+            active_issue = t_issue or b_issue
+
+            b_status = classify_status(b_issue.get("Status")) if b_issue else "None"
+            t_status = classify_status(t_issue.get("Status")) if t_issue else "None"
+            b_sev = normalize_severity(b_issue.get("Severity")) if b_issue else "None"
+            t_sev = normalize_severity(t_issue.get("Severity")) if t_issue else "None"
+
+            # Count severities
+            if b_issue:
+                severity_summary["baseline"][b_sev] = severity_summary["baseline"].get(b_sev, 0) + 1
+            if t_issue:
+                severity_summary["target"][t_sev] = severity_summary["target"].get(t_sev, 0) + 1
+
+            transition_type = ""
+            if not b_issue and t_issue:
+                transition_type = "NewFindings"
+                category_counts["NewFindings"] += 1
+            elif b_issue and not t_issue:
+                transition_type = "NoLongerPresent"
+                category_counts["NoLongerPresent"] += 1
+            elif b_status == "Open" and t_status == "Resolved":
+                transition_type = "Resolved"
+                category_counts["Resolved"] += 1
+            elif b_status == "Resolved" and t_status == "Open":
+                transition_type = "Reopened"
+                category_counts["Reopened"] += 1
+            elif b_status == "Open" and t_status == "Open":
+                if b_sev != t_sev:
+                    transition_type = "SeverityChanged"
+                    category_counts["SeverityChanged"] += 1
+                else:
+                    transition_type = "StillOpen"
+                    category_counts["StillOpen"] += 1
+            elif b_status == "Resolved" and t_status == "Resolved":
+                transition_type = "AlreadyResolved"
+                category_counts["AlreadyResolved"] += 1
+            else:
+                transition_type = "StillOpen"
+                category_counts["StillOpen"] += 1
+
+            # Severity flow tracking
+            if b_sev != "None" and t_sev != "None":
+                severity_flow.append({"from": b_sev, "to": t_sev, "transition": transition_type})
+
+            title = str(active_issue.get("Vulnerability Name") or active_issue.get("Title") or active_issue.get("Description") or key)
+            if len(title) > 100:
+                title = title[:97] + "..."
+
+            transitions.append({
+                "compositeKey": key,
+                "title": title,
+                "baselineStatus": b_issue.get("Status", "—") if b_issue else "—",
+                "targetStatus": t_issue.get("Status", "—") if t_issue else "—",
+                "baselineSeverity": b_sev,
+                "targetSeverity": t_sev,
+                "transitionType": transition_type,
+                "affectedAsset": str(active_issue.get("AffectedAsset") or active_issue.get("Asset") or "—"),
+                "category": str(active_issue.get("Category") or active_issue.get("Type") or "—"),
+                "displayId": str(active_issue.get("DisplayID") or active_issue.get("IssueID") or "—"),
+            })
+
+        # Aggregate severity flow for Sankey
+        flow_agg = {}
+        for f in severity_flow:
+            fk = f"{f['from']}→{f['to']}"
+            if fk not in flow_agg:
+                flow_agg[fk] = {"source": f["from"], "target": f["to"], "count": 0}
+            flow_agg[fk]["count"] += 1
+        severity_flow_aggregated = list(flow_agg.values())
+
+        # Get baseline & target upload metadata
+        baseline_meta = upload_history_collection.find_one({"UploadBatch": baseline}, {"_id": 0})
+        target_meta = upload_history_collection.find_one({"UploadBatch": target}, {"_id": 0})
+        if baseline_meta and "UploadedAt" in baseline_meta and isinstance(baseline_meta["UploadedAt"], datetime):
+            baseline_meta["UploadedAt"] = baseline_meta["UploadedAt"].isoformat()
+        if target_meta and "UploadedAt" in target_meta and isinstance(target_meta["UploadedAt"], datetime):
+            target_meta["UploadedAt"] = target_meta["UploadedAt"].isoformat()
+
+        return {
+            "summary": category_counts,
+            "severitySummary": severity_summary,
+            "severityFlow": severity_flow_aggregated,
+            "transitions": transitions,
+            "baselineMeta": {
+                "batch": baseline,
+                "totalRecords": len(baseline_issues),
+                "uploadedAt": baseline_meta.get("UploadedAt", "—") if baseline_meta else "—",
+                "fileName": baseline_meta.get("FileName", baseline) if baseline_meta else baseline,
+            },
+            "targetMeta": {
+                "batch": target,
+                "totalRecords": len(target_issues),
+                "uploadedAt": target_meta.get("UploadedAt", "—") if target_meta else "—",
+                "fileName": target_meta.get("FileName", target) if target_meta else target,
+            },
+            "totalTransitions": len(transitions),
+        }
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.get("/api/analytics/snapshot-timeline")
+async def snapshot_timeline(format_filter: str = None):
+    """Returns all snapshots (upload batches) ordered chronologically with
+    summary stats for each, enabling multi-snapshot trend lines."""
+    if not _is_mongo_available():
+        return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
+    try:
+        query = {}
+        if format_filter:
+            query["SourceFormat"] = format_filter
+        uploads = list(upload_history_collection.find(query, {"_id": 0}).sort("UploadedAt", 1))
+
+        timeline = []
+        for u in uploads:
+            batch = u.get("UploadBatch", "")
+            issues = list(issues_collection.find({"UploadBatch": batch}))
+            total = len(issues)
+            open_count = sum(1 for i in issues if "resolved" not in str(i.get("Status", "")).lower()
+                            and "closed" not in str(i.get("Status", "")).lower()
+                            and "fixed" not in str(i.get("Status", "")).lower()
+                            and "mitigated" not in str(i.get("Status", "")).lower())
+            resolved_count = total - open_count
+
+            sev_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
+            for i in issues:
+                s = str(i.get("Severity", "")).strip().lower()
+                if s in ("critical", "crit"):
+                    sev_counts["Critical"] += 1
+                elif s == "high":
+                    sev_counts["High"] += 1
+                elif s in ("medium", "med"):
+                    sev_counts["Medium"] += 1
+                elif s == "low":
+                    sev_counts["Low"] += 1
+
+            uploaded_at = u.get("UploadedAt", "")
+            if isinstance(uploaded_at, datetime):
+                uploaded_at = uploaded_at.isoformat()
+
+            timeline.append({
+                "batch": batch,
+                "fileName": u.get("FileName", batch),
+                "uploadedAt": uploaded_at,
+                "sourceFormat": u.get("SourceFormat", "UNKNOWN"),
+                "total": total,
+                "open": open_count,
+                "resolved": resolved_count,
+                **sev_counts,
+            })
+
+        return {"timeline": timeline}
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.get("/api/analytics/compare")
 async def compare_datasets(batch1: str, batch2: str):
     if not _is_mongo_available():
