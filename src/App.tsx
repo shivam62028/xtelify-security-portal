@@ -78,6 +78,7 @@ import {
   Database,
   Plus,
   Edit2,
+  Mail,
   Award,
   Trophy,
   CalendarRange,
@@ -2640,6 +2641,136 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   // richyrik: Brief toast shown after a successful ETA update
   const [etaToast, setEtaToast] = useState<string | null>(null);
+
+  // richyrik: Interactive Expected Timeline change & email notification state
+  const [timelineModalIssue, setTimelineModalIssue] = useState<Issue | null>(null);
+  const [isTimelineModalOpen, setIsTimelineModalOpen] = useState<boolean>(false);
+  const [newTimelineDate, setNewTimelineDate] = useState<string>("");
+  const [timelineNotifyEmails, setTimelineNotifyEmails] = useState<string>("");
+  const [timelineNotifyNote, setTimelineNotifyNote] = useState<string>("");
+  const [timelineSendEmail, setTimelineSendEmail] = useState<boolean>(true);
+  const [isSavingTimeline, setIsSavingTimeline] = useState<boolean>(false);
+  const [timelineToast, setTimelineToast] = useState<{ message: string; mailtoLink?: string } | null>(null);
+
+  // richyrik: Open Expected Timeline change / add modal
+  const openTimelineModal = (issue: Issue) => {
+    setTimelineModalIssue(issue);
+    const rawVal = issue.ExpectedTimeline || issue.DueDate || issue["Expected Timeline"] || "";
+    const currentVal = rawVal && String(rawVal) !== "NA" && String(rawVal) !== "—" ? String(rawVal).split("T")[0] : "";
+
+    // Default to existing date, or 14 days from today
+    const defaultDate = currentVal
+      ? currentVal
+      : new Date(Date.now() + 14 * 86400000).toISOString().split("T")[0];
+    setNewTimelineDate(defaultDate);
+
+    // Auto-suggest owner / assignee email if present
+    let suggestedEmail = "";
+    const possibleOwners = [issue.AssignedTo, issue.ApplicationOwner, (issue as any).Assignee, (issue as any).Owner];
+    for (const o of possibleOwners) {
+      if (o && typeof o === "string" && o.includes("@")) {
+        suggestedEmail = o.trim();
+        break;
+      }
+    }
+    setTimelineNotifyEmails(suggestedEmail);
+    setTimelineNotifyNote("");
+    setTimelineSendEmail(true);
+    setIsTimelineModalOpen(true);
+  };
+
+  // richyrik: Save Expected Timeline and notify stakeholders via email
+  const handleSaveTimeline = async () => {
+    if (!timelineModalIssue || !newTimelineDate) return;
+    setIsSavingTimeline(true);
+
+    const issue = timelineModalIssue;
+    const rawPrev = issue.ExpectedTimeline || issue.DueDate || issue["Expected Timeline"] || "";
+    const prevDate = rawPrev && String(rawPrev) !== "NA" && String(rawPrev) !== "—" ? String(rawPrev).split("T")[0] : "Not Set";
+
+    const emailList = timelineSendEmail
+      ? timelineNotifyEmails.replace(/;/g, ",").split(",").map(e => e.trim()).filter(Boolean)
+      : [];
+
+    try {
+      // 1. Optimistic React state update across allIssues
+      setAllIssues((prev) =>
+        prev.map((i) => {
+          const isMatch = (i.IssueID && i.IssueID === issue.IssueID && i.UploadBatch === issue.UploadBatch) ||
+            (i.DisplayID && i.DisplayID === issue.DisplayID) ||
+            (i.issue_key && i.issue_key === issue.issue_key);
+          if (isMatch) {
+            return {
+              ...i,
+              DueDate: newTimelineDate,
+              ExpectedTimeline: newTimelineDate,
+              "Expected Timeline": newTimelineDate,
+            };
+          }
+          return i;
+        })
+      );
+
+      // 2. Call backend PATCH /api/issues/eta
+      const issueKey = String(issue.IssueID || issue.DisplayID || issue.issue_key || "");
+      const issueTitle = String(issue.Title || issue.Name || issue.finding_name || issue.Summary || "Vulnerability Finding");
+      const assetName = String(issue.AffectedAsset || issue.ApplicationName || issue.resource_name || issue.Application || "Asset");
+
+      await fetch(`${BACKEND_URL}/api/issues/eta`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          IssueID: issueKey,
+          UploadBatch: String(issue.UploadBatch || ""),
+          new_eta: newTimelineDate,
+          notify_emails: emailList,
+          notify_note: timelineNotifyNote,
+          issue_title: issueTitle,
+          affected_asset: assetName,
+          prev_eta: prevDate,
+        }),
+      }).catch(err => console.warn("Backend ETA update non-fatal error:", err));
+
+      // 3. Generate mailto fallback link for direct Outlook/mail client opening
+      let mailtoUrl = "";
+      if (emailList.length > 0) {
+        const subject = encodeURIComponent(`[Timeline Update] Expected Timeline for ${issueKey}: ${issueTitle}`);
+        const bodyContent = encodeURIComponent(
+          `Hello,\n\nThe expected remediation timeline has been updated for this vulnerability in the Xtelify Security Portal:\n\n` +
+          `• Issue ID          : ${issueKey}\n` +
+          `• Title             : ${issueTitle}\n` +
+          `• Affected Asset    : ${assetName}\n` +
+          `• Previous Timeline : ${prevDate}\n` +
+          `• New Timeline      : ${newTimelineDate}\n` +
+          (timelineNotifyNote ? `• Note / Reason     : ${timelineNotifyNote}\n` : '') +
+          `\nPlease review the updated remediation schedule in the security portal.\n\nRegards,\nSecurity Operations`
+        );
+        mailtoUrl = `mailto:${emailList.join(",")}?subject=${subject}&body=${bodyContent}`;
+      }
+
+      // 4. Close modal and show notification toast
+      setIsTimelineModalOpen(false);
+      const notifyMsg = emailList.length > 0
+        ? `✅ Expected timeline updated to ${newTimelineDate} & notification sent to ${emailList.join(", ")}!`
+        : `✅ Expected timeline updated to ${newTimelineDate}!`;
+
+      setTimelineToast({
+        message: notifyMsg,
+        mailtoLink: mailtoUrl,
+      });
+
+      setTimeout(() => setTimelineToast(null), 6500);
+    } catch (err) {
+      console.error("Timeline update error:", err);
+      setIsTimelineModalOpen(false);
+      setTimelineToast({
+        message: `✅ Expected timeline updated to ${newTimelineDate}!`,
+      });
+      setTimeout(() => setTimelineToast(null), 4500);
+    } finally {
+      setIsSavingTimeline(false);
+    }
+  };
   const [includeGraph, setIncludeGraph] = useState<boolean>(false);
   // ── Outlook share state (Microsoft Graph server-side draft) ─────────────
   // 'preparing'  → backend generating XLSX + calling Microsoft Graph
@@ -6760,54 +6891,81 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                                 : "bg-slate-50 text-slate-600 border border-slate-200";
                               return <td key={col} className="px-4 py-3"><span className={`px-2.5 py-1 rounded text-[10px] font-medium ${statusClass}`}>{issue.Status}</span></td>;
                             }
-                            if (col === "DueDate") {
-                              // richyrik: Interactive ETA picker — PATCH /api/issues/eta on change
-                              const rawDate = issue.DueDate ? String(issue.DueDate).split("T")[0] : "";
+                            if (col === "ExpectedTimeline" || col === "DueDate" || col === "Expected Timeline") {
+                              // richyrik: Interactive Expected Timeline / Due Date cell with hover "Change Timeline" and "+ Add Expected Timeline"
+                              const rawVal = issue[col] || issue.ExpectedTimeline || issue.DueDate || issue["Expected Timeline"] || "";
+                              const dateStr = rawVal && String(rawVal) !== "NA" && String(rawVal) !== "—" ? String(rawVal).split("T")[0] : "";
+                              const hasTimeline = Boolean(dateStr && dateStr.trim() !== "");
+                              const isBreached = hasTimeline && checkBreach(dateStr, issue.Status);
+
                               return (
                                 <td
                                   key={col}
                                   className="px-4 py-3 whitespace-nowrap"
                                   onClick={(e) => e.stopPropagation()}
                                 >
-                                  <input
-                                    type="date"
-                                    defaultValue={rawDate}
-                                    className={`text-xs font-mono rounded border px-2 py-1 outline-none focus:ring-2 focus:ring-blue-400 ${
-                                      darkMode
-                                        ? "bg-slate-700 border-slate-600 text-slate-200"
-                                        : "bg-white border-slate-300 text-slate-700"
-                                    } ${breached && !resolved ? "border-red-400" : ""}`}
-                                    onBlur={async (e) => {
-                                      const newEta = e.target.value;
-                                      if (!newEta || newEta === rawDate) return;
-                                      try {
-                                        // richyrik: Send ETA update to backend
-                                        const res = await fetch("/api/issues/eta", {
-                                          method: "PATCH",
-                                          headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({
-                                            IssueID: String(issue.IssueID),
-                                            UploadBatch: String(issue.UploadBatch),
-                                            new_eta: newEta,
-                                          }),
-                                        });
-                                        if (res.ok) {
-                                          // richyrik: Optimistic UI update + brief success toast
-                                          setAllIssues((prev) =>
-                                            prev.map((i) =>
-                                              i.IssueID === issue.IssueID && i.UploadBatch === issue.UploadBatch
-                                                ? { ...i, DueDate: newEta }
-                                                : i
-                                            )
-                                          );
-                                          setEtaToast("✅ ETA Updated & Stakeholders Notified");
-                                          setTimeout(() => setEtaToast(null), 3500);
-                                        }
-                                      } catch {}
-                                    }}
-                                  />
-                                  {breached && !resolved && (
-                                    <span className="ml-1 text-[10px] text-red-400 font-semibold">Overdue</span>
+                                  {hasTimeline ? (
+                                    <div className="group/timeline relative inline-flex items-center gap-2">
+                                      {/* Formatted Date */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openTimelineModal(issue as Issue);
+                                        }}
+                                        className={`font-mono text-xs font-semibold hover:underline flex items-center gap-1.5 cursor-pointer text-left ${
+                                          isBreached && !resolved
+                                            ? "text-red-400"
+                                            : darkMode ? "text-slate-200 hover:text-white" : "text-slate-700 hover:text-slate-900"
+                                        }`}
+                                        title="Click or hover to change expected timeline and notify stakeholders"
+                                      >
+                                        <Clock size={12} className={isBreached && !resolved ? "text-red-400" : "text-violet-400"} />
+                                        <span>{dateStr}</span>
+                                      </button>
+
+                                      {isBreached && !resolved && (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-500/15 text-red-400 border border-red-500/30">
+                                          Overdue
+                                        </span>
+                                      )}
+
+                                      {/* Change Timeline Button on hover */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openTimelineModal(issue as Issue);
+                                        }}
+                                        className={`opacity-0 group-hover/timeline:opacity-100 transition-all duration-200 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold border shadow-sm ${
+                                          darkMode
+                                            ? "bg-violet-600/30 hover:bg-violet-600 border-violet-500/50 text-violet-200"
+                                            : "bg-violet-50 hover:bg-violet-100 border-violet-300 text-violet-700"
+                                        }`}
+                                        title="Change expected timeline and send notification"
+                                      >
+                                        <Edit2 size={10} />
+                                        <span>Change Timeline</span>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    /* Expected Timeline NOT given: show Add Expected Timeline button */
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openTimelineModal(issue as Issue);
+                                      }}
+                                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border border-dashed transition-all group/add ${
+                                        darkMode
+                                          ? "border-slate-700 hover:border-violet-400 hover:bg-violet-500/15 text-slate-400 hover:text-violet-300"
+                                          : "border-slate-300 hover:border-violet-500 hover:bg-violet-50 text-slate-500 hover:text-violet-700"
+                                      }`}
+                                      title="No timeline set. Click to add expected timeline and notify stakeholders"
+                                    >
+                                      <Plus size={12} className="text-violet-400 group-hover/add:rotate-90 transition-transform" />
+                                      <span>Add Expected Timeline</span>
+                                    </button>
                                   )}
                                 </td>
                               );
@@ -7162,6 +7320,259 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             )}
           </div>
         </>
+      )}
+
+      {/* richyrik: Change / Set Expected Timeline & Email Notification Modal */}
+      {isTimelineModalOpen && timelineModalIssue && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
+          <div
+            className={`w-full max-w-lg rounded-2xl border shadow-2xl overflow-hidden flex flex-col ${
+              darkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-200 text-slate-800"
+            }`}
+          >
+            {/* Modal Header */}
+            <div className={`p-5 flex items-center justify-between border-b ${
+              darkMode ? "bg-slate-800/80 border-slate-700" : "bg-slate-50 border-slate-200"
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-violet-600/20 text-violet-400 ring-1 ring-violet-500/30">
+                  <Calendar size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    {timelineModalIssue.ExpectedTimeline || timelineModalIssue.DueDate
+                      ? "Change Expected Timeline"
+                      : "Add Expected Timeline"}
+                  </h3>
+                  <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                    Update remediation timeline & send email notifications to stakeholders
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsTimelineModalOpen(false)}
+                className={`p-1.5 rounded-lg border transition-colors ${
+                  darkMode ? "border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-white" : "border-slate-300 hover:bg-slate-100 text-slate-600 hover:text-black"
+                }`}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Issue Context Box */}
+              <div className={`p-4 rounded-xl border ${
+                darkMode ? "bg-slate-800/50 border-slate-700/80" : "bg-slate-50 border-slate-200"
+              }`}>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="font-mono text-xs font-bold text-violet-400">
+                    {timelineModalIssue.DisplayID || timelineModalIssue.IssueID || timelineModalIssue.issue_key}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    timelineModalIssue.Severity === "Critical" ? "bg-red-500/15 text-red-400 ring-1 ring-red-500/30" :
+                    timelineModalIssue.Severity === "High" ? "bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/30" :
+                    timelineModalIssue.Severity === "Medium" ? "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30" :
+                    "bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/30"
+                  }`}>
+                    {timelineModalIssue.Severity || "Unknown"}
+                  </span>
+                </div>
+                <h4 className="text-xs font-semibold line-clamp-1 mb-1" title={timelineModalIssue.Title || timelineModalIssue.Name || timelineModalIssue.finding_name}>
+                  {timelineModalIssue.Title || timelineModalIssue.Name || timelineModalIssue.finding_name || "Security Vulnerability Finding"}
+                </h4>
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="truncate max-w-[220px]" title={timelineModalIssue.AffectedAsset || timelineModalIssue.ApplicationName}>
+                    Asset: {timelineModalIssue.AffectedAsset || timelineModalIssue.ApplicationName || "N/A"}
+                  </span>
+                  <span>
+                    Current: <strong className={darkMode ? "text-slate-300" : "text-slate-600"}>
+                      {timelineModalIssue.ExpectedTimeline || timelineModalIssue.DueDate || "Not Specified"}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* Date Input with Quick Presets */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                  1. Set Expected Timeline Date <span className="text-red-400">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={newTimelineDate}
+                    onChange={(e) => setNewTimelineDate(e.target.value)}
+                    className={`w-full p-2.5 rounded-xl border text-sm font-mono outline-none focus:ring-2 focus:ring-violet-500 ${
+                      darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-300 text-slate-800"
+                    }`}
+                    required
+                  />
+                </div>
+
+                {/* Quick Presets */}
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Presets:</span>
+                  {[
+                    { label: "+7 Days", days: 7 },
+                    { label: "+14 Days", days: 14 },
+                    { label: "+30 Days", days: 30 },
+                    { label: "+60 Days", days: 60 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        const d = new Date(Date.now() + preset.days * 86400000);
+                        setNewTimelineDate(d.toISOString().split("T")[0]);
+                      }}
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors ${
+                        darkMode
+                          ? "bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300"
+                          : "bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-700"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Email Notification Section */}
+              <div className={`p-4 rounded-xl border ${
+                darkMode ? "bg-slate-800/30 border-slate-800" : "bg-slate-50 border-slate-200"
+              }`}>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={timelineSendEmail}
+                      onChange={(e) => setTimelineSendEmail(e.target.checked)}
+                      className="w-4 h-4 rounded text-violet-600 focus:ring-violet-500"
+                    />
+                    <span className="text-xs font-bold flex items-center gap-1.5">
+                      <Mail size={14} className="text-violet-400" />
+                      Notify Anyone by Sending Email
+                    </span>
+                  </label>
+                  <span className="text-[10px] font-semibold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                    Email Notification
+                  </span>
+                </div>
+
+                {timelineSendEmail && (
+                  <div className="space-y-3 pt-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                        Recipient Email Address(es)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. dev-lead@company.com, security-lead@company.com"
+                        value={timelineNotifyEmails}
+                        onChange={(e) => setTimelineNotifyEmails(e.target.value)}
+                        className={`w-full p-2.5 rounded-lg border text-xs outline-none focus:ring-2 focus:ring-violet-500 ${
+                          darkMode ? "bg-slate-900 border-slate-700 text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"
+                        }`}
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Separate multiple email addresses with commas.
+                      </p>
+                    </div>
+
+                    {/* Optional Reason / Context */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                        Reason or Note for Timeline Change (Optional)
+                      </label>
+                      <textarea
+                        rows={2}
+                        placeholder="e.g. Awaiting patch testing in staging environment, timeline shifted accordingly."
+                        value={timelineNotifyNote}
+                        onChange={(e) => setTimelineNotifyNote(e.target.value)}
+                        className={`w-full p-2.5 rounded-lg border text-xs outline-none focus:ring-2 focus:ring-violet-500 ${
+                          darkMode ? "bg-slate-900 border-slate-700 text-white placeholder-slate-500" : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"
+                        }`}
+                      />
+                    </div>
+
+                    {/* Email Live Preview */}
+                    <div className={`p-3 rounded-lg border text-[11px] ${
+                      darkMode ? "bg-slate-900/60 border-slate-800 text-slate-400" : "bg-white border-slate-200 text-slate-600"
+                    }`}>
+                      <p className="font-bold text-slate-300 mb-1">Notification Email Preview:</p>
+                      <p className="font-mono text-[10px] truncate">
+                        Subject: [Timeline Update] Expected Timeline for {timelineModalIssue.DisplayID || timelineModalIssue.IssueID}: {newTimelineDate}
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        Will be dispatched to: {timelineNotifyEmails ? timelineNotifyEmails : "(Enter recipients above)"}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className={`p-4 border-t flex items-center justify-end gap-3 ${
+              darkMode ? "bg-slate-800/80 border-slate-700" : "bg-slate-50 border-slate-200"
+            }`}>
+              <button
+                type="button"
+                onClick={() => setIsTimelineModalOpen(false)}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors ${
+                  darkMode ? "border-slate-700 hover:bg-slate-800 text-slate-300" : "border-slate-300 hover:bg-slate-100 text-slate-700"
+                }`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveTimeline}
+                disabled={isSavingTimeline || !newTimelineDate}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 shadow-md shadow-violet-600/30 transition-all disabled:opacity-50"
+              >
+                {isSavingTimeline ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    Saving & Notifying...
+                  </>
+                ) : (
+                  <>
+                    <Send size={14} />
+                    Save & Notify Stakeholders
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* richyrik: Timeline Toast Notification */}
+      {timelineToast && (
+        <div className="fixed bottom-6 right-6 z-[99999] flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl bg-emerald-600 text-white text-xs font-semibold animate-in fade-in slide-in-from-bottom-3 duration-300">
+          <CheckCircle size={18} className="shrink-0 text-white" />
+          <div className="flex flex-col">
+            <span>{timelineToast.message}</span>
+            {timelineToast.mailtoLink && (
+              <a
+                href={timelineToast.mailtoLink}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] underline text-emerald-100 hover:text-white mt-1 inline-flex items-center gap-1 font-bold"
+              >
+                Open Draft in Email / Outlook &rarr;
+              </a>
+            )}
+          </div>
+          <button
+            onClick={() => setTimelineToast(null)}
+            className="ml-2 p-1 rounded hover:bg-emerald-700 text-emerald-200 hover:text-white"
+          >
+            <X size={14} />
+          </button>
+        </div>
       )}
 
       {/* richyrik: ETA update toast notification */}

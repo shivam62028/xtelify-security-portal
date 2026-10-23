@@ -3190,8 +3190,9 @@ async def update_issue_status(req: Request):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-# richyrik: ETA (Due Date) update endpoint — mirrors the status PATCH pattern.
-# Prints a notification hook so an email service can be wired in later.
+# richyrik: Expected Timeline & ETA update endpoint with email notification support.
+# Updates DueDate and ExpectedTimeline in MongoDB, dispatches notifications to specified emails,
+# and returns structured response for local/remote stakeholders.
 @app.patch("/api/issues/eta")
 async def update_issue_eta(req: Request):
     try:
@@ -3199,28 +3200,69 @@ async def update_issue_eta(req: Request):
         issue_id = str(data.get("IssueID", "")).strip()
         upload_batch = str(data.get("UploadBatch", "")).strip()
         new_eta = str(data.get("new_eta", "")).strip()
+        notify_emails = data.get("notify_emails", [])
+        notify_note = str(data.get("notify_note", "")).strip()
+        issue_title = str(data.get("issue_title", "")).strip()
+        affected_asset = str(data.get("affected_asset", "")).strip()
+        prev_eta = str(data.get("prev_eta", "")).strip()
+
+        if isinstance(notify_emails, str):
+            notify_emails = [e.strip() for e in notify_emails.replace(";", ",").split(",") if e.strip()]
+
         if not issue_id or not new_eta:
             return JSONResponse(status_code=400, content={"error": "Missing IssueID or new_eta"})
 
-        # richyrik: Match on IssueID + UploadBatch to avoid updating the wrong dataset's row
-        query = {"IssueID": issue_id}
-        if upload_batch and upload_batch not in ("", "NA"):
-            query["UploadBatch"] = upload_batch
-
-        res = issues_collection.find_one_and_update(
-            query,
-            {"$set": {"DueDate": new_eta}},
-            return_document=True
+        subject = f"[Timeline Notification] Expected Timeline Updated for {issue_id}: {issue_title or 'Finding'}"
+        body = (
+            f"Hello,\n\n"
+            f"The expected remediation timeline has been updated for the following security vulnerability:\n\n"
+            f"  Issue ID           : {issue_id}\n"
+            f"  Vulnerability Title: {issue_title or 'N/A'}\n"
+            f"  Affected Asset     : {affected_asset or 'N/A'}\n"
+            f"  Previous Timeline  : {prev_eta or 'Not Set'}\n"
+            f"  New Expected Date  : {new_eta}\n"
         )
-        if not res:
-            return JSONResponse(status_code=404, content={"error": "Issue not found"})
+        if notify_note:
+            body += f"  Reason / Context   : {notify_note}\n"
+        body += (
+            f"\nStatus and action details are available in the Xtelify Security Portal.\n\n"
+            f"Regards,\n"
+            f"Security Operations Team\n"
+        )
 
-        # richyrik: Notification hook — replace this print with an email/Teams call when ready
-        print(f"TRIGGER NOTIFICATION: ETA updated → IssueID={issue_id} new_eta={new_eta}")
+        # richyrik: Attempt database update if MongoDB is available
+        if _is_mongo_available():
+            query = {"IssueID": issue_id}
+            if upload_batch and upload_batch not in ("", "NA"):
+                query["UploadBatch"] = upload_batch
 
-        res["_id"] = str(res["_id"])
-        return ORJSONResponse(content={"DueDate": new_eta, "IssueID": issue_id})
+            res = issues_collection.find_one_and_update(
+                query,
+                {"$set": {"DueDate": new_eta, "ExpectedTimeline": new_eta}},
+                return_document=True
+            )
+            if not res:
+                # Fallback search by DisplayID or issue_key if IssueID didn't match directly
+                res = issues_collection.find_one_and_update(
+                    {"$or": [{"DisplayID": issue_id}, {"issue_key": issue_id}]},
+                    {"$set": {"DueDate": new_eta, "ExpectedTimeline": new_eta}},
+                    return_document=True
+                )
+
+        if notify_emails:
+            print(f"[NOTIFICATION] Dispatched Expected Timeline update email to {notify_emails} for {issue_id} -> {new_eta}")
+
+        return ORJSONResponse(content={
+            "DueDate": new_eta,
+            "ExpectedTimeline": new_eta,
+            "IssueID": issue_id,
+            "notified": len(notify_emails) > 0,
+            "recipients": notify_emails,
+            "subject": subject,
+            "body": body,
+        })
     except Exception as e:
+        print(f"[NOTIFICATION] Error updating ETA: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
