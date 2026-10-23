@@ -52,8 +52,8 @@ CACHE_TTL = 5  # seconds
 # ── SMTP Mail Gateway / Relay Server Configuration ──────────────────────────
 # richyrik: Internal Mail Gateway / SMTP Relay configuration.
 # When you receive your real Mail Gateway IP and Port, update these lines:
-SMTP_HOST = os.environ.get("SMTP_HOST", "11.22.333.1")  # <-- EDIT MAIL GATEWAY / RELAY SERVER IP HERE
-SMTP_PORT = int(os.environ.get("SMTP_PORT", 11))        # <-- EDIT PORT HERE (e.g. 25, 587, 2525)
+SMTP_HOST = os.environ.get("SMTP_HOST", "10.56.131.8")  # <-- EDIT MAIL GATEWAY / RELAY SERVER IP HERE
+SMTP_PORT = int(os.environ.get("SMTP_PORT", 25))        # <-- EDIT PORT HERE (e.g. 25, 587, 2525)
 SMTP_SENDER = os.environ.get("SMTP_SENDER", "security-portal@wynk.in")  # Default sender email
 SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "false").lower() in ("true", "1", "yes")
 SMTP_USER = os.environ.get("SMTP_USER", "")              # Optional auth username
