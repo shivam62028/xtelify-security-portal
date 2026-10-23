@@ -49,6 +49,78 @@ _db_cache_time = 0
 _db_cache_hash = None
 CACHE_TTL = 5  # seconds
 
+# ── SMTP Mail Gateway / Relay Server Configuration ──────────────────────────
+# richyrik: Internal Mail Gateway / SMTP Relay configuration.
+# When you receive your real Mail Gateway IP and Port, update these lines:
+SMTP_HOST = os.environ.get("SMTP_HOST", "11.22.333.1")  # <-- EDIT MAIL GATEWAY / RELAY SERVER IP HERE
+SMTP_PORT = int(os.environ.get("SMTP_PORT", 11))        # <-- EDIT PORT HERE (e.g. 25, 587, 2525)
+SMTP_SENDER = os.environ.get("SMTP_SENDER", "security-portal@wynk.in")  # Default sender email
+SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "false").lower() in ("true", "1", "yes")
+SMTP_USER = os.environ.get("SMTP_USER", "")              # Optional auth username
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")      # Optional auth password
+
+
+# richyrik: Helper function to send email via internal SMTP Mail Gateway
+def _send_email_via_smtp(
+    to_emails: list[str] | str,
+    subject: str,
+    body_text: str,
+    attachments: list[dict] | None = None,
+    sender_email: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+) -> dict:
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    smtp_host = host or SMTP_HOST
+    smtp_port = port or SMTP_PORT
+    sender = sender_email or SMTP_SENDER
+
+    if isinstance(to_emails, str):
+        recipients = [e.strip() for e in to_emails.replace(";", ",").split(",") if e.strip()]
+    else:
+        recipients = [e.strip() for e in to_emails if e and e.strip()]
+
+    if not recipients:
+        return {"success": False, "error": "No recipient email addresses provided"}
+
+    msg = MIMEMultipart()
+    msg["From"] = sender
+    msg["To"] = ", ".join(recipients)
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body_text, "plain", "utf-8"))
+
+    if attachments:
+        for att in attachments:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(att["content"])
+            encoders.encode_base64(part)
+            part.add_header(
+                "Content-Disposition",
+                f'attachment; filename="{att["filename"]}"'
+            )
+            msg.attach(part)
+
+    try:
+        print(f"[SMTP] Connecting to mail gateway {smtp_host}:{smtp_port}...")
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=8)
+        if SMTP_USE_TLS:
+            server.starttls()
+        if SMTP_USER and SMTP_PASSWORD:
+            server.login(SMTP_USER, SMTP_PASSWORD)
+        server.sendmail(sender, recipients, msg.as_string())
+        server.quit()
+        print(f"[SMTP] Successfully sent email to {recipients} via {smtp_host}:{smtp_port}")
+        return {"success": True, "recipients": recipients, "gateway": f"{smtp_host}:{smtp_port}"}
+    except Exception as e:
+        print(f"[SMTP] Note: Mail gateway {smtp_host}:{smtp_port} attempt: {e}")
+        return {"success": False, "error": str(e), "gateway": f"{smtp_host}:{smtp_port}"}
+
+
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 OLLAMA_MODEL = "llama3"
 
@@ -3242,15 +3314,21 @@ async def update_issue_eta(req: Request):
                 return_document=True
             )
             if not res:
-                # Fallback search by DisplayID or issue_key if IssueID didn't match directly
+                # Fallback search by DisplayID, issue_key, or UUID if IssueID didn't match directly
                 res = issues_collection.find_one_and_update(
-                    {"$or": [{"DisplayID": issue_id}, {"issue_key": issue_id}]},
+                    {"$or": [{"DisplayID": issue_id}, {"issue_key": issue_id}, {"UUID": issue_id}]},
                     {"$set": {"DueDate": new_eta, "ExpectedTimeline": new_eta}},
                     return_document=True
                 )
 
+        smtp_status = None
         if notify_emails:
-            print(f"[NOTIFICATION] Dispatched Expected Timeline update email to {notify_emails} for {issue_id} -> {new_eta}")
+            print(f"[NOTIFICATION] Dispatching Expected Timeline update email via SMTP to {notify_emails} for {issue_id} -> {new_eta}")
+            smtp_status = _send_email_via_smtp(
+                to_emails=notify_emails,
+                subject=subject,
+                body_text=body,
+            )
 
         return ORJSONResponse(content={
             "DueDate": new_eta,
@@ -3260,6 +3338,7 @@ async def update_issue_eta(req: Request):
             "recipients": notify_emails,
             "subject": subject,
             "body": body,
+            "smtp_status": smtp_status,
         })
     except Exception as e:
         print(f"[NOTIFICATION] Error updating ETA: {e}")
@@ -6384,64 +6463,30 @@ async def share_outlook(
     include_graph: str = "false",
     graph_mode: str = "Daily",
     columns: str = None,
+    is_reminder: str = "false",
+    custom_subject: str = None,
+    custom_note: str = None,
 ):
     """
     POST /api/share/outlook
 
-    Generates an Outlook draft in the configured mailbox via Microsoft Graph.
-
-    Uses EXACTLY the same filter chain as /api/export → _build_db_query().
-    Generates XLSX (all filtered records, no pagination) + optional PNG graph,
-    then calls Microsoft Graph to create a draft with the XLSX already attached.
-
-    Required environment variables on the server:
-      GRAPH_TENANT_ID      – Azure AD tenant ID
-      GRAPH_CLIENT_ID      – App registration client ID
-      GRAPH_CLIENT_SECRET  – App registration client secret
-      GRAPH_SENDER_EMAIL   – Mailbox that owns the draft
-
-    Returns:
-      {
-        "mode":           "graph",
-        "draft_url":      "https://outlook.office.com/...",
-        "record_count":   162,
-        "resolved":       48,
-        "unresolved":     114,
-        "subject":        "Vulnerability Report — Container — Shiv Kumar",
-        "body":           "Hello, ...",
-        "graph_included": true
-      }
+    Generates an Outlook draft or dispatches via SMTP Mail Gateway.
+    Supports single or multiple comma-separated recipients and reminder mode.
     """
     if not _is_mongo_available():
         return ORJSONResponse({"error": "Database unavailable"}, status_code=503)
 
-    # ── 1. Validate recipient ─────────────────────────────────────────────────
-    if not recipient or "@" not in recipient:
-        return ORJSONResponse({"error": "Invalid recipient email address."}, status_code=400)
+    # ── 1. Validate recipient(s) ──────────────────────────────────────────────
+    if not recipient:
+        return ORJSONResponse({"error": "Recipient email address is required."}, status_code=400)
 
-    # ── 2. Require Microsoft Graph credentials ────────────────────────────────
-    graph_tenant  = os.environ.get("GRAPH_TENANT_ID", "").strip()
-    graph_client  = os.environ.get("GRAPH_CLIENT_ID", "").strip()
-    graph_secret  = os.environ.get("GRAPH_CLIENT_SECRET", "").strip()
-    graph_mailbox = os.environ.get("GRAPH_SENDER_EMAIL", "").strip()
+    # richyrik: Support single or multiple comma/semicolon-separated recipients
+    recipients_list = [e.strip() for e in recipient.replace(";", ",").split(",") if e.strip() and "@" in e]
+    if not recipients_list:
+        return ORJSONResponse({"error": "Invalid recipient email address(es). Please provide valid email(s)."}, status_code=400)
 
-    if not (graph_tenant and graph_client and graph_secret and graph_mailbox):
-        missing = [v for v, k in [
-            ("GRAPH_TENANT_ID",     graph_tenant),
-            ("GRAPH_CLIENT_ID",     graph_client),
-            ("GRAPH_CLIENT_SECRET", graph_secret),
-            ("GRAPH_SENDER_EMAIL",  graph_mailbox),
-        ] if not k]
-        return ORJSONResponse(
-            {
-                "error": (
-                    "Outlook integration is not configured on the server. "
-                    f"Missing environment variables: {', '.join(missing)}. "
-                    "Contact the server administrator."
-                )
-            },
-            status_code=503,
-        )
+    # ── 2. Check Graph credentials (optional — falls back to SMTP / Outlook Direct) ──
+    # If not configured, report is dispatched via SMTP Mail Gateway or opened in Outlook directly.
 
     # ── 3. Build query — identical to /api/export ─────────────────────────────
     query = _build_db_query(
@@ -6564,18 +6609,57 @@ async def share_outlook(
                 print(f"[share/outlook] Graph generation failed (non-fatal): {graph_err}")
                 png_bytes = b""
 
-        # ── 8. Build subject + body ───────────────────────────────────────────
-        subject = _build_outlook_subject(source_format, assigned_to)
-        body = _build_outlook_body(
-            source_format=source_format,
-            assigned_to=assigned_to,
-            date_from=date_from,
-            date_to=date_to,
-            total=total,
-            resolved=resolved,
-            unresolved=unresolved,
-            include_graph=bool(png_bytes),
-        )
+        # ── 8. Build subject + body (Share vs Reminder) ──────────────────────
+        clean_to_str = ", ".join(recipients_list)
+        if is_reminder == "true":
+            parts = ["🔔 [Action Required] Security Vulnerability Remediation Reminder"]
+            if source_format and source_format.upper() != "ALL":
+                parts.append(source_format.title())
+            if assigned_to:
+                parts.append(assigned_to)
+            default_subject = " — ".join(parts)
+            subject = custom_subject.strip() if custom_subject and custom_subject.strip() else default_subject
+
+            date_range = (
+                f"{date_from} – {date_to}" if date_from and date_to
+                else f"from {date_from}" if date_from
+                else f"to {date_to}" if date_to
+                else "All time"
+            )
+            note_section = f"\n\nSpecial Instructions / Note:\n{custom_note.strip()}\n" if custom_note and custom_note.strip() else ""
+            body = (
+                "Hello,\n\n"
+                "This is a formal security reminder regarding pending and open vulnerabilities requiring remediation.\n"
+                f"{note_section}\n"
+                "Reminder Scope:\n"
+                f"  Format / Module       : {source_format or 'All'}\n"
+                f"  Owner / Assignee      : {assigned_to or 'All Owners'}\n"
+                f"  Date Range            : {date_range}\n\n"
+                "Current Status:\n"
+                f"  Total Vulnerabilities : {total}\n"
+                f"  Pending / Unresolved  : {unresolved}\n"
+                f"  Resolved              : {resolved}\n\n"
+                "The attached Excel file contains the detailed list of open issues, severities, affected assets, and recommended fixes.\n\n"
+                "Kindly review and update the expected remediation timeline or resolve these findings at the earliest.\n\n"
+                "Regards,\n"
+                "Security Operations Team\n"
+                "Xtelify / Wynk Security Portal"
+            )
+        else:
+            default_subject = _build_outlook_subject(source_format, assigned_to)
+            subject = custom_subject.strip() if custom_subject and custom_subject.strip() else default_subject
+            body = _build_outlook_body(
+                source_format=source_format,
+                assigned_to=assigned_to,
+                date_from=date_from,
+                date_to=date_to,
+                total=total,
+                resolved=resolved,
+                unresolved=unresolved,
+                include_graph=bool(png_bytes),
+            )
+            if custom_note and custom_note.strip():
+                body = f"Special Instructions / Note from Sender:\n{custom_note.strip()}\n\n" + body
 
         # ── 8. Check for Graph API credentials → full draft flow ──────────────
         graph_tenant  = os.environ.get("GRAPH_TENANT_ID", "").strip()
@@ -6591,7 +6675,7 @@ async def share_outlook(
                     client_id=graph_client,
                     client_secret=graph_secret,
                     sender_email=graph_mailbox,
-                    recipient=recipient,
+                    recipient=clean_to_str,
                     subject=subject,
                     body=body,
                     xlsx_bytes=xlsx_bytes,
@@ -6613,7 +6697,7 @@ async def share_outlook(
                 print(f"[share/outlook] Graph API failed, falling back to token mode: {graph_err}")
                 # Fall through to token mode
 
-        # ── 9. Token mode: store files, return token ──────────────────────────
+        # ── 9. Store files for direct download ──────────────────────────
         _evict_expired_tokens()
 
         safe_owner = (assigned_to or "All").replace(" ", "_")
@@ -6637,22 +6721,84 @@ async def share_outlook(
                 "expires":  _dt.now(_tz.utc).timestamp() + _SHARE_TOKEN_TTL_SECS,
             }
 
-        return ORJSONResponse({
-            "mode":          "token",
-            "token":         xlsx_token,
-            "png_token":     png_token,
-            "record_count":  total,
-            "resolved":      resolved,
-            "unresolved":    unresolved,
-            "subject":       subject,
-            "body":          body,
-            "graph_included": bool(png_bytes),
-        })
+        # richyrik: Build direct Outlook deep links (mailto & Web Outlook compose)
+        import urllib.parse
+        encoded_subj = urllib.parse.quote(subject)
+        encoded_body = urllib.parse.quote(body)
+        encoded_to = urllib.parse.quote(clean_to_str)
+        mailto_url = f"mailto:{encoded_to}?subject={encoded_subj}&body={encoded_body}"
+        web_outlook_url = f"https://outlook.office.com/mail/deeplink/compose?to={encoded_to}&subject={encoded_subj}&body={encoded_body}"
+
+        # richyrik: Attempt sending via SMTP Mail Gateway to all recipient(s)
+        smtp_res = _send_email_via_smtp(
+            to_emails=recipients_list,
+            subject=subject,
+            body_text=body,
+            attachments=[{
+                "filename": xlsx_filename,
+                "content": xlsx_bytes,
+                "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            }],
+        )
+
+        if smtp_res.get("success"):
+            return ORJSONResponse({
+                "mode":           "smtp",
+                "status":         "sent",
+                "message":        f"Report sent to {clean_to_str} via Mail Gateway ({SMTP_HOST}:{SMTP_PORT}).",
+                "gateway":        f"{SMTP_HOST}:{SMTP_PORT}",
+                "token":          xlsx_token,
+                "download_url":   f"/api/share/download/{xlsx_token}",
+                "draft_url":      web_outlook_url,
+                "mailto_url":     mailto_url,
+                "web_outlook_url": web_outlook_url,
+                "record_count":   total,
+                "resolved":       resolved,
+                "unresolved":     unresolved,
+                "subject":        subject,
+                "body":           body,
+                "graph_included": bool(png_bytes),
+            })
+        else:
+            return ORJSONResponse({
+                "mode":           "outlook_direct",
+                "status":         "ready",
+                "message":        f"Mail Gateway ({SMTP_HOST}:{SMTP_PORT}) could not be reached ({smtp_res.get('error')}). You can open Outlook directly below to send this report with pre-filled details.",
+                "gateway":        f"{SMTP_HOST}:{SMTP_PORT}",
+                "gateway_error":  smtp_res.get("error"),
+                "token":          xlsx_token,
+                "download_url":   f"/api/share/download/{xlsx_token}",
+                "draft_url":      web_outlook_url,
+                "mailto_url":     mailto_url,
+                "web_outlook_url": web_outlook_url,
+                "record_count":   total,
+                "resolved":       resolved,
+                "unresolved":     unresolved,
+                "subject":        subject,
+                "body":           body,
+                "graph_included": bool(png_bytes),
+            })
 
     except Exception as e:
         import traceback
         print(f"[share/outlook] Error:\n{traceback.format_exc()}")
         return ORJSONResponse({"error": str(e)}, status_code=500)
+
+
+# richyrik: Endpoint to download shared report files by token
+@app.get("/api/share/download/{token}")
+async def download_shared_file(token: str):
+    _evict_expired_tokens()
+    if token not in _share_tokens:
+        return JSONResponse(status_code=404, content={"error": "File expired or not found"})
+    entry = _share_tokens[token]
+    return Response(
+        content=entry["content"],
+        media_type=entry.get("mimetype", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        headers={
+            "Content-Disposition": f'attachment; filename="{entry.get("filename", "report.xlsx")}"'
+        }
+    )
 
 
 

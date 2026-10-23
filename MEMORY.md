@@ -55,3 +55,22 @@
   - **Arbitrary Multi-Dataset Selection**: Added an interactive dataset selection panel allowing users to select any number of datasets ($1, 2, 3, \dots, N$) via checkboxes, with "Select All", "Clear All", "Last 2", "Last 3", and "Last 5" quick controls. When $\ge 2$ datasets are selected, the sequential comparison engine evaluates the chosen subset in chronological order.
   - All additions tagged with `// richyrik`.
 
+### Share Report & Remediation Reminders UI/UX Overhaul
+- **Problem**:
+  - The Share / Reminder modal appeared as an unstyled white dialog conflicting with the Deep Space dark portal aesthetic (`#07090E`).
+  - Input field had invisible text (white text on light background due to `color-scheme: dark` browser inheritance).
+  - Recipient email address was rigid and lacked interactive user control for adding multiple recipients, viewing added emails, or editing subjects/notes.
+- **Frontend Solutions (`src/App.tsx`)**:
+  - Overhauled the modal container to match the portal's obsidian glassmorphism theme (`bg-[#0B0F19]`, `border-slate-700/80`, `shadow-2xl shadow-black/90`, gradient accent border).
+  - Ensured all input fields and textareas have explicit `#0f172a` dark backgrounds and `#ffffff` high-contrast text with `caret-blue-400`.
+  - Introduced an interactive **Recipient Tag/Chip System**: users can type any custom email and press `Enter`, `,`, `;`, or click `+ Add` to add it as a removable tag pill with an `×` button.
+  - Added quick-add suggestions that extract emails dynamically from active dataset assignees and owners.
+  - Added an in-modal mode switcher toggle between **Share Report (.xlsx)** and **Send Reminders 🔔**.
+  - Added custom subject line editing and optional message/note textarea.
+  - Form automatically captures any un-added text in the input box upon submitting.
+- **Backend Solutions (`app.py`)**:
+  - Added `custom_subject` and `custom_note` parameters to `/api/share/outlook`.
+  - Injected custom notes and instructions directly into the dispatch email body for both Mail Gateway (SMTP Relay) and Outlook deep links.
+  - Dispatches to all recipients provided by the user.
+
+

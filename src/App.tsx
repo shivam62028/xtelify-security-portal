@@ -79,6 +79,7 @@ import {
   Plus,
   Edit2,
   Mail,
+  Bell,
   Award,
   Trophy,
   CalendarRange,
@@ -2461,9 +2462,10 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   const [isTableColDropdownOpen, setIsTableColDropdownOpen] = useState(false);
 
   const CONTAINER_COLS = ["ID", "Clusters", "SubscriptionName", "AssignedTo", "AffectedAsset", "VulnDescription", "Severity", "UpdateStatus", "Status", "Version", "FixedVersion", "DueDate", "RecommendedAction"];
-  const CSPM_COLS = ["account_name", "AssignedTo", "VulnDescription", "finding_name", "resource_type", "resource_id", "resource_name", "impact", "Severity", "UpdateStatus", "Status"];
+  // richyrik: Added DueDate as default column in CSPM and VAPT
+  const CSPM_COLS = ["account_name", "AssignedTo", "VulnDescription", "finding_name", "resource_type", "resource_id", "resource_name", "impact", "Severity", "UpdateStatus", "Status", "DueDate"];
   const SAST_DAST_COLS = ["issue_key", "VulnDescription", "ApplicationName", "CriticalityStatus", "ReportedOn", "Ageing", "Compliant_NonCompliant", "ExpectedTimeline", "Assignee", "MultipleAssignee", "ApplicationOwner"];
-  const VAPT_COLS = ["IP", "UUID", "Vulnerability name", "Vulnerability description", "Solution", "Vulnerability Path", "Vulnerability family", "Vulnerability ID", "Application Owner", "Vulnerability Status", "lastSeen"];
+  const VAPT_COLS = ["IP", "UUID", "Vulnerability name", "Vulnerability description", "Solution", "Vulnerability Path", "Vulnerability family", "Vulnerability ID", "Application Owner", "Vulnerability Status", "DueDate", "lastSeen"];
 
   const defaultTableCols = CONTAINER_COLS;
   const [tableCols, setTableCols] = useState<string[]>(defaultTableCols);
@@ -2636,7 +2638,12 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   const [uploadCounter, setUploadCounter] = useState<number>(0);
 
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
+  const [isReminderMode, setIsReminderMode] = useState<boolean>(false);
   const [aiRecipient, setAiRecipient] = useState<string>("");
+  const [emailRecipientsList, setEmailRecipientsList] = useState<string[]>([]);
+  const [emailInputText, setEmailInputText] = useState<string>("");
+  const [emailSubject, setEmailSubject] = useState<string>("");
+  const [emailCustomNote, setEmailCustomNote] = useState<string>("");
   const [aiPrompt, setAiPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   // richyrik: Brief toast shown after a successful ETA update
@@ -2652,6 +2659,16 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   const [isSavingTimeline, setIsSavingTimeline] = useState<boolean>(false);
   const [timelineToast, setTimelineToast] = useState<{ message: string; mailtoLink?: string } | null>(null);
 
+  // richyrik: State for viewing full text of long fields (Vulnerability Description / Path) in a modal
+  const [textDetailModal, setTextDetailModal] = useState<{
+    title: string;
+    fieldName: string;
+    content: string;
+    issueId: string;
+    asset?: string;
+  } | null>(null);
+  const [textModalCopied, setTextModalCopied] = useState<boolean>(false);
+
   // richyrik: Open Expected Timeline change / add modal
   const openTimelineModal = (issue: Issue) => {
     setTimelineModalIssue(issue);
@@ -2666,7 +2683,13 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
     // Auto-suggest owner / assignee email if present
     let suggestedEmail = "";
-    const possibleOwners = [issue.AssignedTo, issue.ApplicationOwner, (issue as any).Assignee, (issue as any).Owner];
+    const possibleOwners = [
+      issue.AssignedTo,
+      issue.ApplicationOwner,
+      issue["Application Owner"],
+      (issue as any).Assignee,
+      (issue as any).Owner,
+    ];
     for (const o of possibleOwners) {
       if (o && typeof o === "string" && o.includes("@")) {
         suggestedEmail = o.trim();
@@ -2698,6 +2721,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
         prev.map((i) => {
           const isMatch = (i.IssueID && i.IssueID === issue.IssueID && i.UploadBatch === issue.UploadBatch) ||
             (i.DisplayID && i.DisplayID === issue.DisplayID) ||
+            ((i as any).UUID && (i as any).UUID === (issue as any).UUID) ||
             (i.issue_key && i.issue_key === issue.issue_key);
           if (isMatch) {
             return {
@@ -2712,7 +2736,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
       );
 
       // 2. Call backend PATCH /api/issues/eta
-      const issueKey = String(issue.IssueID || issue.DisplayID || issue.issue_key || "");
+      const issueKey = String(issue.IssueID || issue.DisplayID || (issue as any).UUID || issue.issue_key || "");
       const issueTitle = String(issue.Title || issue.Name || issue.finding_name || issue.Summary || "Vulnerability Finding");
       const assetName = String(issue.AffectedAsset || issue.ApplicationName || issue.resource_name || issue.Application || "Asset");
 
@@ -2779,10 +2803,18 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   type ShareStep = 'form' | 'preparing' | 'done' | 'error';
   const [shareStep, setShareStep] = useState<ShareStep>('form');
   interface ShareResult {
-    mode: 'token' | 'graph';
+    mode: 'token' | 'graph' | 'smtp' | 'outlook_direct';
+    status?: 'sent' | 'ready';
+    message?: string;
+    gateway?: string;
+    gateway_error?: string;
+    warning?: string;
     token?: string;
     png_token?: string | null;
     draft_url?: string;
+    mailto_url?: string;
+    web_outlook_url?: string;
+    download_url?: string;
     record_count: number;
     resolved: number;
     unresolved: number;
@@ -3080,6 +3112,15 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
     Assignee: "Assignee",
     MultipleAssignee: "Multiple Assignee",
     ApplicationOwner: "Application Owner",
+    // richyrik: VAPT and CSPM column headers
+    "Vulnerability description": "Vulnerability Description",
+    "Vulnerability Path": "Vulnerability Path",
+    "Vulnerability name": "Vulnerability Name",
+    "Vulnerability family": "Vulnerability Family",
+    "Vulnerability ID": "Vulnerability ID",
+    "Vulnerability Status": "Vulnerability Status",
+    lastSeen: "Last Seen",
+    firstSeen: "First Seen",
   };
 
   const getShortAssetName = (fullName: string): string => {
@@ -3190,6 +3231,140 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             {needsTruncate && <span className="text-blue-400 text-[10px]">...</span>}
           </div>
         )}
+      </div>
+    );
+  };
+
+  // richyrik: Truncated text cell for VAPT Vulnerability Description & Path with hover "Show more"
+  const TruncatedVaptTextCell: React.FC<{
+    text: string;
+    columnName: string;
+    issue: Issue;
+  }> = ({ text, columnName, issue }) => {
+    const [isInlineExpanded, setIsInlineExpanded] = useState<boolean>(false);
+    const [copied, setCopied] = useState<boolean>(false);
+
+    if (!text || text === "—" || text.toLowerCase() === "na" || text === "null") {
+      return <span className={darkMode ? "text-slate-500" : "text-slate-400"}>—</span>;
+    }
+
+    const isPath = columnName === "Vulnerability Path" || columnName.toLowerCase().includes("path");
+    const isLong = text.length > 55;
+
+    if (!isLong) {
+      return (
+        <span className={`text-xs ${isPath ? "font-mono text-[11px]" : ""} ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
+          {text}
+        </span>
+      );
+    }
+
+    if (isInlineExpanded) {
+      return (
+        <div className={`p-2.5 rounded-lg border text-xs max-h-56 overflow-y-auto min-w-[220px] max-w-[360px] shadow-sm ${
+          darkMode ? "bg-slate-900/95 border-slate-700 text-slate-200" : "bg-white border-slate-200 text-slate-800"
+        }`}>
+          <p className={`whitespace-pre-wrap break-all ${isPath ? "font-mono text-[11px] text-violet-300" : "leading-relaxed"}`}>
+            {text}
+          </p>
+          <div className="mt-2 pt-1.5 border-t flex items-center justify-between border-slate-700/40">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsInlineExpanded(false);
+              }}
+              className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-400 hover:text-violet-300 hover:underline"
+            >
+              <span>Show less</span>
+              <ChevronDown size={10} className="rotate-180" />
+            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(text);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+                className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-white transition-colors"
+                title="Copy to clipboard"
+              >
+                {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                <span>{copied ? "Copied" : "Copy"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setTextDetailModal({
+                    title: issue["Vulnerability name"] || issue.DisplayID || issue.IssueID || "Finding Details",
+                    fieldName: columnName,
+                    content: text,
+                    issueId: issue.DisplayID || issue.IssueID || (issue as any).UUID || "",
+                    asset: issue.IP || (issue as any)["Application Name"] || issue.AffectedAsset || ""
+                  });
+                }}
+                className="inline-flex items-center gap-1 text-[10px] text-violet-400 hover:text-violet-300 transition-colors font-medium"
+                title="Open in full viewer modal"
+              >
+                <FileText size={11} />
+                <span>Full View</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const shortText = text.slice(0, 50) + "…";
+
+    return (
+      <div className="group/vapt-cell relative flex items-center justify-between gap-2 min-w-[170px] max-w-[260px]">
+        <span
+          className={`truncate text-xs ${isPath ? "font-mono text-[11px] text-violet-400" : darkMode ? "text-slate-300" : "text-slate-700"}`}
+          title={text}
+        >
+          {shortText}
+        </span>
+        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover/vapt-cell:opacity-100 transition-all duration-200">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsInlineExpanded(true);
+            }}
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border shadow-sm transition-all ${
+              darkMode
+                ? "bg-violet-600/30 hover:bg-violet-600 text-violet-200 border-violet-500/40 hover:text-white"
+                : "bg-violet-50 hover:bg-violet-100 text-violet-700 border-violet-300"
+            }`}
+            title="Click to show more inline"
+          >
+            <span>Show more</span>
+            <ChevronDown size={10} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setTextDetailModal({
+                title: issue["Vulnerability name"] || issue.DisplayID || issue.IssueID || "Finding Details",
+                fieldName: columnName,
+                content: text,
+                issueId: issue.DisplayID || issue.IssueID || (issue as any).UUID || "",
+                asset: issue.IP || (issue as any)["Application Name"] || issue.AffectedAsset || ""
+              });
+            }}
+            className={`p-1 rounded transition-colors ${
+              darkMode ? "text-slate-400 hover:text-white hover:bg-slate-800" : "text-slate-500 hover:text-slate-900 hover:bg-slate-200"
+            }`}
+            title="Open full view modal"
+          >
+            <FileText size={12} />
+          </button>
+        </div>
       </div>
     );
   };
@@ -4893,9 +5068,141 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
     }
   };
 
+  // richyrik: Calculate dynamic list of suggested email addresses from active dataset and owners
+  const suggestedRecipientEmails = useMemo(() => {
+    const list = new Set<string>();
+    if (activeFilters.assignedTo && activeFilters.assignedTo.includes("@")) {
+      list.add(activeFilters.assignedTo.trim());
+    }
+    (selectedOwners || []).forEach(o => {
+      if (o && o.includes("@")) list.add(o.trim());
+    });
+    (displayedIssues || []).slice(0, 100).forEach(i => {
+      [i.AssignedTo, i.ApplicationOwner, (i as any).Assignee, (i as any).Owner].forEach(val => {
+        if (typeof val === "string" && val.includes("@") && val.includes(".")) {
+          val.split(/[,;\s]+/).forEach(part => {
+            const clean = part.trim();
+            if (clean.includes("@") && clean.includes(".") && !clean.includes("..")) list.add(clean);
+          });
+        }
+      });
+    });
+    return Array.from(list);
+  }, [activeFilters.assignedTo, selectedOwners, displayedIssues]);
+
+  // richyrik: Helper to open the Share / Reminders modal with smart defaults
+  const openShareModal = (reminder: boolean = false) => {
+    setIsReminderMode(reminder);
+    setShareStep("form");
+    setShareResult(null);
+    setShareError("");
+
+    const formatLabel = selectedFormatFilter === "All" ? "Security Status" : selectedFormatFilter;
+    const ownerLabel = selectedOwners.length > 0
+      ? selectedOwners.join(", ")
+      : (activeFilters.assignedTo !== "All Owners" ? activeFilters.assignedTo : "All Owners");
+
+    const initialSubj = reminder
+      ? `🔔 [Action Required] Security Vulnerability Remediation Reminder — ${formatLabel} (${ownerLabel})`
+      : `Vulnerability Report — ${formatLabel} — ${ownerLabel}`;
+    setEmailSubject(initialSubj);
+    setEmailCustomNote("");
+
+    // Auto-populate candidate emails if the recipient list is currently empty
+    if (emailRecipientsList.length === 0 && suggestedRecipientEmails.length > 0) {
+      const initial = suggestedRecipientEmails.slice(0, 2);
+      setEmailRecipientsList(initial);
+      setAiRecipient(initial.join(", "));
+    } else if (emailRecipientsList.length > 0) {
+      setAiRecipient(emailRecipientsList.join(", "));
+    }
+
+    setEmailInputText("");
+    setIsAiModalOpen(true);
+  };
+
+  const addRecipientEmail = (raw: string) => {
+    if (!raw || !raw.trim()) return;
+    const parts = raw
+      .replace(/[;,]/g, " ")
+      .split(/\s+/)
+      .map(p => p.trim())
+      .filter(p => p.includes("@") && p.includes("."));
+    if (parts.length === 0) return;
+
+    setEmailRecipientsList(prev => {
+      const next = Array.from(new Set([...prev, ...parts]));
+      setAiRecipient(next.join(", "));
+      return next;
+    });
+    setEmailInputText("");
+  };
+
+  const removeRecipientEmail = (toRemove: string) => {
+    setEmailRecipientsList(prev => {
+      const next = prev.filter(e => e !== toRemove);
+      setAiRecipient(next.join(", "));
+      return next;
+    });
+  };
+
+  const switchModalMode = (reminder: boolean) => {
+    setIsReminderMode(reminder);
+    const formatLabel = selectedFormatFilter === "All" ? "Security Status" : selectedFormatFilter;
+    const ownerLabel = selectedOwners.length > 0
+      ? selectedOwners.join(", ")
+      : (activeFilters.assignedTo !== "All Owners" ? activeFilters.assignedTo : "All Owners");
+
+    if (reminder) {
+      setEmailSubject(`🔔 [Action Required] Security Vulnerability Remediation Reminder — ${formatLabel} (${ownerLabel})`);
+    } else {
+      setEmailSubject(`Vulnerability Report — ${formatLabel} — ${ownerLabel}`);
+    }
+  };
+
   const handleShareEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!aiRecipient || totalRecords === 0) return;
+
+    // Auto-include anything currently typed in the input box
+    let finalRecipients = [...emailRecipientsList];
+    if (emailInputText.trim()) {
+      const typedParts = emailInputText
+        .replace(/[;,]/g, " ")
+        .split(/\s+/)
+        .map(p => p.trim())
+        .filter(p => p.includes("@") && p.includes("."));
+      if (typedParts.length > 0) {
+        finalRecipients = Array.from(new Set([...finalRecipients, ...typedParts]));
+        setEmailRecipientsList(finalRecipients);
+        setEmailInputText("");
+      }
+    }
+
+    // Fallback to aiRecipient string if list is somehow empty
+    if (finalRecipients.length === 0 && aiRecipient.trim()) {
+      const parts = aiRecipient
+        .replace(/[;,]/g, " ")
+        .split(/\s+/)
+        .map(p => p.trim())
+        .filter(p => p.includes("@") && p.includes("."));
+      finalRecipients = parts;
+      setEmailRecipientsList(parts);
+    }
+
+    if (finalRecipients.length === 0) {
+      setShareError("Please enter at least one recipient email address.");
+      setShareStep("form");
+      return;
+    }
+
+    if (totalRecords === 0) {
+      setShareError("No vulnerabilities match the current filters to share or remind.");
+      setShareStep("form");
+      return;
+    }
+
+    const recipientsJoined = finalRecipients.join(", ");
+    setAiRecipient(recipientsJoined);
 
     setShareStep('preparing');
     setShareError('');
@@ -4903,9 +5210,12 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
     try {
       const params = buildEmailFilterParams();
-      params.append('recipient', aiRecipient);
+      params.append('recipient', recipientsJoined);
       if (includeGraph) params.append('include_graph', 'true');
       params.append('graph_mode', emailGraphMode);
+      if (isReminderMode) params.append('is_reminder', 'true');
+      if (emailSubject.trim()) params.append('custom_subject', emailSubject.trim());
+      if (emailCustomNote.trim()) params.append('custom_note', emailCustomNote.trim());
       // Mirror Export View column selection so XLSX has identical columns
       if (exportCols.length > 0) params.append('columns', exportCols.join(','));
 
@@ -6395,10 +6705,10 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
                 {userRole === "Admin" && (
                   <button
-                    onClick={() => setIsAiModalOpen(true)}
+                    onClick={() => openShareModal(false)}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border text-xs font-medium transition-colors ${darkMode ? "bg-purple-500/10 border-purple-500/30 text-purple-400 hover:bg-purple-500/20" : "border-purple-600 bg-purple-50 text-purple-700 hover:bg-purple-100"}`}
                   >
-                    <Bot size={14} /> Send Mail
+                    <Send size={13} /> Share Data / Report
                   </button>
                 )}
 
@@ -6408,15 +6718,11 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     onClick={() => {
                       // richyrik: Show only open/unresolved issues so the scope is accurate
                       applyFilter({ resolutionStatus: "Open" });
-                      // richyrik: Open the Outlook share modal; recipient is left for the user to fill
-                      setShareStep("form");
-                      setShareResult(null);
-                      setShareError("");
-                      setIsAiModalOpen(true);
+                      openShareModal(true);
                     }}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-sm border text-xs font-medium transition-colors ${darkMode ? "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20" : "border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100"}`}
                   >
-                    🔔 Send Reminders
+                    <Bell size={13} /> Send Reminders
                   </button>
                 )}
 
@@ -6945,11 +7251,11 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                                         title="Change expected timeline and send notification"
                                       >
                                         <Edit2 size={10} />
-                                        <span>Change Timeline</span>
+                                        <span>Change {col === "DueDate" ? "Due Date" : "Timeline"}</span>
                                       </button>
                                     </div>
                                   ) : (
-                                    /* Expected Timeline NOT given: show Add Expected Timeline button */
+                                    /* Expected Timeline / Due Date NOT given: show Add button */
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -6961,10 +7267,10 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                                           ? "border-slate-700 hover:border-violet-400 hover:bg-violet-500/15 text-slate-400 hover:text-violet-300"
                                           : "border-slate-300 hover:border-violet-500 hover:bg-violet-50 text-slate-500 hover:text-violet-700"
                                       }`}
-                                      title="No timeline set. Click to add expected timeline and notify stakeholders"
+                                      title={`No ${col === "DueDate" ? "due date" : "expected timeline"} set. Click to add and notify stakeholders`}
                                     >
                                       <Plus size={12} className="text-violet-400 group-hover/add:rotate-90 transition-transform" />
-                                      <span>Add Expected Timeline</span>
+                                      <span>Add {col === "DueDate" ? "Due Date" : "Expected Timeline"}</span>
                                     </button>
                                   )}
                                 </td>
@@ -6978,14 +7284,35 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                                 </td>
                               );
                             }
+                            // richyrik: Truncated cells for VAPT Description, Path, and Solution with hover "Show more"
+                            if (
+                              col === "Vulnerability description" ||
+                              col === "Vulnerability Path" ||
+                              col === "Solution"
+                            ) {
+                              const rawVal = issue[col] ? String(issue[col]) : "";
+                              return (
+                                <td key={col} className="px-4 py-3 align-middle whitespace-normal">
+                                  <TruncatedVaptTextCell
+                                    text={rawVal}
+                                    columnName={col}
+                                    issue={issue as Issue}
+                                  />
+                                </td>
+                              );
+                            }
                             if (col === "VulnDescription") {
                               const existingDesc = issue.VulnDescription ? String(issue.VulnDescription) : "";
                               const desc = existingDesc && existingDesc !== "—" && existingDesc.toLowerCase() !== "na"
                                 ? existingDesc
                                 : generateVulnDescription(issue as Issue);
                               return (
-                                <td key={col} className={`px-4 py-3 text-xs min-w-[200px] max-w-[280px] ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-                                  <span className="line-clamp-2">{desc}</span>
+                                <td key={col} className="px-4 py-3 align-middle whitespace-normal">
+                                  <TruncatedVaptTextCell
+                                    text={desc}
+                                    columnName="Vulnerability Description"
+                                    issue={issue as Issue}
+                                  />
                                 </td>
                               );
                             }
@@ -7575,6 +7902,103 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
         </div>
       )}
 
+      {/* richyrik: Full Text Detail Modal for VAPT Description & Path */}
+      {textDetailModal && (
+        <div
+          className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setTextDetailModal(null)}
+        >
+          <div
+            className={`w-full max-w-2xl rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200 ${
+              darkMode ? "bg-slate-900 border-slate-700 text-slate-100" : "bg-white border-slate-200 text-slate-800"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className={`p-4 border-b flex items-center justify-between ${
+              darkMode ? "bg-slate-800/80 border-slate-700" : "bg-slate-50 border-slate-200"
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-violet-600/20 text-violet-400 ring-1 ring-violet-500/30">
+                  <FileText size={18} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-violet-500/20 text-violet-400 border border-violet-500/30">
+                      {textDetailModal.fieldName}
+                    </span>
+                    {textDetailModal.issueId && (
+                      <span className="text-xs font-mono text-slate-400">
+                        {textDetailModal.issueId}
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-sm font-bold mt-1 line-clamp-1">
+                    {textDetailModal.title}
+                  </h3>
+                  {textDetailModal.asset && (
+                    <p className={`text-[11px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                      Target / Asset: {textDetailModal.asset}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTextDetailModal(null)}
+                className={`p-1.5 rounded-lg border transition-colors ${
+                  darkMode ? "border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-white" : "border-slate-300 hover:bg-slate-100 text-slate-600 hover:text-black"
+                }`}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-5 overflow-y-auto flex-1">
+              <div className={`p-4 rounded-xl border ${
+                darkMode ? "bg-slate-950 border-slate-800 text-slate-200" : "bg-slate-50 border-slate-200 text-slate-800"
+              }`}>
+                <pre className={`text-xs whitespace-pre-wrap break-all ${
+                  textDetailModal.fieldName.toLowerCase().includes("path")
+                    ? "font-mono text-violet-300 leading-relaxed"
+                    : "font-sans leading-relaxed text-sm"
+                }`}>
+                  {textDetailModal.content}
+                </pre>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className={`p-3.5 border-t flex items-center justify-between ${
+              darkMode ? "bg-slate-800/80 border-slate-700" : "bg-slate-50 border-slate-200"
+            }`}>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(textDetailModal.content);
+                  setTextModalCopied(true);
+                  setTimeout(() => setTextModalCopied(false), 2000);
+                }}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-700 text-white flex items-center gap-1.5 shadow-sm transition-all"
+              >
+                {textModalCopied ? <Check size={14} className="text-emerald-300" /> : <Copy size={14} />}
+                <span>{textModalCopied ? "Copied to Clipboard!" : "Copy Full Text"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTextDetailModal(null)}
+                className={`px-4 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                  darkMode ? "border-slate-700 hover:bg-slate-800 text-slate-300" : "border-slate-300 hover:bg-slate-100 text-slate-700"
+                }`}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* richyrik: ETA update toast notification */}
       {etaToast && (
         <div className="fixed bottom-6 right-6 z-[99999] flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl bg-emerald-600 text-white text-sm font-semibold animate-pulse">
@@ -7582,107 +8006,213 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
         </div>
       )}
 
+      {/* richyrik: Share via Outlook / Mail Gateway & Reminders Modal — Portal Dark Theme & Multi-Recipient System */}
       {isAiModalOpen && (
-        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[99999] flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div
+            className="w-full max-w-xl rounded-2xl border border-slate-700/80 bg-[#0B0F19] text-slate-100 shadow-2xl shadow-black/90 overflow-hidden flex flex-col my-auto max-h-[92vh] animate-in zoom-in-95 duration-200"
+            style={{
+              background: "linear-gradient(180deg, #0e1526 0%, #080d19 100%)",
+              boxShadow: "0 25px 60px -15px rgba(0, 0, 0, 0.9), 0 0 40px rgba(59, 130, 246, 0.12)",
+            }}
+          >
+            {/* ── Top glowing accent line ── */}
+            <div
+              className={`h-1.5 w-full bg-gradient-to-r transition-all duration-300 ${
+                isReminderMode
+                  ? "from-amber-500 via-orange-500 to-red-500"
+                  : "from-blue-500 via-indigo-500 to-purple-500"
+              }`}
+            />
 
             {/* ── Header ── */}
-            <div className="bg-slate-800 p-4 flex justify-between items-center text-white shrink-0">
-              <div className="flex items-center gap-2">
-                <Send size={18} className="text-blue-400" />
-                <h3 className="font-bold text-sm">Share via Outlook</h3>
+            <div className="p-4 sm:p-5 border-b border-slate-800/80 bg-slate-900/70 backdrop-blur-sm flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`p-2.5 rounded-xl transition-colors ring-1 ${
+                    isReminderMode
+                      ? "bg-amber-500/20 text-amber-400 ring-amber-500/30 shadow-lg shadow-amber-500/10"
+                      : "bg-blue-600/20 text-blue-400 ring-blue-500/30 shadow-lg shadow-blue-500/10"
+                  }`}
+                >
+                  {isReminderMode ? <Bell size={18} /> : <Send size={18} />}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm sm:text-base tracking-tight text-white">
+                      {isReminderMode ? "Send Remediation Reminders" : "Share Vulnerability Report & Data"}
+                    </h3>
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+                        isReminderMode
+                          ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                          : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+                          isReminderMode ? "bg-amber-400" : "bg-emerald-400"
+                        }`}
+                      />
+                      {isReminderMode ? "Reminders 🔔" : "Mail Gateway ✉️"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {isReminderMode
+                      ? "Dispatch formal remediation notices & pending findings to engineers and leads."
+                      : "Export and dispatch filtered XLSX dataset & metrics directly via Mail Gateway or Outlook."}
+                  </p>
+                </div>
               </div>
               <button
+                type="button"
                 onClick={() => {
                   setIsAiModalOpen(false);
-                  setAiRecipient('');
-                  setShareStep('form');
+                  setShareStep("form");
                   setShareResult(null);
-                  setShareError('');
+                  setShareError("");
                 }}
-                className="text-slate-300 hover:text-white transition-colors"
+                className="p-1.5 rounded-lg border border-slate-700/80 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                title="Close dialog"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
 
-            {/* ── Phase: Preparing (backend generating XLSX + calling Graph) ── */}
-            {shareStep === 'preparing' && (
-              <div className="p-10 flex flex-col items-center gap-5 text-slate-500">
-                <Activity size={36} className="animate-spin text-blue-500" />
-                <div className="text-center space-y-1">
-                  <p className="text-sm font-semibold text-slate-700">Creating Outlook draft…</p>
+            {/* ── Phase: Preparing ── */}
+            {shareStep === "preparing" && (
+              <div className="p-10 flex flex-col items-center gap-5 text-slate-300">
+                <div className="relative">
+                  <Activity size={42} className="animate-spin text-blue-400" />
+                  <div className="absolute inset-0 rounded-full blur-md bg-blue-500/20 -z-10 animate-pulse" />
+                </div>
+                <div className="text-center space-y-1.5">
+                  <p className="text-sm font-bold text-white">
+                    {isReminderMode
+                      ? "Compiling pending issues & generating reminder..."
+                      : "Generating Excel report & dispatching..."}
+                  </p>
                   <p className="text-xs text-slate-400">
-                    Generating Excel report for{' '}
-                    <strong className="text-slate-600">{totalRecords.toLocaleString()}</strong>
-                    {' '}records and attaching to your Outlook draft.
+                    Processing{" "}
+                    <strong className="text-blue-400 font-mono">
+                      {totalRecords.toLocaleString()}
+                    </strong>{" "}
+                    filtered vulnerabilities for dispatch.
                   </p>
                 </div>
               </div>
             )}
 
             {/* ── Phase: Done (success) ── */}
-            {shareStep === 'done' && shareResult && (
+            {shareStep === "done" && shareResult && (
               <div className="p-6 flex flex-col gap-4 overflow-y-auto">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
-                  <span className="text-green-500 text-2xl shrink-0 leading-none mt-0.5">✓</span>
-                  <div>
-                    <p className="font-bold text-green-800 text-sm">
-                      Outlook draft created in your mailbox.
-                    </p>
-                    <p className="text-xs text-green-700 mt-1">
-                      The Excel report is attached. Open your Drafts folder in Outlook and click Send.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
-                  <div className="bg-slate-700 px-4 py-2 text-white text-[10px] font-bold uppercase tracking-widest">
-                    Report Summary
-                  </div>
-                  <div className="p-4 text-sm grid grid-cols-2 gap-y-2 gap-x-4 text-slate-700">
-                    <span className="font-semibold text-slate-500">To</span>
-                    <span className="truncate">{aiRecipient}</span>
-                    <span className="font-semibold text-slate-500">Format</span>
-                    <span>{selectedFormatFilter}</span>
-                    <span className="font-semibold text-slate-500">Owner</span>
-                    <span>{selectedOwners.length > 0 ? selectedOwners.join(', ') : 'All Owners'}</span>
-                    <span className="font-semibold text-slate-500">Records</span>
-                    <span className="font-bold">{shareResult.record_count.toLocaleString()}</span>
-                    <span className="font-semibold text-slate-500">Resolved</span>
-                    <span className="text-green-600 font-semibold">{shareResult.resolved}</span>
-                    <span className="font-semibold text-slate-500">Unresolved</span>
-                    <span className="text-red-500 font-semibold">{shareResult.unresolved}</span>
-                    <span className="font-semibold text-slate-500">Excel</span>
-                    <span className="text-green-700 font-semibold">📎 Attached to draft</span>
-                    {shareResult.graph_included && <>
-                      <span className="font-semibold text-slate-500">Graph</span>
-                      <span className="text-green-700 font-semibold">📊 Attached to draft</span>
-                    </>}
-                  </div>
-                </div>
-
-                {shareResult.draft_url && (
-                  <a
-                    href={shareResult.draft_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 transition-colors"
+                <div
+                  className={`border rounded-xl p-4 flex items-start gap-3 ${
+                    shareResult.mode === "smtp"
+                      ? "bg-emerald-950/40 border-emerald-800/80 text-emerald-200"
+                      : "bg-blue-950/40 border-blue-800/80 text-blue-200"
+                  }`}
+                >
+                  <span
+                    className={`text-2xl shrink-0 leading-none mt-0.5 ${
+                      shareResult.mode === "smtp" ? "text-emerald-400" : "text-blue-400"
+                    }`}
                   >
-                    <Send size={13} />
-                    Open Draft in Outlook
-                  </a>
-                )}
+                    ✓
+                  </span>
+                  <div>
+                    <p className="font-bold text-sm">
+                      {shareResult.mode === "smtp"
+                        ? `Report Dispatched via Mail Gateway (${shareResult.gateway || "SMTP"})`
+                        : shareResult.mode === "graph"
+                        ? "Outlook draft created in your mailbox."
+                        : "Report Ready to Send in Outlook"}
+                    </p>
+                    <p className="text-xs mt-1 text-slate-300">
+                      {shareResult.message || "You can open Outlook below to review and send the report."}
+                    </p>
+                    {shareResult.gateway_error && (
+                      <p className="text-[11px] p-2.5 rounded-lg mt-2 border font-medium bg-amber-950/60 border-amber-800/80 text-amber-300">
+                        ℹ️ Mail Gateway note: {shareResult.gateway_error}. Click "Open in Outlook Desktop" below to dispatch immediately from your mail client.
+                      </p>
+                    )}
+                  </div>
+                </div>
 
-                <div className="flex justify-end pt-2 border-t border-slate-100">
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 overflow-hidden text-slate-200">
+                  <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest bg-slate-900 border-b border-slate-800 text-slate-300 flex items-center justify-between">
+                    <span>Dispatch Summary</span>
+                    <span className="font-mono text-blue-400">{totalRecords.toLocaleString()} records</span>
+                  </div>
+                  <div className="p-4 text-xs grid grid-cols-2 gap-y-2 gap-x-4">
+                    <span className="font-semibold text-slate-400">Recipients</span>
+                    <span className="truncate font-mono text-white">
+                      {shareResult.recipients ? shareResult.recipients.join(", ") : aiRecipient}
+                    </span>
+                    <span className="font-semibold text-slate-400">Format</span>
+                    <span className="text-white">{selectedFormatFilter}</span>
+                    <span className="font-semibold text-slate-400">Owner Scope</span>
+                    <span className="text-white">{selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners"}</span>
+                    <span className="font-semibold text-slate-400">Resolved</span>
+                    <span className="text-emerald-400 font-bold font-mono">{shareResult.resolved}</span>
+                    <span className="font-semibold text-slate-400">Unresolved</span>
+                    <span className="text-red-400 font-bold font-mono">{shareResult.unresolved}</span>
+                    <span className="font-semibold text-slate-400">Excel Attachment</span>
+                    <span className="text-emerald-400 font-semibold">📎 Ready & Attached</span>
+                    {shareResult.graph_included && (
+                      <>
+                        <span className="font-semibold text-slate-400">Graph PNG</span>
+                        <span className="text-emerald-400 font-semibold">📊 Attached</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Direct Action Buttons */}
+                <div className="flex flex-col gap-2 pt-1">
+                  {(shareResult.mailto_url || shareResult.draft_url) && (
+                    <a
+                      href={shareResult.mailto_url || shareResult.draft_url}
+                      className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-600/30"
+                    >
+                      <Mail size={14} />
+                      Open in Outlook Desktop
+                    </a>
+                  )}
+
+                  {shareResult.web_outlook_url && (
+                    <a
+                      href={shareResult.web_outlook_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white transition-colors"
+                    >
+                      <Send size={13} />
+                      Open in Web Outlook / Office 365
+                    </a>
+                  )}
+
+                  {shareResult.token && (
+                    <a
+                      href={`${BACKEND_URL}/api/share/download/${shareResult.token}`}
+                      download
+                      className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition-all shadow-md shadow-emerald-600/20"
+                    >
+                      <Download size={13} />
+                      Download Generated Report (.xlsx)
+                    </a>
+                  )}
+                </div>
+
+                <div className="flex justify-end pt-2 border-t border-slate-800">
                   <button
                     type="button"
                     onClick={() => {
                       setIsAiModalOpen(false);
-                      setShareStep('form');
+                      setShareStep("form");
                       setShareResult(null);
                     }}
-                    className="px-5 py-2 text-xs font-bold bg-slate-700 text-white rounded hover:bg-slate-600 transition-colors"
+                    className="px-5 py-2 text-xs font-bold rounded-xl bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 transition-colors"
                   >
                     Done
                   </button>
@@ -7691,44 +8221,48 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             )}
 
             {/* ── Phase: Error ── */}
-            {shareStep === 'error' && (
+            {shareStep === "error" && (
               <div className="p-6 flex flex-col gap-4">
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-                  <span className="text-red-500 text-xl shrink-0 leading-none mt-0.5">✕</span>
-                  <div className="text-sm min-w-0">
-                    <p className="font-semibold text-red-800 mb-1">Something went wrong</p>
-                    <p className="text-red-700 break-words">{shareError}</p>
-                    {shareError.toLowerCase().includes('not configured') && (
-                      <div className="mt-3 bg-red-100 rounded p-3 text-xs text-red-800 space-y-1">
-                        <p className="font-bold">Server configuration required:</p>
-                        <p>Set the following environment variables on the backend server:</p>
-                        <ul className="list-disc list-inside space-y-0.5 mt-1">
-                          <li><code className="bg-red-200 px-1 rounded">GRAPH_TENANT_ID</code></li>
-                          <li><code className="bg-red-200 px-1 rounded">GRAPH_CLIENT_ID</code></li>
-                          <li><code className="bg-red-200 px-1 rounded">GRAPH_CLIENT_SECRET</code></li>
-                          <li><code className="bg-red-200 px-1 rounded">GRAPH_SENDER_EMAIL</code></li>
-                        </ul>
-                      </div>
-                    )}
+                <div className="border border-red-800/80 bg-red-950/40 text-red-200 rounded-xl p-4 flex items-start gap-3">
+                  <span className="text-red-400 text-xl shrink-0 leading-none mt-0.5">✕</span>
+                  <div className="text-xs min-w-0">
+                    <p className="font-semibold text-red-400 mb-1">Notice</p>
+                    <p className="break-words opacity-90">{shareError}</p>
                   </div>
                 </div>
-                <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+                <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                  {aiRecipient && (
+                    <a
+                      href={`mailto:${encodeURIComponent(aiRecipient)}?subject=${encodeURIComponent(
+                        emailSubject || `Vulnerability Report — ${selectedFormatFilter}`
+                      )}&body=${encodeURIComponent(
+                        `Hello,\n\nPlease find the vulnerability status report for ${selectedFormatFilter}.\nTotal Vulnerabilities: ${totalRecords.toLocaleString()}\n\nRegards,\nSecurity Operations Team`
+                      )}`}
+                      className="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-xl inline-flex items-center gap-1.5 shadow-md shadow-blue-600/30"
+                    >
+                      <Mail size={13} />
+                      Open in Outlook Desktop Directly
+                    </a>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
                       setIsAiModalOpen(false);
-                      setShareStep('form');
+                      setShareStep("form");
                       setShareResult(null);
-                      setShareError('');
+                      setShareError("");
                     }}
-                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900"
+                    className="px-4 py-2 text-xs font-bold rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors"
                   >
                     Close
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setShareStep('form'); setShareError(''); }}
-                    className="px-4 py-2 text-xs font-bold bg-slate-700 text-white rounded hover:bg-slate-600"
+                    onClick={() => {
+                      setShareStep("form");
+                      setShareError("");
+                    }}
+                    className="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-xl shadow-md shadow-blue-600/25"
                   >
                     Try Again
                   </button>
@@ -7737,129 +8271,338 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
             )}
 
             {/* ── Phase: Form (initial) ── */}
-            {shareStep === 'form' && (
+            {shareStep === "form" && (
               <form
                 onSubmit={handleShareEmailSubmit}
                 className="p-5 flex flex-col gap-4 overflow-y-auto"
               >
+                {/* ── Mode Switcher (Share vs Reminders) ── */}
+                <div className="flex items-center gap-1.5 p-1 bg-slate-900/90 rounded-xl border border-slate-800 shadow-inner">
+                  <button
+                    type="button"
+                    onClick={() => switchModalMode(false)}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+                      !isReminderMode
+                        ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30 ring-1 ring-white/10"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                    }`}
+                  >
+                    <Send size={13} />
+                    Share Data / Report (.xlsx)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchModalMode(true)}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+                      isReminderMode
+                        ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-md shadow-amber-600/30 ring-1 ring-white/10"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                    }`}
+                  >
+                    <Bell size={13} />
+                    Send Reminders 🔔
+                  </button>
+                </div>
+
                 {/* ── Server info banner ── */}
-                <div className="rounded-lg border px-4 py-2.5 text-xs flex items-start gap-2 font-medium bg-blue-50 border-blue-200 text-blue-700">
-                  <Send size={13} className="shrink-0 mt-0.5" />
+                <div
+                  className={`rounded-xl border px-3.5 py-2.5 text-xs flex items-start gap-2.5 font-medium ${
+                    isReminderMode
+                      ? "bg-amber-950/30 border-amber-800/50 text-amber-200"
+                      : "bg-blue-950/40 border-blue-800/60 text-blue-300"
+                  }`}
+                >
+                  {isReminderMode ? (
+                    <Bell size={14} className="shrink-0 mt-0.5 text-amber-400" />
+                  ) : (
+                    <Send size={14} className="shrink-0 mt-0.5 text-blue-400" />
+                  )}
                   <span>
-                    The backend will generate the Excel report and create a draft in your
-                    Outlook mailbox via Microsoft Graph. No download required.
+                    {isReminderMode
+                      ? "A formal security reminder with unresolved vulnerabilities, remediation scope, and XLSX attachment will be dispatched via the Mail Gateway / Outlook."
+                      : "Report generated from your active filters will be dispatched via the internal Mail Gateway (SMTP Relay) with one-click direct Outlook compose links."}
                   </span>
                 </div>
 
                 {/* ── Active filter summary (read-only) ── */}
-                <div className={`rounded-lg border text-sm ${totalRecords === 0
-                  ? 'bg-amber-50 border-amber-200'
-                  : 'bg-slate-50 border-slate-200'
-                  }`}>
-                  <div className="px-4 pt-3 pb-2 border-b border-slate-200 flex items-center justify-between">
-                    <h4 className="font-bold text-slate-700 text-xs uppercase tracking-wide">Report Scope</h4>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${totalRecords === 0
-                      ? 'bg-amber-100 text-amber-700'
-                      : 'bg-blue-100 text-blue-700'
-                      }`}>
-                      {totalRecords.toLocaleString()} record{totalRecords !== 1 ? 's' : ''}
+                <div
+                  className={`rounded-xl border text-xs overflow-hidden ${
+                    totalRecords === 0
+                      ? "bg-amber-950/30 border-amber-800/60 text-amber-300"
+                      : "bg-slate-950/60 border-slate-800 text-slate-300"
+                  }`}
+                >
+                  <div className="px-4 py-2.5 border-b border-slate-800/90 bg-slate-900/80 flex items-center justify-between">
+                    <h4 className="font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                      <FileText size={12} className="text-blue-400" /> Report Scope
+                    </h4>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 font-mono">
+                      {totalRecords.toLocaleString()} record{totalRecords !== 1 ? "s" : ""}
                     </span>
                   </div>
-                  <div className="px-4 py-3 grid grid-cols-2 gap-y-1.5 gap-x-4 text-slate-600 text-xs">
-                    <span className="font-semibold text-slate-500">Format</span>
-                    <span>{selectedFormatFilter}</span>
-                    <span className="font-semibold text-slate-500">Owner</span>
-                    <span>{selectedOwners.length > 0 ? selectedOwners.join(', ') : 'All Owners'}</span>
-                    {selectedBatches.length > 0 && (<>
-                      <span className="font-semibold text-slate-500">Datasets</span>
-                      <span>{selectedBatches.length} selected</span>
-                    </>)}
-                    {selectedContainerSubTypes.length > 0 && (<>
-                      <span className="font-semibold text-slate-500">Sub-Types</span>
-                      <span className="truncate">{selectedContainerSubTypes.join(', ')}</span>
-                    </>)}
-                    <span className="font-semibold text-slate-500">Date Range</span>
-                    <span>{
-                      dateFrom && dateTo ? `${dateFrom} – ${dateTo}`
-                        : dateFrom ? `from ${dateFrom}`
-                          : dateTo ? `to ${dateTo}`
-                            : 'All time'
-                    }</span>
-                    {filter !== 'All' && (<>
-                      <span className="font-semibold text-slate-500">Severity</span>
-                      <span>{filter}</span>
-                    </>)}
-                    {searchTerm && (<>
-                      <span className="font-semibold text-slate-500">Search</span>
-                      <span className="truncate">{searchTerm}</span>
-                    </>)}
-                    <span className="font-semibold text-slate-500 border-t border-slate-100 pt-1.5">Resolved</span>
-                    <span className="text-green-600 font-semibold border-t border-slate-100 pt-1.5">
-                      {groupedIssues.reduce((acc, g) => acc + g.resolved, 0)}
+                  <div className="px-4 py-3 grid grid-cols-2 gap-y-1.5 gap-x-4">
+                    <span className="font-semibold text-slate-400">Format</span>
+                    <span className="text-white font-medium">{selectedFormatFilter}</span>
+                    <span className="font-semibold text-slate-400">Owner</span>
+                    <span className="text-white font-medium truncate">
+                      {selectedOwners.length > 0 ? selectedOwners.join(", ") : "All Owners"}
                     </span>
-                    <span className="font-semibold text-slate-500">Unresolved</span>
-                    <span className="text-red-500 font-semibold">
-                      {groupedIssues.reduce((acc, g) => acc + g.unresolved, 0)}
+                    {selectedBatches.length > 0 && (
+                      <>
+                        <span className="font-semibold text-slate-400">Datasets</span>
+                        <span className="text-white">{selectedBatches.length} selected</span>
+                      </>
+                    )}
+                    {selectedContainerSubTypes.length > 0 && (
+                      <>
+                        <span className="font-semibold text-slate-400">Sub-Types</span>
+                        <span className="text-white truncate">{selectedContainerSubTypes.join(", ")}</span>
+                      </>
+                    )}
+                    <span className="font-semibold text-slate-400">Date Range</span>
+                    <span className="text-white">
+                      {dateFrom && dateTo
+                        ? `${dateFrom} – ${dateTo}`
+                        : dateFrom
+                        ? `from ${dateFrom}`
+                        : dateTo
+                        ? `to ${dateTo}`
+                        : "All time"}
+                    </span>
+                    {filter !== "All" && (
+                      <>
+                        <span className="font-semibold text-slate-400">Severity</span>
+                        <span className="text-white font-medium">{filter}</span>
+                      </>
+                    )}
+                    {searchTerm && (
+                      <>
+                        <span className="font-semibold text-slate-400">Search</span>
+                        <span className="text-white truncate">{searchTerm}</span>
+                      </>
+                    )}
+                    <span className="font-semibold text-slate-400 border-t border-slate-800/80 pt-1.5">
+                      Resolved
+                    </span>
+                    <span className="text-emerald-400 font-bold font-mono border-t border-slate-800/80 pt-1.5">
+                      {(typeof pipeline?.resolved === "number" && !isNaN(pipeline.resolved)
+                        ? pipeline.resolved
+                        : (displayedIssues || []).filter((i) => isResolved(i.Status)).length
+                      ).toLocaleString()}
+                    </span>
+                    <span className="font-semibold text-slate-400">Unresolved</span>
+                    <span className="text-red-400 font-bold font-mono">
+                      {(typeof pipeline?.open === "number" && !isNaN(pipeline.open)
+                        ? pipeline.open + (pipeline.progress || 0)
+                        : Math.max(0, (totalRecords || 0) - (pipeline?.resolved || 0))
+                      ).toLocaleString()}
                     </span>
                   </div>
                   {totalRecords === 0 && (
-                    <div className="px-4 pb-3 text-amber-700 text-xs font-medium">
+                    <div className="px-4 pb-3 text-amber-400 text-xs font-medium">
                       ⚠ No vulnerabilities match the current filters. Adjust before sending.
                     </div>
                   )}
                 </div>
 
-                {/* ── Recipient email ── */}
+                {/* ── Recipient Email(s) System (Interactive Chips + Add by Yourself) ── */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
-                    Recipient Email
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                      {isReminderMode ? "Recipient Email(s) for Reminders" : "Recipient Email(s) to Share With"}{" "}
+                      <span className="text-red-400">*</span>
+                    </label>
+                    <span className="text-[11px] text-slate-400 font-mono">
+                      {emailRecipientsList.length} added
+                    </span>
+                  </div>
+
+                  {/* Recipient Chips Container */}
+                  <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-700/80 mb-2 min-h-[38px] flex flex-wrap gap-1.5 items-center">
+                    {emailRecipientsList.length === 0 ? (
+                      <span className="text-xs text-slate-500 italic pl-1">
+                        No recipients added yet. Enter email below and click "+ Add" or press Enter.
+                      </span>
+                    ) : (
+                      emailRecipientsList.map((email, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-medium bg-blue-500/15 border border-blue-500/30 text-blue-200 shadow-sm"
+                        >
+                          <Mail size={12} className="text-blue-400 shrink-0" />
+                          <span className="truncate max-w-[240px]">{email}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeRecipientEmail(email)}
+                            className="text-slate-400 hover:text-red-400 transition-colors ml-0.5 p-0.5 rounded hover:bg-slate-800"
+                            title={`Remove ${email}`}
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))
+                    )}
+                    {emailRecipientsList.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEmailRecipientsList([]);
+                          setAiRecipient("");
+                        }}
+                        className="text-[10px] text-slate-400 hover:text-red-400 underline ml-auto px-1.5 py-0.5 font-medium"
+                      >
+                        Clear all
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Input row with Add button */}
+                  <div className="relative flex items-center">
+                    <Mail size={16} className="absolute left-3.5 text-slate-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder={
+                        emailRecipientsList.length > 0
+                          ? "Add another recipient email..."
+                          : "e.g. dev-lead@airtel.com, security@company.com"
+                      }
+                      value={emailInputText}
+                      onChange={(e) => setEmailInputText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === "," || e.key === ";") {
+                          e.preventDefault();
+                          addRecipientEmail(emailInputText);
+                        }
+                      }}
+                      onPaste={(e) => {
+                        const pasted = e.clipboardData.getData("text");
+                        if (pasted && (pasted.includes("@") || pasted.includes(","))) {
+                          e.preventDefault();
+                          addRecipientEmail(pasted);
+                        }
+                      }}
+                      style={{
+                        color: "#ffffff",
+                        backgroundColor: "#0f172a",
+                      }}
+                      className="w-full pl-10 pr-20 py-2.5 rounded-xl border border-slate-700 bg-slate-900 text-white placeholder-slate-500 text-xs sm:text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/25 transition-all shadow-inner"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addRecipientEmail(emailInputText)}
+                      disabled={!emailInputText.trim() || !emailInputText.includes("@")}
+                      className="absolute right-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm"
+                    >
+                      + Add
+                    </button>
+                  </div>
+
+                  {/* Quick-add suggestions from active dataset / owners */}
+                  {suggestedRecipientEmails.filter((s) => !emailRecipientsList.includes(s)).length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                        Suggested:
+                      </span>
+                      {suggestedRecipientEmails
+                        .filter((s) => !emailRecipientsList.includes(s))
+                        .slice(0, 4)
+                        .map((sugg, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => addRecipientEmail(sugg)}
+                            className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-800/90 hover:bg-blue-600/20 text-slate-300 hover:text-blue-300 border border-slate-700 hover:border-blue-500/40 transition-colors flex items-center gap-1"
+                            title={`Add ${sugg}`}
+                          >
+                            <Plus size={10} /> {sugg}
+                          </button>
+                        ))}
+                    </div>
+                  )}
+
+                  <p className="text-[11px] text-slate-400 mt-1.5">
+                    Type any custom email address and press <kbd className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[10px]">Enter</kbd> or click <strong>+ Add</strong>. Multiple emails supported.
+                  </p>
+                </div>
+
+                {/* ── Editable Subject Line ── */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">
+                    Email Subject Line
                   </label>
                   <input
-                    type="email"
+                    type="text"
                     required
-                    placeholder="team.lead@company.com"
-                    className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                    value={aiRecipient}
-                    onChange={(e) => setAiRecipient(e.target.value)}
+                    value={emailSubject}
+                    onChange={(e) => setEmailSubject(e.target.value)}
+                    style={{
+                      color: "#ffffff",
+                      backgroundColor: "#0f172a",
+                    }}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-700 bg-slate-900 text-white placeholder-slate-500 text-xs font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/25 transition-all"
+                  />
+                </div>
+
+                {/* ── Special Instructions / Custom Note (Optional) ── */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">
+                    Custom Message / Note (Optional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder={
+                      isReminderMode
+                        ? "e.g. Kindly prioritize critical and high findings before the upcoming sprint release."
+                        : "e.g. Attached is the quarterly vulnerability report for your review and sign-off."
+                    }
+                    value={emailCustomNote}
+                    onChange={(e) => setEmailCustomNote(e.target.value)}
+                    style={{
+                      color: "#ffffff",
+                      backgroundColor: "#0f172a",
+                    }}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-700 bg-slate-900 text-white placeholder-slate-500 text-xs font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/25 transition-all"
                   />
                 </div>
 
                 {/* ── Graph options ── */}
-                <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/60 flex flex-col gap-2.5">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
                     <input
                       type="checkbox"
                       id="includeGraph"
                       checked={includeGraph}
                       onChange={(e) => setIncludeGraph(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600"
                     />
-                    <label htmlFor="includeGraph" className="text-sm text-slate-700 font-medium cursor-pointer">
+                    <span className="text-xs font-semibold text-slate-200">
                       Include Resolved/Unresolved Graph (PNG)
-                    </label>
-                  </div>
+                    </span>
+                  </label>
 
                   {includeGraph && (
                     <div className="ml-6 flex items-center gap-2">
-                      <span className="text-xs text-slate-500 font-medium">Graph mode:</span>
-                      <div className="flex bg-slate-100 rounded p-0.5 text-xs font-semibold">
+                      <span className="text-xs font-medium text-slate-400">Graph mode:</span>
+                      <div className="flex rounded-lg p-0.5 text-xs font-semibold border bg-slate-800 border-slate-700">
                         <button
                           type="button"
-                          onClick={() => setEmailGraphMode('Daily')}
-                          className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Daily'
-                            ? 'bg-white shadow text-slate-800'
-                            : 'text-slate-500 hover:text-slate-700'
-                            }`}
+                          onClick={() => setEmailGraphMode("Daily")}
+                          className={`px-3 py-1 rounded-md transition-colors ${
+                            emailGraphMode === "Daily"
+                              ? "bg-blue-600 text-white shadow"
+                              : "text-slate-400 hover:text-slate-200"
+                          }`}
                         >
                           Daily
                         </button>
                         <button
                           type="button"
-                          onClick={() => setEmailGraphMode('Cumulative')}
-                          className={`px-3 py-1 rounded transition-colors ${emailGraphMode === 'Cumulative'
-                            ? 'bg-white shadow text-slate-800'
-                            : 'text-slate-500 hover:text-slate-700'
-                            }`}
+                          onClick={() => setEmailGraphMode("Cumulative")}
+                          className={`px-3 py-1 rounded-md transition-colors ${
+                            emailGraphMode === "Cumulative"
+                              ? "bg-blue-600 text-white shadow"
+                              : "text-slate-400 hover:text-slate-200"
+                          }`}
                         >
                           Cumulative
                         </button>
@@ -7867,38 +8610,51 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     </div>
                   )}
 
-                  <p className="text-[10px] text-slate-400 flex items-start gap-1.5">
-                    <Send size={11} className="shrink-0 mt-0.5" />
-                    <span>
-                      The backend generates the Excel report and attaches it to an Outlook
-                      draft via Microsoft Graph. No download or manual attachment required.
-                    </span>
+                  <p className="text-[11px] flex items-center gap-1.5 text-slate-400">
+                    <Send size={11} className="shrink-0 text-blue-400" />
+                    <span>The backend automatically compiles and attaches the filtered <strong>.xlsx</strong> report.</span>
                   </p>
                 </div>
 
                 {/* ── Actions ── */}
-                <div className="pt-2 flex justify-end gap-3 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setIsAiModalOpen(false)}
-                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    id="btn-share-via-outlook"
-                    disabled={!aiRecipient || totalRecords === 0}
-                    title={
-                      totalRecords === 0
-                        ? 'No records match current filters'
-                        : ''
-                    }
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed disabled:text-slate-500"
-                  >
-                    <Send size={14} />
-                    Share via Outlook
-                  </button>
+                <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-800">
+                  <div className="text-[11px] font-medium text-slate-400 w-full sm:w-auto text-center sm:text-left">
+                    {emailRecipientsList.length > 0 || emailInputText.trim() ? (
+                      <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                        <Check size={12} /> Ready to send to{" "}
+                        {emailRecipientsList.length + (emailInputText.trim() && emailInputText.includes("@") && !emailRecipientsList.includes(emailInputText.trim()) ? 1 : 0)}{" "}
+                        recipient(s)
+                      </span>
+                    ) : (
+                      <span className="text-amber-400">Please enter at least 1 recipient email</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setIsAiModalOpen(false)}
+                      className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      id="btn-share-via-outlook"
+                      disabled={
+                        totalRecords === 0 ||
+                        (emailRecipientsList.length === 0 && (!emailInputText.trim() || !emailInputText.includes("@")))
+                      }
+                      title={totalRecords === 0 ? "No records match current filters" : ""}
+                      className={`flex items-center gap-2 px-5 py-2.5 text-white rounded-xl text-xs font-bold transition-all shadow-lg disabled:opacity-40 disabled:cursor-not-allowed ${
+                        isReminderMode
+                          ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 shadow-amber-600/30"
+                          : "bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-500 hover:to-indigo-500 shadow-blue-600/30"
+                      }`}
+                    >
+                      {isReminderMode ? <Bell size={14} /> : <Send size={14} />}
+                      {isReminderMode ? "🔔 Send Reminders" : "Share via Outlook & Gateway"}
+                    </button>
+                  </div>
                 </div>
               </form>
             )}
