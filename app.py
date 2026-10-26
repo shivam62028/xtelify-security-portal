@@ -5614,33 +5614,112 @@ async def snapshot_timeline(format_filter: str = None):
     if not _is_mongo_available():
         return JSONResponse(status_code=503, content={"error": "MongoDB unavailable"})
     try:
-        query = {}
-        if format_filter:
-            query["SourceFormat"] = format_filter
+        format_matchers = {
+            "CONTAINER": ["CONTAINER", "Container", "container"],
+            "CSPM": ["CSPM", "cspm"],
+            "SAST_DAST": ["SAST_DAST", "SAST/DAST", "sast_dast", "SAST-DAST"],
+            "VAPT": ["VAPT", "vapt"],
+        }
+        
+        base_deleted_cond = {"$or": [{"DeletedAt": {"$exists": False}}, {"DeletedAt": None}]}
+        matched_fmts = None
+        if format_filter and format_filter.upper() != "ALL":
+            fmt_upper = format_filter.upper()
+            matched_fmts = format_matchers.get(fmt_upper, [format_filter, fmt_upper, format_filter.capitalize()])
+            if fmt_upper == "CONTAINER":
+                fmt_cond = {
+                    "$or": [
+                        {"SourceFormat": {"$in": matched_fmts}},
+                        {"SourceFormat": {"$exists": False}},
+                        {"SourceFormat": None},
+                        {"SourceFormat": ""}
+                    ]
+                }
+            else:
+                fmt_cond = {"SourceFormat": {"$in": matched_fmts}}
+            query = {"$and": [base_deleted_cond, fmt_cond]}
+        else:
+            query = base_deleted_cond
+
         uploads = list(upload_history_collection.find(query, {"_id": 0}).sort("UploadedAt", 1))
+
+        batch_ids = [u.get("UploadBatch") for u in uploads if u.get("UploadBatch") and u.get("UploadBatch") != "NA"]
+
+        # Also find any batches in issues_collection matching format not in upload_history
+        if matched_fmts:
+            if format_filter.upper() == "CONTAINER":
+                issues_fmt_query = {
+                    "$or": [
+                        {"SourceFormat": {"$in": matched_fmts}},
+                        {"SourceFormat": {"$exists": False}},
+                        {"SourceFormat": None},
+                        {"SourceFormat": ""}
+                    ]
+                }
+            else:
+                issues_fmt_query = {"SourceFormat": {"$in": matched_fmts}}
+        else:
+            issues_fmt_query = {}
+
+        distinct_batches = issues_collection.distinct("UploadBatch", issues_fmt_query)
+        for b in distinct_batches:
+            if b and b != "NA" and b not in batch_ids:
+                batch_ids.append(b)
+                uploads.append({
+                    "UploadBatch": b,
+                    "FileName": f"{b}.xlsx" if not str(b).endswith(".xlsx") else b,
+                    "SourceFormat": format_filter or "CONTAINER",
+                    "UploadedAt": datetime.now(timezone.utc)
+                })
+
+        # Fast aggregation across all batches in issues_collection directly in Mongo
+        stats_map = {}
+        if batch_ids:
+            agg_pipeline = [
+                {"$match": {"UploadBatch": {"$in": batch_ids}}},
+                {"$group": {
+                    "_id": "$UploadBatch",
+                    "total": {"$sum": 1},
+                    "open": {"$sum": {"$cond": [
+                        {"$regexMatch": {"input": {"$toLower": {"$ifNull": ["$Status", "open"]}}, "regex": r"\b(resolved|closed|fixed|mitigated|accepted|false positive)\b"}},
+                        0,
+                        1
+                    ]}},
+                    "resolved": {"$sum": {"$cond": [
+                        {"$regexMatch": {"input": {"$toLower": {"$ifNull": ["$Status", "open"]}}, "regex": r"\b(resolved|closed|fixed|mitigated|accepted|false positive)\b"}},
+                        1,
+                        0
+                    ]}},
+                    "Critical": {"$sum": {"$cond": [{"$in": [{"$toLower": {"$ifNull": ["$Severity", ""]}}, ["critical", "crit"]]}, 1, 0]}},
+                    "High": {"$sum": {"$cond": [{"$eq": [{"$toLower": {"$ifNull": ["$Severity", ""]}}, "high"]}, 1, 0]}},
+                    "Medium": {"$sum": {"$cond": [{"$in": [{"$toLower": {"$ifNull": ["$Severity", ""]}}, ["medium", "med"]]}, 1, 0]}},
+                    "Low": {"$sum": {"$cond": [{"$eq": [{"$toLower": {"$ifNull": ["$Severity", ""]}}, "low"]}, 1, 0]}},
+                }}
+            ]
+            for doc in issues_collection.aggregate(agg_pipeline, allowDiskUse=True):
+                stats_map[doc["_id"]] = doc
 
         timeline = []
         for u in uploads:
             batch = u.get("UploadBatch", "")
-            issues = list(issues_collection.find({"UploadBatch": batch}))
-            total = len(issues)
-            open_count = sum(1 for i in issues if "resolved" not in str(i.get("Status", "")).lower()
-                            and "closed" not in str(i.get("Status", "")).lower()
-                            and "fixed" not in str(i.get("Status", "")).lower()
-                            and "mitigated" not in str(i.get("Status", "")).lower())
-            resolved_count = total - open_count
+            if not batch or batch == "NA":
+                continue
 
-            sev_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
-            for i in issues:
-                s = str(i.get("Severity", "")).strip().lower()
-                if s in ("critical", "crit"):
-                    sev_counts["Critical"] += 1
-                elif s == "high":
-                    sev_counts["High"] += 1
-                elif s in ("medium", "med"):
-                    sev_counts["Medium"] += 1
-                elif s == "low":
-                    sev_counts["Low"] += 1
+            # Robust matching: direct key or prefix/multi-sheet matches
+            matching_keys = [k for k in stats_map if k == batch or str(k).startswith(f"{batch}___") or (len(str(k)) > 3 and str(batch).startswith(str(k)))]
+            if matching_keys:
+                total = sum(stats_map[k].get("total", 0) for k in matching_keys)
+                open_count = sum(stats_map[k].get("open", 0) for k in matching_keys)
+                resolved_count = sum(stats_map[k].get("resolved", 0) for k in matching_keys)
+                crit_count = sum(stats_map[k].get("Critical", 0) for k in matching_keys)
+                high_count = sum(stats_map[k].get("High", 0) for k in matching_keys)
+                med_count = sum(stats_map[k].get("Medium", 0) for k in matching_keys)
+                low_count = sum(stats_map[k].get("Low", 0) for k in matching_keys)
+            else:
+                total = u.get("RecordCount", 0)
+                open_count = total
+                resolved_count = 0
+                crit_count = high_count = med_count = low_count = 0
 
             uploaded_at = u.get("UploadedAt", "")
             if isinstance(uploaded_at, datetime):
@@ -5649,15 +5728,30 @@ async def snapshot_timeline(format_filter: str = None):
             timeline.append({
                 "batch": batch,
                 "fileName": u.get("FileName", batch),
-                "uploadedAt": uploaded_at,
-                "sourceFormat": u.get("SourceFormat", "UNKNOWN"),
+                "uploadedAt": str(uploaded_at),
+                "sourceFormat": u.get("SourceFormat", "CONTAINER"),
                 "total": total,
                 "open": open_count,
                 "resolved": resolved_count,
-                **sev_counts,
+                "Critical": crit_count,
+                "High": high_count,
+                "Medium": med_count,
+                "Low": low_count,
             })
 
-        return {"timeline": timeline}
+        # Sort chronologically ascending
+        timeline.sort(key=lambda x: str(x.get("uploadedAt", "")))
+
+        total_vulns = sum(t["total"] for t in timeline)
+        total_open = sum(t["open"] for t in timeline)
+        total_resolved = sum(t["resolved"] for t in timeline)
+
+        return {
+            "timeline": timeline,
+            "total_vulnerabilities": total_vulns,
+            "total_open": total_open,
+            "total_resolved": total_resolved
+        }
     except Exception as e:
         import traceback
         print(traceback.format_exc())

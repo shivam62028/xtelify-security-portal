@@ -74,3 +74,18 @@
   - Dispatches to all recipients provided by the user.
 
 
+
+### Trend Analysis & Dashboard Vulnerability Count Synchronization
+- **Problem**:
+  - The Dashboard (Image 2) displayed 275,871 total vulnerabilities across 5 uploaded datasets for CONTAINER (Image 3), but the Multi-Upload Trend Analysis view (Image 1) showed only 1 dataset and 100 vulnerabilities.
+  - Root cause: In `src/App.tsx`, `allIssues` in React state only contained page 1 (100 items from `/api/db?page=1&limit=100`), which all belonged to a single batch. `MultiUploadTrendAnalysis` was computing its dataset list solely by grouping `allIssues`, causing it to miss the other 4 datasets and 275,771 findings stored in MongoDB.
+- **Backend Fix (`app.py`)**:
+  - Updated `/api/analytics/snapshot-timeline` to use high-performance MongoDB `$match` and `$group` aggregations across `issues_collection` and `upload_history_collection`.
+  - Added case-insensitive format matching (`CONTAINER`, `Container`, `container`) and soft-delete filtering (`DeletedAt` missing or `None`).
+  - Added prefix and multi-sheet aggregation matching so that multi-sheet uploads or batch suffixes are properly summed together.
+  - Endpoint returns the full timeline of uploads along with `total_vulnerabilities`, `total_open`, and `total_resolved` directly from MongoDB.
+- **Frontend Fix (`src/components/MultiUploadTrendAnalysis.tsx`)**:
+  - Added `fetchRemoteTimeline` querying `/api/analytics/snapshot-timeline` with `selectedMod`.
+  - Extended fallback dataset registration using `batches` and `batchFormats` passed from `App.tsx` metadata.
+  - Aligned the KPI card row from 4 to 5 cards matching Dashboard styling: Total Vulnerabilities (275,871), Active Open Backlog, Cumulative Resolved, Net Influx Rate, and Uploads Tracked.
+  - Added live "Total: X VUL across Y Datasets" badge in the subheader, dataset reload button (`RefreshCw`), and formatted all counts with `.toLocaleString()`.

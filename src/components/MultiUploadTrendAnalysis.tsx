@@ -48,6 +48,10 @@ export interface HistoricalUploadDataset {
   totalCount: number;
   openCount: number;
   resolvedCount: number;
+  critical?: number;
+  high?: number;
+  medium?: number;
+  low?: number;
 }
 
 export interface TransitionItem {
@@ -181,6 +185,17 @@ export const normalizeSeverity = (sev: any): "Critical" | "High" | "Medium" | "L
   return "Unknown";
 };
 
+// richyrik: Backend base URL helper
+const BACKEND_URL = (() => {
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return "http://127.0.0.1:8000";
+    }
+  }
+  return "";
+})();
+
 export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> = ({
   darkMode,
   activeModule = "CONTAINER",
@@ -194,6 +209,12 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
   const [selectedMod, setSelectedMod] = useState<string>(() => {
     return activeModule && activeModule !== "All" ? activeModule : "CONTAINER";
   });
+
+  // richyrik: Remote datasets fetched from MongoDB backend timeline API
+  const [remoteDatasets, setRemoteDatasets] = useState<HistoricalUploadDataset[]>([]);
+  const [isLoadingDatasets, setIsLoadingDatasets] = useState<boolean>(true);
+  const [remoteSummary, setRemoteSummary] = useState<{ total: number; open: number; resolved: number } | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // richyrik: Multi-select datasets state - allows selecting any number of datasets
   const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>([]);
@@ -213,6 +234,76 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
   const [auditPage, setAuditPage] = useState<number>(1);
   const [rowsPerPage, setRowsPerPage] = useState<number>(10);
 
+  // richyrik: Fetch timeline datasets from database for the active module
+  const fetchRemoteTimeline = async (mod: string) => {
+    setIsLoadingDatasets(true);
+    setFetchError(null);
+    try {
+      const targetFormat = mod && mod !== "All" ? mod : "";
+      const url = targetFormat
+        ? `${BACKEND_URL}/api/analytics/snapshot-timeline?format_filter=${encodeURIComponent(targetFormat)}`
+        : `${BACKEND_URL}/api/analytics/snapshot-timeline`;
+      const res = await fetch(url, { mode: "cors" });
+      if (!res.ok) {
+        throw new Error(`Failed to load timeline: ${res.status}`);
+      }
+      const data = await res.json();
+      const timeline = Array.isArray(data.timeline) ? data.timeline : [];
+
+      const parsed: HistoricalUploadDataset[] = timeline.map((item: any, idx: number) => {
+        const rawDate = item.uploadedAt || "";
+        let parsedTimestamp = rawDate ? new Date(rawDate).getTime() : NaN;
+        if (isNaN(parsedTimestamp)) {
+          parsedTimestamp = Date.now() - (timeline.length - idx) * 86400000;
+        }
+        const dateStr = rawDate
+          ? new Date(rawDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+          : `Upload ${idx + 1}`;
+        const fName = item.fileName || item.batch || `upload_${idx + 1}.xlsx`;
+        const matchingLocalIssues = (allIssues || []).filter((i: any) =>
+          (i.UploadBatch === item.batch || i.FileName === item.fileName)
+        );
+
+        return {
+          id: item.batch,
+          label: `${dateStr} (${fName.length > 20 ? fName.slice(0, 18) + '...' : fName})`,
+          fileName: fName,
+          uploadedAt: rawDate || new Date(parsedTimestamp).toISOString(),
+          timestamp: parsedTimestamp,
+          sourceFormat: item.sourceFormat || mod,
+          issues: matchingLocalIssues,
+          totalCount: Number(item.total || 0),
+          openCount: Number(item.open || 0),
+          resolvedCount: Number(item.resolved || 0),
+          critical: Number(item.Critical || 0),
+          high: Number(item.High || 0),
+          medium: Number(item.Medium || 0),
+          low: Number(item.Low || 0),
+        };
+      });
+
+      parsed.sort((a, b) => a.timestamp - b.timestamp);
+      setRemoteDatasets(parsed);
+      if (data.total_vulnerabilities !== undefined) {
+        setRemoteSummary({
+          total: data.total_vulnerabilities,
+          open: data.total_open,
+          resolved: data.total_resolved,
+        });
+      }
+    } catch (err: any) {
+      console.warn("[MultiUploadTrendAnalysis] Error loading remote timeline:", err);
+      setFetchError(err.message || "Failed to load datasets");
+    } finally {
+      setIsLoadingDatasets(false);
+    }
+  };
+
+  // richyrik: Automatically fetch remote timeline on mount and module change
+  useEffect(() => {
+    fetchRemoteTimeline(selectedMod);
+  }, [selectedMod]);
+
   // richyrik: Synchronize module change
   const handleModuleChange = (mod: string) => {
     setSelectedMod(mod);
@@ -222,39 +313,46 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // 1. Extract Real Historical Datasets from Database / allIssues
-  // (Strictly NO dummy or mock data: if 0 datasets exist, returns empty array)
+  // 1. Extract Real Historical Datasets from Database (remote or fallback allIssues)
   // ─────────────────────────────────────────────────────────────────────────────
   const availableDatasets = useMemo(() => {
+    // If backend provided true dataset metadata, prioritize it
+    if (remoteDatasets && remoteDatasets.length > 0) {
+      return remoteDatasets;
+    }
+
     const targetModule = selectedMod;
-    if (!allIssues || allIssues.length === 0) {
-      return [];
-    }
-
-    // Filter issues belonging to the active module
-    const relevantLiveIssues = allIssues.filter(issue => {
-      if (targetModule === "All") return true;
-      const fmt = (issue.SourceFormat || batchFormats[issue.UploadBatch] || "CONTAINER").toUpperCase();
-      return fmt === targetModule.toUpperCase();
-    });
-
-    if (relevantLiveIssues.length === 0) {
-      return [];
-    }
-
-    // Group issues by UploadBatch (or fallback to FileName)
     const batchMap: Record<string, any[]> = {};
-    relevantLiveIssues.forEach(i => {
-      const b = i.UploadBatch || i.FileName || "batch_upload";
-      if (!batchMap[b]) batchMap[b] = [];
-      batchMap[b].push(i);
+
+    // Group any loaded in-memory issues
+    (allIssues || []).forEach(issue => {
+      const fmt = (issue.SourceFormat || batchFormats[issue.UploadBatch] || "CONTAINER").toUpperCase();
+      if (targetModule === "All" || fmt === targetModule.toUpperCase()) {
+        const b = issue.UploadBatch || issue.FileName || "batch_upload";
+        if (!batchMap[b]) batchMap[b] = [];
+        batchMap[b].push(issue);
+      }
     });
+
+    // Also register any batches passed via props from App metadata
+    if (batches && batches.length > 0) {
+      batches.forEach(b => {
+        const fmt = (batchFormats[b] || "CONTAINER").toUpperCase();
+        if (targetModule === "All" || fmt === targetModule.toUpperCase()) {
+          if (!batchMap[b]) {
+            batchMap[b] = [];
+          }
+        }
+      });
+    }
 
     const batchKeys = Object.keys(batchMap);
+    if (batchKeys.length === 0) {
+      return [];
+    }
 
-    // Map each batch to a HistoricalUploadDataset
     const datasets: HistoricalUploadDataset[] = batchKeys.map((batchId, idx) => {
-      const issuesInBatch = batchMap[batchId];
+      const issuesInBatch = batchMap[batchId] || [];
       const firstIssue = issuesInBatch[0] || {};
       const rawDate = firstIssue.UploadedAt || firstIssue.DiscoveredDate || firstIssue.Date || "";
       let parsedTimestamp = rawDate ? new Date(rawDate).getTime() : NaN;
@@ -276,7 +374,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
         ? new Date(rawDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
         : `Upload ${idx + 1}`;
 
-      const fName = firstIssue.FileName || `${batchId}.xlsx`;
+      const fName = firstIssue.FileName || (batchId.endsWith(".xlsx") ? batchId : `${batchId}.xlsx`);
 
       return {
         id: batchId,
@@ -292,9 +390,8 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
       };
     });
 
-    // Sort chronologically ascending (earliest upload first, latest upload last)
     return datasets.sort((a, b) => a.timestamp - b.timestamp);
-  }, [allIssues, selectedMod, batchFormats]);
+  }, [remoteDatasets, allIssues, selectedMod, batches, batchFormats]);
 
   // richyrik: Initialize or synchronize selectedBatchIds with availableDatasets
   useEffect(() => {
@@ -304,7 +401,10 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
     } else {
       // Ensure only existing batch IDs remain in selectedBatchIds
       const validIds = availableDatasets.map(d => d.id);
-      setSelectedBatchIds(prev => prev.filter(id => validIds.includes(id)));
+      setSelectedBatchIds(prev => {
+        const remaining = prev.filter(id => validIds.includes(id));
+        return remaining.length > 0 ? remaining : validIds;
+      });
     }
   }, [availableDatasets, hasUserManuallySelected]);
 
@@ -359,6 +459,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
         sequentialSteps: [],
         aggregatedMetrics: {
           totalUploadsTracked: 0,
+          totalVulnerabilitiesEvaluated: 0,
           cumulativeNewlyResolved: 0,
           cumulativeNewlyIntroduced: 0,
           netInfluxCount: 0,
@@ -387,7 +488,20 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
         newlyResolved: single.resolvedCount,
         persistentOpen: single.openCount,
         noLongerPresent: 0,
-        transitions: [],
+        transitions: (single.issues || []).map(issue => ({
+          id: String(issue.IssueID || issue.DisplayID || "VULN"),
+          title: String(issue.Title || issue["Vulnerability Name"] || "Finding"),
+          asset: String(issue.AffectedAsset || issue.Application || "Asset"),
+          severity: normalizeSeverity(issue.Severity),
+          prevStatus: "Initial Baseline",
+          currStatus: isIssueResolved(issue) ? "Resolved" : "Open",
+          changeType: isIssueResolved(issue) ? "Already Resolved" : "Newly Introduced",
+          prevBatch: "None (Baseline)",
+          currBatch: single.id,
+          prevBatchLabel: "Baseline",
+          currBatchLabel: single.label,
+          cve: issue.DisplayID || issue.IssueID,
+        })),
       }];
 
       return {
@@ -395,6 +509,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
         sequentialSteps: singleSteps,
         aggregatedMetrics: {
           totalUploadsTracked: 1,
+          totalVulnerabilitiesEvaluated: single.totalCount,
           cumulativeNewlyResolved: single.resolvedCount,
           cumulativeNewlyIntroduced: single.openCount,
           netInfluxCount: 0,
@@ -416,18 +531,28 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
       const currUpload = selected[i];
       const currIssues = currUpload.issues || [];
       const currMap = new Map<string, any>();
-      let totalOpen = 0;
-      let totalResolved = 0;
 
-      currIssues.forEach(issue => {
-        const key = extractIssueKey(issue);
-        currMap.set(key, issue);
-        if (isIssueResolved(issue)) {
-          totalResolved++;
-        } else {
-          totalOpen++;
+      let totalOpen = currUpload.openCount !== undefined ? currUpload.openCount : 0;
+      let totalResolved = currUpload.resolvedCount !== undefined ? currUpload.resolvedCount : 0;
+      let totalIssues = currUpload.totalCount !== undefined ? currUpload.totalCount : (totalOpen + totalResolved);
+
+      if (currIssues.length > 0) {
+        let calcOpen = 0;
+        let calcResolved = 0;
+        currIssues.forEach(issue => {
+          currMap.set(extractIssueKey(issue), issue);
+          if (isIssueResolved(issue)) {
+            calcResolved++;
+          } else {
+            calcOpen++;
+          }
+        });
+        if (!currUpload.totalCount) {
+          totalOpen = calcOpen;
+          totalResolved = calcResolved;
+          totalIssues = currIssues.length;
         }
-      });
+      }
 
       if (i === 0) {
         // Step 1: Baseline Upload
@@ -437,7 +562,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
           fileName: currUpload.fileName,
           uploadedAt: currUpload.uploadedAt,
           batchId: currUpload.id,
-          totalIssues: currIssues.length,
+          totalIssues,
           totalOpen,
           totalResolved,
           newlyIntroduced: totalOpen,
@@ -463,10 +588,8 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
         // Sequential comparison against immediate predecessor: Upload N vs Upload N-1
         const prevUpload = selected[i - 1];
         const prevIssues = prevUpload.issues || [];
-        const prevMap = new Map<string, any>();
-        prevIssues.forEach(issue => {
-          prevMap.set(extractIssueKey(issue), issue);
-        });
+        const prevOpen = prevUpload.openCount || 0;
+        const prevResolved = prevUpload.resolvedCount || 0;
 
         let stepNewlyResolved = 0;
         let stepNewlyIntroduced = 0;
@@ -474,95 +597,29 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
         let stepNoLongerPresent = 0;
         const stepTransitions: TransitionItem[] = [];
 
-        // Check each current item against predecessor
-        currMap.forEach((currIssue, key) => {
-          const currOpen = !isIssueResolved(currIssue);
-          const cveId = String(currIssue.DisplayID || currIssue.IssueID || "VULN");
-          const title = String(currIssue.Title || currIssue["Vulnerability Name"] || "Finding");
-          const asset = String(currIssue.AffectedAsset || currIssue.Application || "Asset");
-          const sev = normalizeSeverity(currIssue.Severity);
+        if (currIssues.length > 0 && prevIssues.length > 0) {
+          const prevMap = new Map<string, any>();
+          prevIssues.forEach(issue => {
+            prevMap.set(extractIssueKey(issue), issue);
+          });
 
-          if (!prevMap.has(key)) {
-            // Newly Introduced: Items appearing in Upload N that did not exist in Upload N-1
-            stepNewlyIntroduced++;
-            stepTransitions.push({
-              id: cveId,
-              title,
-              asset,
-              severity: sev,
-              prevStatus: "Not Present",
-              currStatus: currOpen ? "Open" : "Resolved",
-              changeType: "Newly Introduced",
-              prevBatch: prevUpload.id,
-              currBatch: currUpload.id,
-              prevBatchLabel: prevUpload.label,
-              currBatchLabel: currUpload.label,
-              cve: cveId,
-            });
-          } else {
-            const prevIssue = prevMap.get(key);
-            const prevOpen = !isIssueResolved(prevIssue);
+          // Check each current item against predecessor
+          currMap.forEach((currIssue, key) => {
+            const currOpen = !isIssueResolved(currIssue);
+            const cveId = String(currIssue.DisplayID || currIssue.IssueID || "VULN");
+            const title = String(currIssue.Title || currIssue["Vulnerability Name"] || "Finding");
+            const asset = String(currIssue.AffectedAsset || currIssue.Application || "Asset");
+            const sev = normalizeSeverity(currIssue.Severity);
 
-            if (prevOpen && !currOpen) {
-              // Newly Resolved: Items present and Open/Pending in Upload N-1 that show as Closed/Resolved in Upload N
-              stepNewlyResolved++;
-              stepTransitions.push({
-                id: cveId,
-                title,
-                asset,
-                severity: sev,
-                prevStatus: "Open",
-                currStatus: "Closed / Resolved",
-                changeType: "Newly Resolved",
-                prevBatch: prevUpload.id,
-                currBatch: currUpload.id,
-                prevBatchLabel: prevUpload.label,
-                currBatchLabel: currUpload.label,
-                cve: cveId,
-              });
-            } else if (prevOpen && currOpen) {
-              // Persistent Open: Items remaining open across sequential uploads
-              stepPersistentOpen++;
-              stepTransitions.push({
-                id: cveId,
-                title,
-                asset,
-                severity: sev,
-                prevStatus: "Open (Prior Scan)",
-                currStatus: "Still Open",
-                changeType: "Persistent Open",
-                prevBatch: prevUpload.id,
-                currBatch: currUpload.id,
-                prevBatchLabel: prevUpload.label,
-                currBatchLabel: currUpload.label,
-                cve: cveId,
-              });
-            } else if (!prevOpen && !currOpen) {
-              // Already Resolved
-              stepTransitions.push({
-                id: cveId,
-                title,
-                asset,
-                severity: sev,
-                prevStatus: "Closed",
-                currStatus: "Closed",
-                changeType: "Already Resolved",
-                prevBatch: prevUpload.id,
-                currBatch: currUpload.id,
-                prevBatchLabel: prevUpload.label,
-                currBatchLabel: currUpload.label,
-                cve: cveId,
-              });
-            } else {
-              // Reopened
+            if (!prevMap.has(key)) {
               stepNewlyIntroduced++;
               stepTransitions.push({
                 id: cveId,
                 title,
                 asset,
                 severity: sev,
-                prevStatus: "Closed (Reopened)",
-                currStatus: "Open",
+                prevStatus: "Not Present",
+                currStatus: currOpen ? "Open" : "Resolved",
                 changeType: "Newly Introduced",
                 prevBatch: prevUpload.id,
                 currBatch: currUpload.id,
@@ -570,40 +627,115 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
                 currBatchLabel: currUpload.label,
                 cve: cveId,
               });
+            } else {
+              const prevIssue = prevMap.get(key);
+              const pOpen = !isIssueResolved(prevIssue);
+
+              if (pOpen && !currOpen) {
+                stepNewlyResolved++;
+                stepTransitions.push({
+                  id: cveId,
+                  title,
+                  asset,
+                  severity: sev,
+                  prevStatus: "Open",
+                  currStatus: "Closed / Resolved",
+                  changeType: "Newly Resolved",
+                  prevBatch: prevUpload.id,
+                  currBatch: currUpload.id,
+                  prevBatchLabel: prevUpload.label,
+                  currBatchLabel: currUpload.label,
+                  cve: cveId,
+                });
+              } else if (pOpen && currOpen) {
+                stepPersistentOpen++;
+                stepTransitions.push({
+                  id: cveId,
+                  title,
+                  asset,
+                  severity: sev,
+                  prevStatus: "Open (Prior Scan)",
+                  currStatus: "Still Open",
+                  changeType: "Persistent Open",
+                  prevBatch: prevUpload.id,
+                  currBatch: currUpload.id,
+                  prevBatchLabel: prevUpload.label,
+                  currBatchLabel: currUpload.label,
+                  cve: cveId,
+                });
+              } else if (!pOpen && !currOpen) {
+                stepTransitions.push({
+                  id: cveId,
+                  title,
+                  asset,
+                  severity: sev,
+                  prevStatus: "Closed",
+                  currStatus: "Closed",
+                  changeType: "Already Resolved",
+                  prevBatch: prevUpload.id,
+                  currBatch: currUpload.id,
+                  prevBatchLabel: prevUpload.label,
+                  currBatchLabel: currUpload.label,
+                  cve: cveId,
+                });
+              } else {
+                stepNewlyIntroduced++;
+                stepTransitions.push({
+                  id: cveId,
+                  title,
+                  asset,
+                  severity: sev,
+                  prevStatus: "Closed (Reopened)",
+                  currStatus: "Open",
+                  changeType: "Newly Introduced",
+                  prevBatch: prevUpload.id,
+                  currBatch: currUpload.id,
+                  prevBatchLabel: prevUpload.label,
+                  currBatchLabel: currUpload.label,
+                  cve: cveId,
+                });
+              }
             }
-          }
-        });
+          });
 
-        // Check predecessor items dropped in current scan (remediated and omitted)
-        prevMap.forEach((prevIssue, key) => {
-          if (!currMap.has(key)) {
-            const prevOpen = !isIssueResolved(prevIssue);
-            const cveId = String(prevIssue.DisplayID || prevIssue.IssueID || "VULN");
-            const title = String(prevIssue.Title || prevIssue["Vulnerability Name"] || "Finding");
-            const asset = String(prevIssue.AffectedAsset || prevIssue.Application || "Asset");
-            const sev = normalizeSeverity(prevIssue.Severity);
+          // Check predecessor items dropped in current scan
+          prevMap.forEach((prevIssue, key) => {
+            if (!currMap.has(key)) {
+              const pOpen = !isIssueResolved(prevIssue);
+              const cveId = String(prevIssue.DisplayID || prevIssue.IssueID || "VULN");
+              const title = String(prevIssue.Title || prevIssue["Vulnerability Name"] || "Finding");
+              const asset = String(prevIssue.AffectedAsset || prevIssue.Application || "Asset");
+              const sev = normalizeSeverity(prevIssue.Severity);
 
-            stepNoLongerPresent++;
-            if (prevOpen) {
-              stepNewlyResolved++; // Scanner omission signifies remediation
+              stepNoLongerPresent++;
+              if (pOpen) {
+                stepNewlyResolved++;
+              }
+
+              stepTransitions.push({
+                id: cveId,
+                title,
+                asset,
+                severity: sev,
+                prevStatus: pOpen ? "Open" : "Closed",
+                currStatus: "No Longer Present (Remediated)",
+                changeType: pOpen ? "Newly Resolved" : "No Longer Present",
+                prevBatch: prevUpload.id,
+                currBatch: currUpload.id,
+                prevBatchLabel: prevUpload.label,
+                currBatchLabel: currUpload.label,
+                cve: cveId,
+              });
             }
-
-            stepTransitions.push({
-              id: cveId,
-              title,
-              asset,
-              severity: sev,
-              prevStatus: prevOpen ? "Open" : "Closed",
-              currStatus: "No Longer Present (Remediated)",
-              changeType: prevOpen ? "Newly Resolved" : "No Longer Present",
-              prevBatch: prevUpload.id,
-              currBatch: currUpload.id,
-              prevBatchLabel: prevUpload.label,
-              currBatchLabel: currUpload.label,
-              cve: cveId,
-            });
-          }
-        });
+          });
+        } else {
+          // Robust dataset-level metric calculation
+          const openDelta = totalOpen - prevOpen;
+          stepNewlyIntroduced = openDelta > 0 ? openDelta : 0;
+          const resolvedDelta = Math.max(0, totalResolved - prevResolved);
+          stepNewlyResolved = resolvedDelta > 0 ? resolvedDelta : (openDelta < 0 ? Math.abs(openDelta) : 0);
+          stepPersistentOpen = Math.min(prevOpen, totalOpen);
+        }
 
         cumulativeNewlyResolved += stepNewlyResolved;
         cumulativeNewlyIntroduced += stepNewlyIntroduced;
@@ -614,7 +746,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
           fileName: currUpload.fileName,
           uploadedAt: currUpload.uploadedAt,
           batchId: currUpload.id,
-          totalIssues: currIssues.length,
+          totalIssues,
           totalOpen,
           totalResolved,
           newlyIntroduced: stepNewlyIntroduced,
@@ -629,6 +761,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
     // Step C: Aggregated Metrics
     const initialBaselineOpen = steps[0]?.totalOpen || 0;
     const currentLatestOpen = steps[steps.length - 1]?.totalOpen || 0;
+    const totalFindingsSum = selected.reduce((acc, d) => acc + (d.totalCount || 0), 0);
     const netInfluxCount = currentLatestOpen - initialBaselineOpen;
     const netInfluxPct = initialBaselineOpen > 0
       ? (((currentLatestOpen - initialBaselineOpen) / initialBaselineOpen) * 100).toFixed(1)
@@ -636,6 +769,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
 
     const metrics = {
       totalUploadsTracked: selected.length,
+      totalVulnerabilitiesEvaluated: totalFindingsSum,
       cumulativeNewlyResolved,
       cumulativeNewlyIntroduced,
       netInfluxCount,
@@ -799,12 +933,19 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
               <TrendingUp size={22} />
             </div>
             <div>
-              <h2 className="text-xl font-black tracking-tight flex items-center gap-2">
-                Multi-Upload Trend Analysis
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30">
-                  Sequential Progression
-                </span>
-              </h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-xl font-black tracking-tight flex items-center gap-2">
+                  Multi-Upload Trend Analysis
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30">
+                    Sequential Progression
+                  </span>
+                </h2>
+                {availableDatasets.length > 0 && (
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/30">
+                    Total: {(remoteSummary?.total || availableDatasets.reduce((acc, d) => acc + d.totalCount, 0)).toLocaleString()} VUL across {availableDatasets.length} Datasets
+                  </span>
+                )}
+              </div>
               <p className={`text-xs mt-0.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                 Continuous chronological delta tracking across database uploads for {selectedMod}
               </p>
@@ -812,8 +953,19 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
           </div>
         </div>
 
-        {/* Module switcher & back action */}
+        {/* Module switcher & actions */}
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => fetchRemoteTimeline(selectedMod)}
+            disabled={isLoadingDatasets}
+            className={`p-2 rounded-xl border transition-all ${
+              darkMode ? "border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300" : "border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700"
+            }`}
+            title="Refresh datasets from database"
+          >
+            <RefreshCw size={14} className={isLoadingDatasets ? "animate-spin text-violet-400" : ""} />
+          </button>
+
           {onBack && (
             <button
               onClick={onBack}
@@ -852,7 +1004,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
       {/* ─────────────────────────────────────────────────────────────────────────────
           EMPTY STATE: ZERO DATASETS IN DATABASE FOR THIS MODULE
       ───────────────────────────────────────────────────────────────────────────── */}
-      {availableDatasets.length === 0 ? (
+      {!isLoadingDatasets && availableDatasets.length === 0 ? (
         <div className={`p-12 text-center rounded-2xl border ${
           darkMode ? "bg-slate-800/30 border-slate-800 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-600"
         }`}>
@@ -944,51 +1096,60 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
               </div>
             </div>
 
-            {/* Interactive Dataset Cards with Checkboxes */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {availableDatasets.map((ds, idx) => {
-                const isSelected = selectedBatchIds.includes(ds.id);
-                return (
-                  <div
-                    key={ds.id}
-                    onClick={() => handleToggleBatch(ds.id)}
-                    className={`p-3 rounded-xl border cursor-pointer select-none transition-all flex flex-col justify-between ${
-                      isSelected
-                        ? darkMode
-                          ? "bg-violet-950/30 border-violet-500/50 shadow-sm ring-1 ring-violet-500/30"
-                          : "bg-violet-50 border-violet-300 shadow-sm ring-1 ring-violet-300"
-                        : darkMode
-                          ? "bg-slate-900/60 border-slate-800 opacity-60 hover:opacity-100 hover:border-slate-700"
-                          : "bg-white border-slate-200 opacity-60 hover:opacity-100 hover:border-slate-300"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black ${
-                          isSelected ? "bg-violet-600 text-white" : "bg-slate-700 text-slate-300"
-                        }`}>
-                          #{idx + 1}
-                        </span>
-                        <span className="text-xs font-bold truncate max-w-[150px]" title={ds.fileName}>
-                          {ds.fileName}
-                        </span>
+            {/* Loading state indicator */}
+            {isLoadingDatasets && availableDatasets.length === 0 ? (
+              <div className="flex items-center justify-center py-10 gap-3 text-slate-400 text-xs">
+                <RefreshCw size={16} className="animate-spin text-violet-400" />
+                <span>Loading historical upload datasets from database...</span>
+              </div>
+            ) : (
+              /* Interactive Dataset Cards with Checkboxes */
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                {availableDatasets.map((ds, idx) => {
+                  const isSelected = selectedBatchIds.includes(ds.id);
+                  return (
+                    <div
+                      key={ds.id}
+                      onClick={() => handleToggleBatch(ds.id)}
+                      className={`p-3 rounded-xl border cursor-pointer select-none transition-all flex flex-col justify-between ${
+                        isSelected
+                          ? darkMode
+                            ? "bg-violet-950/30 border-violet-500/50 shadow-sm ring-1 ring-violet-500/30"
+                            : "bg-violet-50 border-violet-300 shadow-sm ring-1 ring-violet-300"
+                          : darkMode
+                            ? "bg-slate-900/60 border-slate-800 opacity-60 hover:opacity-100 hover:border-slate-700"
+                            : "bg-white border-slate-200 opacity-60 hover:opacity-100 hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black ${
+                            isSelected ? "bg-violet-600 text-white" : "bg-slate-700 text-slate-300"
+                          }`}>
+                            #{idx + 1}
+                          </span>
+                          <span className="text-xs font-bold truncate max-w-[130px]" title={ds.fileName}>
+                            {ds.fileName}
+                          </span>
+                        </div>
+                        <div className="text-violet-400">
+                          {isSelected ? <CheckSquare size={16} /> : <Square size={16} className="text-slate-500" />}
+                        </div>
                       </div>
-                      <div className="text-violet-400">
-                        {isSelected ? <CheckSquare size={16} /> : <Square size={16} className="text-slate-500" />}
-                      </div>
-                    </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-700/40">
-                      <span>{ds.label.split(" (")[0]}</span>
-                      <div className="flex items-center gap-2 font-mono">
-                        <span className="text-red-400 font-bold" title="Open Issues">{ds.openCount} open</span>
-                        <span className="text-emerald-400 font-bold" title="Resolved Issues">{ds.resolvedCount} res</span>
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-700/40">
+                        <span>{ds.label.split(" (")[0]}</span>
+                        <div className="flex items-center gap-2 font-mono text-[10px]">
+                          <span className="text-indigo-400 font-bold" title="Total Findings">{ds.totalCount.toLocaleString()} total</span>
+                          <span className="text-red-400 font-bold" title="Open Issues">{ds.openCount.toLocaleString()} open</span>
+                          <span className="text-emerald-400 font-bold" title="Resolved Issues">{ds.resolvedCount.toLocaleString()} res</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* ─────────────────────────────────────────────────────────────────────────────
@@ -1024,19 +1185,19 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className={`p-5 rounded-2xl border ${darkMode ? "bg-slate-800/70 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total Findings</span>
-                  <p className="text-3xl font-black text-indigo-400 mt-1">{evaluatedDatasets[0].totalCount}</p>
+                  <p className="text-3xl font-black text-indigo-400 mt-1">{evaluatedDatasets[0].totalCount.toLocaleString()}</p>
                   <p className="text-[11px] text-slate-400 mt-1">{evaluatedDatasets[0].fileName}</p>
                 </div>
 
                 <div className={`p-5 rounded-2xl border ${darkMode ? "bg-slate-800/70 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Open Findings</span>
-                  <p className="text-3xl font-black text-red-400 mt-1">{evaluatedDatasets[0].openCount}</p>
+                  <p className="text-3xl font-black text-red-400 mt-1">{evaluatedDatasets[0].openCount.toLocaleString()}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Requires remediation</p>
                 </div>
 
                 <div className={`p-5 rounded-2xl border ${darkMode ? "bg-slate-800/70 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Resolved Findings</span>
-                  <p className="text-3xl font-black text-[#10B981] mt-1">{evaluatedDatasets[0].resolvedCount}</p>
+                  <p className="text-3xl font-black text-[#10B981] mt-1">{evaluatedDatasets[0].resolvedCount.toLocaleString()}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Closed / mitigated</p>
                 </div>
               </div>
@@ -1049,33 +1210,53 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
           {evaluatedDatasets.length >= 2 && (
             <>
               {/* ─────────────────────────────────────────────────────────────────────────────
-                  AGGREGATED KPI CARDS
+                  AGGREGATED 5-CARD KPI ROW (Matching Dashboard Style)
               ───────────────────────────────────────────────────────────────────────────── */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                {/* Total Uploads Tracked */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                {/* 1. Total Vulnerabilities (Matching Dashboard Count) */}
                 <div className={`p-5 rounded-2xl border transition-all ${
                   darkMode ? "bg-slate-800/70 border-slate-700/80" : "bg-slate-50 border-slate-200"
                 }`}>
                   <div className="flex items-center justify-between text-indigo-400 mb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total Uploads Tracked</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total Vulnerabilities</span>
                     <div className="p-1.5 rounded-lg bg-indigo-500/15">
-                      <Database size={17} />
+                      <Shield size={17} />
                     </div>
                   </div>
-                  <p className="text-3xl font-black text-indigo-400">{aggregatedMetrics.totalUploadsTracked}</p>
+                  <p className="text-3xl font-black text-indigo-400">
+                    {((aggregatedMetrics as any).totalVulnerabilitiesEvaluated ? (aggregatedMetrics as any).totalVulnerabilitiesEvaluated.toLocaleString() : evaluatedDatasets.reduce((acc, d) => acc + d.totalCount, 0).toLocaleString())}
+                  </p>
                   <p className={`text-[11px] mt-1.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                    Selected uploads evaluated in sequence
+                    Across {selectedBatchIds.length} selected dataset uploads
                   </p>
                 </div>
 
-                {/* Cumulative Newly Resolved (Highlighted in Emerald Green #10B981) */}
+                {/* 2. Active Open Backlog (Unresolved Findings) */}
+                <div className={`p-5 rounded-2xl border transition-all ${
+                  darkMode ? "bg-slate-800/70 border-slate-700/80" : "bg-slate-50 border-slate-200"
+                }`}>
+                  <div className="flex items-center justify-between text-red-500 mb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Active Open Backlog</span>
+                    <div className="p-1.5 rounded-lg bg-red-500/15 text-red-400">
+                      <AlertCircle size={17} />
+                    </div>
+                  </div>
+                  <p className="text-3xl font-black text-red-500">
+                    {aggregatedMetrics.currentLatestOpen.toLocaleString()}
+                  </p>
+                  <p className={`text-[11px] mt-1.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                    Unresolved findings in latest snapshot
+                  </p>
+                </div>
+
+                {/* 3. Cumulative Newly Resolved (Highlighted in Emerald Green #10B981) */}
                 <div className={`p-5 rounded-2xl border transition-all relative overflow-hidden ${
                   darkMode ? "bg-emerald-950/20 border-emerald-600/40" : "bg-emerald-50/70 border-emerald-300"
                 }`}>
                   <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
                   <div className="flex items-center justify-between text-[#10B981] mb-2">
                     <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#10B981]">
-                      Cumulative Newly Resolved
+                      Cumulative Resolved
                     </span>
                     <div className="p-1.5 rounded-lg bg-emerald-500/20 text-[#10B981] ring-1 ring-emerald-500/30">
                       <CheckCircle size={17} />
@@ -1085,11 +1266,11 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
                     {aggregatedMetrics.cumulativeNewlyResolved.toLocaleString()}
                   </p>
                   <p className="text-[11px] mt-1.5 font-medium text-emerald-400/90">
-                    Remediations across all sequential transitions
+                    Remediations tracked across transitions
                   </p>
                 </div>
 
-                {/* Net Influx Rate */}
+                {/* 4. Net Influx Rate */}
                 <div className={`p-5 rounded-2xl border transition-all ${
                   darkMode ? "bg-slate-800/70 border-slate-700/80" : "bg-slate-50 border-slate-200"
                 }`}>
@@ -1114,25 +1295,23 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
                   <p className={`text-[11px] mt-1.5 font-semibold ${
                     aggregatedMetrics.isReduction ? "text-emerald-400" : "text-red-400"
                   }`}>
-                    {aggregatedMetrics.isReduction ? "Remediation Velocity Ahead of Influx" : "Net Influx Growing — Backlog Action Required"}
+                    {aggregatedMetrics.isReduction ? "Remediation Ahead of Influx" : "Net Influx Growing"}
                   </p>
                 </div>
 
-                {/* Active Open Backlog (Latest Scan) */}
+                {/* 5. Total Uploads Tracked */}
                 <div className={`p-5 rounded-2xl border transition-all ${
                   darkMode ? "bg-slate-800/70 border-slate-700/80" : "bg-slate-50 border-slate-200"
                 }`}>
-                  <div className="flex items-center justify-between text-red-500 mb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Active Open Backlog</span>
-                    <div className="p-1.5 rounded-lg bg-red-500/15 text-red-400">
-                      <AlertCircle size={17} />
+                  <div className="flex items-center justify-between text-indigo-400 mb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Uploads Tracked</span>
+                    <div className="p-1.5 rounded-lg bg-indigo-500/15">
+                      <Database size={17} />
                     </div>
                   </div>
-                  <p className="text-3xl font-black text-red-500">
-                    {aggregatedMetrics.currentLatestOpen.toLocaleString()}
-                  </p>
+                  <p className="text-3xl font-black text-indigo-400">{aggregatedMetrics.totalUploadsTracked}</p>
                   <p className={`text-[11px] mt-1.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                    Unresolved findings in most recent dataset
+                    Selected scan datasets in sequence
                   </p>
                 </div>
               </div>
