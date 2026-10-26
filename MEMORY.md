@@ -112,3 +112,16 @@
      - When an issue previously open is resolved in a dataset, it increments stepNewlyResolved for that dataset and is added to newlyResolvedSet.
      - In all subsequent datasets where this vulnerability remains resolved, it is marked as Already Resolved (Deduplicated) and NOT counted multiple times.
      - cumulativeNewlyResolved tracks newlyResolvedSet.size, ensuring every resolved vulnerability is counted exactly once across the entire sequence.
+
+### Resolution Integrity Fix in Multi-Upload Trend Analysis
+- **Problem**:
+  - In CONTAINER (where all 5 uploads currently have 0 resolved issues in MongoDB and filtering by Status: Resolved shows 'No CONTAINER data available' in Dashboard), the Trend Analysis view showed 'Cumulative Resolved: 1,848'.
+- **Root Cause**:
+  1. In the sequential loop, items from earlier uploads that were not present in the current upload (due to different scan targets or smaller report files like 226 items vs 5,385 items) were being counted as 'Newly Resolved' via `!currMap.has(key)` and labeled 'Remediated (No Longer Present)'.
+  2. In the count fallback loop, when `openDelta < 0` (i.e. next scan file had fewer open issues than the previous scan file), the absolute delta was being assigned to `stepNewlyResolved`.
+  3. In the Delta Audit comparison table, `itemX && !itemY` was marking open issues omitted in file Y as 'Newly Resolved'.
+- **Fix Implemented**:
+  1. An issue is ONLY 'Newly Resolved' if it is present in the dataset AND explicitly marked as resolved (`currRes === true`), having been open in an earlier dataset.
+  2. Omitted items from different files are marked as 'No Longer Present' / 'Not Scanned in This Upload', NOT 'Newly Resolved'.
+  3. If all selected datasets in the database have 0 resolved issues (`totalResolvedSum === 0`), `cumulativeNewlyResolved` is strictly guaranteed to be 0, matching the real database.
+  4. Deduplicated tracking ensures that if an issue is resolved in multiple subsequent datasets, it is counted exactly once (1 time).

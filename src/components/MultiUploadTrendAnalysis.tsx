@@ -731,43 +731,37 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
             }
           });
 
-          // Check earlier open items omitted (remediated) in current upload
+          // Check earlier open items omitted in current upload (different scan scope/target)
           everSeenOpen.forEach(key => {
             if (!currMap.has(key)) {
               const det = itemDetails.get(key) || { cve: key.split("___")[0], title: "Finding", asset: "Asset", severity: "Medium" as const };
               stepNoLongerPresent++;
-              if (!newlyResolvedSet.has(key) && !baselineResolvedSet.has(key)) {
-                // Remediated / resolved progress!
-                newlyResolvedSet.add(key);
-                firstResolvedInStep.set(key, i);
-                stepNewlyResolved++;
-                stepTransitions.push({
-                  id: det.cve,
-                  title: det.title,
-                  asset: det.asset,
-                  severity: det.severity,
-                  prevStatus: "Open in Earlier Scan",
-                  currStatus: "Remediated (No Longer Present)",
-                  changeType: "Newly Resolved",
-                  prevBatch: prevUpload.id,
-                  currBatch: currUpload.id,
-                  prevBatchLabel: prevUpload.label,
-                  currBatchLabel: currUpload.label,
-                  cve: det.cve,
-                });
-              }
+              stepTransitions.push({
+                id: det.cve,
+                title: det.title,
+                asset: det.asset,
+                severity: det.severity,
+                prevStatus: "Open in Earlier Scan",
+                currStatus: "Not Scanned / Omitted in This Upload",
+                changeType: "No Longer Present",
+                prevBatch: prevUpload.id,
+                currBatch: currUpload.id,
+                prevBatchLabel: prevUpload.label,
+                currBatchLabel: currUpload.label,
+                cve: det.cve,
+              });
             }
           });
         } else {
-          // Dataset-level counts fallback
+          // Dataset-level counts fallback: strictly use actual database resolved counts
           const prevOpen = prevUpload.openCount || 0;
           const prevResolved = prevUpload.resolvedCount || 0;
           const openDelta = totalOpen - prevOpen;
           stepNewlyIntroduced = openDelta > 0 ? openDelta : 0;
           const resolvedDelta = Math.max(0, totalResolved - prevResolved);
-          stepNewlyResolved = resolvedDelta > 0 ? resolvedDelta : (openDelta < 0 ? Math.abs(openDelta) : 0);
+          stepNewlyResolved = resolvedDelta;
           stepPersistentOpen = Math.min(prevOpen, totalOpen);
-          stepNoLongerPresent = stepNewlyResolved;
+          stepNoLongerPresent = openDelta < 0 ? Math.abs(openDelta) : 0;
         }
 
         steps.push({
@@ -790,9 +784,13 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
 
     // Cumulative newly resolved across entire evaluated sequence:
     // Every resolved vulnerability is counted EXACTLY ONCE!
-    const cumulativeNewlyResolved = newlyResolvedSet.size > 0
-      ? newlyResolvedSet.size
-      : steps.slice(1).reduce((acc, s) => acc + s.newlyResolved, 0);
+    // If the database has 0 resolved findings across all selected datasets, resolution is strictly 0!
+    const totalResolvedSum = selected.reduce((acc, d) => acc + (d.resolvedCount || 0), 0);
+    const cumulativeNewlyResolved = totalResolvedSum === 0
+      ? 0
+      : (newlyResolvedSet.size > 0
+          ? newlyResolvedSet.size
+          : steps.slice(1).reduce((acc, s) => acc + s.newlyResolved, 0));
 
     const cumulativeNewlyIntroduced = steps.slice(1).reduce((acc, s) => acc + s.newlyIntroduced, 0);
 
@@ -800,6 +798,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
     const initialBaselineOpen = steps[0]?.totalOpen || 0;
     const currentLatestOpen = steps[steps.length - 1]?.totalOpen || 0;
     const totalFindingsSum = selected.reduce((acc, d) => acc + (d.totalCount || 0), 0);
+    const totalOpenSum = selected.reduce((acc, d) => acc + (d.openCount || 0), 0);
     const netInfluxCount = currentLatestOpen - initialBaselineOpen;
     const netInfluxPct = initialBaselineOpen > 0
       ? (((currentLatestOpen - initialBaselineOpen) / initialBaselineOpen) * 100).toFixed(1)
@@ -808,6 +807,8 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
     const metrics = {
       totalUploadsTracked: selected.length,
       totalVulnerabilitiesEvaluated: totalFindingsSum,
+      totalOpenSum,
+      totalResolvedSum,
       cumulativeNewlyResolved,
       cumulativeNewlyIntroduced,
       netInfluxCount,
@@ -852,10 +853,13 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
         let currStatus = itemY ? (isIssueResolved(itemY) ? "Resolved" : "Open") : "No Longer Present";
 
         if (!itemX && itemY) {
-          changeType = "Newly Introduced";
+          const yRes = isIssueResolved(itemY);
+          changeType = yRes ? "Already Resolved" : "Newly Introduced";
+          currStatus = yRes ? "Resolved" : "Newly Introduced (Open)";
         } else if (itemX && !itemY) {
-          changeType = isIssueResolved(itemX) ? "Already Resolved" : "Newly Resolved";
-          currStatus = "Omitted (Remediated)";
+          const xRes = isIssueResolved(itemX);
+          changeType = xRes ? "Already Resolved" : "No Longer Present";
+          currStatus = xRes ? "Resolved" : "Not Scanned in Target Upload";
         } else if (itemX && itemY) {
           const xRes = isIssueResolved(itemX);
           const yRes = isIssueResolved(itemY);
@@ -1288,7 +1292,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
                     {aggregatedMetrics.currentLatestOpen.toLocaleString()}
                   </p>
                   <p className={`text-[11px] mt-1.5 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                    Unresolved findings in latest snapshot
+                    Latest snapshot ({((aggregatedMetrics as any).totalOpenSum || 0).toLocaleString()} across selected)
                   </p>
                 </div>
 
@@ -1320,14 +1324,26 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Net Influx Rate</span>
                     <div className={`p-1.5 rounded-lg ${
-                      aggregatedMetrics.isReduction ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
+                      aggregatedMetrics.cumulativeNewlyResolved > 0 && aggregatedMetrics.isReduction
+                        ? "bg-emerald-500/15 text-emerald-400"
+                        : aggregatedMetrics.netInfluxCount < 0
+                          ? "bg-sky-500/15 text-sky-400"
+                          : aggregatedMetrics.netInfluxCount === 0
+                            ? "bg-slate-500/15 text-slate-400"
+                            : "bg-red-500/15 text-red-400"
                     }`}>
                       {aggregatedMetrics.isReduction ? <TrendingDown size={17} /> : <TrendingUp size={17} />}
                     </div>
                   </div>
                   <div className="flex items-baseline gap-2">
                     <p className={`text-3xl font-black ${
-                      aggregatedMetrics.isReduction ? "text-emerald-400" : "text-red-400"
+                      aggregatedMetrics.cumulativeNewlyResolved > 0 && aggregatedMetrics.isReduction
+                        ? "text-emerald-400"
+                        : aggregatedMetrics.netInfluxCount < 0
+                          ? "text-sky-400"
+                          : aggregatedMetrics.netInfluxCount === 0
+                            ? "text-slate-300"
+                            : "text-red-400"
                     }`}>
                       {aggregatedMetrics.netInfluxPct > 0 ? `+${aggregatedMetrics.netInfluxPct}%` : `${aggregatedMetrics.netInfluxPct}%`}
                     </p>
@@ -1336,9 +1352,21 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
                     </span>
                   </div>
                   <p className={`text-[11px] mt-1.5 font-semibold ${
-                    aggregatedMetrics.isReduction ? "text-emerald-400" : "text-red-400"
+                    aggregatedMetrics.cumulativeNewlyResolved > 0 && aggregatedMetrics.isReduction
+                      ? "text-emerald-400"
+                      : aggregatedMetrics.netInfluxCount < 0
+                        ? "text-sky-400"
+                        : aggregatedMetrics.netInfluxCount === 0
+                          ? "text-slate-400"
+                          : "text-red-400"
                   }`}>
-                    {aggregatedMetrics.isReduction ? "Remediation Ahead of Influx" : "Net Influx Growing"}
+                    {aggregatedMetrics.cumulativeNewlyResolved > 0 && aggregatedMetrics.isReduction
+                      ? "Remediation Ahead of Influx"
+                      : aggregatedMetrics.netInfluxCount < 0
+                        ? "Latest Upload Scope Smaller"
+                        : aggregatedMetrics.netInfluxCount === 0
+                          ? "Stable Open Backlog"
+                          : "Net Influx Growing"}
                   </p>
                 </div>
 
