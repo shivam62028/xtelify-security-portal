@@ -19,6 +19,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import airtelLogo from './airtel-logo.png';
 // richyrik: Multi-Upload Historical Tracking & Trend Analysis
 import { MultiUploadTrendAnalysis } from "./components/MultiUploadTrendAnalysis";
+import { AOPDashboardView } from "./components/AOPDashboardView";
 import {
   Shield,
   AlertTriangle,
@@ -1706,86 +1707,7 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
 
           {/* ── AOP DASHBOARD ── */}
           {activeSection === 'aop' && (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-amber-300 to-orange-400">AOP Dashboard — Annual Operating Plan</h2>
-                <p className="text-slate-400 text-sm mt-1">Planned budget vs actual spend — identify over/under utilization by quarter.</p>
-              </div>
-              {/* richyrik: AOP KPI cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                {[
-                  { label: 'Annual Planned Budget', value: aopPlanned, icon: <Target size={18} />, color: 'text-blue-400', bg: 'bg-blue-500/10 ring-blue-500/20' },
-                  { label: 'YTD Actual Spend', value: aopActual, icon: <Wallet size={18} />, color: aopActual > aopPlanned ? 'text-red-400' : 'text-emerald-400', bg: aopActual > aopPlanned ? 'bg-red-500/10 ring-red-500/20' : 'bg-emerald-500/10 ring-emerald-500/20' },
-                  { label: `Variance (${aopVariance >= 0 ? 'Over' : 'Under'})`, value: Math.abs(aopVariance), icon: aopVariance >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />, color: aopVariance >= 0 ? 'text-red-400' : 'text-emerald-400', bg: aopVariance >= 0 ? 'bg-red-500/10 ring-red-500/20' : 'bg-emerald-500/10 ring-emerald-500/20' },
-                ].map((k) => (
-                  <motion.div whileHover={{ y: -5 }} key={k.label} className={`rounded-xl p-5 border ${k.bg} bg-white/[0.03] backdrop-blur-xl border-white/[0.08] flex items-start gap-4 hover:border-white/[0.18] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)]`}>
-                    <div className={`p-2 rounded-lg bg-slate-800 ${k.color}`}>{k.icon}</div>
-                    <div>
-                      <div className={`text-2xl font-bold ${k.color}`}>
-                        <CountUpComponent end={k.value} duration={2.5} separator="," formattingFn={(val: number) => fmt(val)} />
-                      </div>
-                      <div className="text-xs text-slate-400 mt-1">{k.label}</div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-              {/* richyrik: Grouped bar chart — Planned vs Actual by quarter */}
-              <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5 mb-6 hover:border-white/[0.15] hover:bg-white/[0.05] hover:shadow-[0_12px_48px_0_rgba(0,0,0,0.5)] hover:-translate-y-1 transform transition-all duration-300">
-                <h3 className="text-sm font-semibold text-slate-300 mb-4">Planned vs Actual Spend by Quarter (₹)</h3>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={aopData} barCategoryGap="30%" barGap={8}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="quarter" stroke="#64748b" fontSize={12} />
-                    <YAxis tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} stroke="#64748b" fontSize={11} />
-                    <RechartsTooltip
-                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: 8 }}
-                      formatter={(v: any, n: string) => [fmt(v), n]}
-                    />
-                    <Legend />
-                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="planned" name="Planned Budget" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="actual" name="Actual Spend" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              {/* richyrik: Quarter-by-quarter utilization table */}
-              <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl overflow-hidden">
-                <div className="px-5 py-3 border-b border-slate-800">
-                  <h3 className="text-sm font-semibold text-slate-300">Quarter-by-Quarter Utilization</h3>
-                </div>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 border-b border-slate-800">
-                      <th className="px-5 py-3 text-left">Quarter</th>
-                      <th className="px-5 py-3 text-right">Planned</th>
-                      <th className="px-5 py-3 text-right">Actual</th>
-                      <th className="px-5 py-3 text-right">Variance</th>
-                      <th className="px-5 py-3 text-right">Utilization %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {aopData.map((row) => {
-                      const v = row.actual - row.planned;
-                      const u = Math.round((row.actual / row.planned) * 100);
-                      return (
-                        <tr key={row.quarter} className="border-b border-slate-800/60 hover:bg-slate-800/40 transition-colors">
-                          <td className="px-5 py-3 font-medium text-white">{row.quarter}</td>
-                          <td className="px-5 py-3 text-right text-slate-300">{fmt(row.planned)}</td>
-                          <td className="px-5 py-3 text-right text-slate-300">{fmt(row.actual)}</td>
-                          <td className={`px-5 py-3 text-right font-semibold ${v >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                            {v >= 0 ? '+' : ''}{fmt(v)}
-                          </td>
-                          <td className="px-5 py-3 text-right">
-                            <span className={`font-bold ${u > 100 ? 'text-red-400' : u > 85 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                              {u}%
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <AOPDashboardView />
           )}
         </main>
       </div>

@@ -125,3 +125,37 @@
   2. Omitted items from different files are marked as 'No Longer Present' / 'Not Scanned in This Upload', NOT 'Newly Resolved'.
   3. If all selected datasets in the database have 0 resolved issues (`totalResolvedSum === 0`), `cumulativeNewlyResolved` is strictly guaranteed to be 0, matching the real database.
   4. Deduplicated tracking ensures that if an issue is resolved in multiple subsequent datasets, it is counted exactly once (1 time).
+
+### AOP 2027 Dashboard Redesign (FinOps Section)
+- **Problem**:
+  - The previous FinOps AOP view contained hardcoded dummy quarterly data (`Q1 2024`, `Planned vs Actual Spend`).
+  - Company schema for "AOP 2027" consists of 7 exact columns:
+    1. `Project` (Col A)
+    2. `Cost Component` (Col B)
+    3. `Usecase` (Col C)
+    4. `LOB` (Col D)
+    5. `Amount` (Col E)
+    6. `Payment mode (Monthly / One time)` (Col F)
+    7. `Capex/Opex` (Col G)
+  - Crucial current company state: Columns A, B, and C are populated with real scoping items, whereas Columns D, E, F, and G are currently empty and will be filled by finance. The dashboard must look stunning both NOW (when D–G are pending) and LATER (when D–G are populated).
+- **Implementation (`src/components/AOPDashboardView.tsx`, `src/App.tsx`)**:
+  - **Header & Action Bar**:
+    - Title: `AOP 2027 — Annual Operating Plan` with subtitle: `Project cost components, use case scoping, Capex/Opex classification, and LOB budget allocation.`
+    - Actions: `Upload AOP Excel` (client-side Excel file parsing), `Export Excel` (generates `.xlsx` with exact 7-column headers), and a 4-way filter bar (`Search Project / Usecase`, `Filter by Project`, `Filter by LOB`, `Filter by Capex/Opex`).
+    - Demo toggle button: Allows one-click preview between initial empty D–G state and populated financial state for testing/demoing.
+  - **4 Top Executive KPI Cards**:
+    - *Total Scoped Projects & Use Cases*: Unique projects and line-item use case counts.
+    - *Cost Components Mapped*: Total cost components + dynamic Data Completeness % badge (`X / Y filled`).
+    - *Total AOP 2027 Budget*: INR currency formatter (`₹ Cr`, `₹ L`, `₹ M`). If empty or ₹0, displays `Pending Allocation` in amber text with subtext `"Scoping complete — awaiting finance inputs"`.
+    - *Capex / Opex & Payment Split*: Displays ratio when present, or `"Unclassified (Pending Col F & G)"` when empty.
+  - **Dual Analytics Charts Grid**:
+    - *Left Chart (Project Breakdown)*: Toggleable BarChart. By default plots count of Cost Components & Use Cases per project (rich and colorful right now with Cols A–C). When amounts are entered, toggles to Total Budget (₹) per Project.
+    - *Right Chart (Financial Structure vs Scoping Readiness)*: If Columns D, F, G are empty, renders a glassmorphic "AOP 2027 Scoping Readiness" audit card highlighting that 100% of Projects, Components, and Use Cases are mapped while Columns D–G are awaiting financial inputs. When populated, renders interactive Donut/Pie/Bar charts for LOB, Capex/Opex, and Payment Mode splits.
+  - **AOP 2027 Master Data Table**:
+    - Exact 7 columns from Image 1 with dark glassmorphic styling.
+    - Subtle pills for Cost Component, monospace INR for Amount (or `— Awaiting Cost` in muted amber), and color-coded pills for LOB, Payment Mode, and Capex/Opex.
+    - Interactive inline edit modal allows clicking any row's pending cells to input LOB, Amount, Payment Mode, and Capex/Opex, instantly updating KPIs and charts.
+  - **Excel Parser & Exporter**:
+    - Client-side parser with case-insensitive and flexible regex matching for the 7 exact headers.
+    - Supports empty D, E, F, G cells seamlessly and persists user updates to `localStorage`.
+
