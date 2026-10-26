@@ -5621,92 +5621,140 @@ async def snapshot_timeline(format_filter: str = None):
             "VAPT": ["VAPT", "vapt"],
         }
         
-        base_deleted_cond = {"$or": [{"DeletedAt": {"$exists": False}}, {"DeletedAt": None}]}
-        matched_fmts = None
-        if format_filter and format_filter.upper() != "ALL":
-            fmt_upper = format_filter.upper()
-            matched_fmts = format_matchers.get(fmt_upper, [format_filter, fmt_upper, format_filter.capitalize()])
-            if fmt_upper == "CONTAINER":
-                fmt_cond = {
-                    "$or": [
-                        {"SourceFormat": {"$in": matched_fmts}},
-                        {"SourceFormat": {"$exists": False}},
-                        {"SourceFormat": None},
-                        {"SourceFormat": ""}
-                    ]
-                }
-            else:
-                fmt_cond = {"SourceFormat": {"$in": matched_fmts}}
-            query = {"$and": [base_deleted_cond, fmt_cond]}
+        # 1. Fetch only active (non-deleted) uploads, mirroring /api/db/metadata exactly
+        history = list(upload_history_collection.find(
+            {"DeletedAt": {"$exists": False}}, 
+            {"_id": 0}
+        ).sort("UploadedAt", 1))
+
+        fmt_upper = (format_filter or "").strip().upper()
+        if fmt_upper in ["SAST/DAST", "SAST_DAST", "SAST-DAST"]:
+            target_fmt = "SAST_DAST"
+        elif fmt_upper and fmt_upper != "ALL":
+            target_fmt = fmt_upper
         else:
-            query = base_deleted_cond
+            target_fmt = None
 
-        uploads = list(upload_history_collection.find(query, {"_id": 0}).sort("UploadedAt", 1))
-
-        batch_ids = [u.get("UploadBatch") for u in uploads if u.get("UploadBatch") and u.get("UploadBatch") != "NA"]
-
-        # Also find any batches in issues_collection matching format not in upload_history
-        if matched_fmts:
-            if format_filter.upper() == "CONTAINER":
-                issues_fmt_query = {
-                    "$or": [
-                        {"SourceFormat": {"$in": matched_fmts}},
-                        {"SourceFormat": {"$exists": False}},
-                        {"SourceFormat": None},
-                        {"SourceFormat": ""}
-                    ]
-                }
+        # 2. Filter history to unique active batches belonging to this format
+        seen_batches = set()
+        portal_uploads = []
+        for doc in history:
+            b = doc.get("UploadBatch")
+            if not b or b == "NA" or b in seen_batches:
+                continue
+            
+            raw_fmt = (doc.get("SourceFormat") or "CONTAINER").strip()
+            doc_fmt_upper = raw_fmt.upper()
+            if doc_fmt_upper in ["SAST/DAST", "SAST_DAST", "SAST-DAST"]:
+                canonical_fmt = "SAST_DAST"
             else:
-                issues_fmt_query = {"SourceFormat": {"$in": matched_fmts}}
-        else:
-            issues_fmt_query = {}
+                canonical_fmt = doc_fmt_upper
 
-        distinct_batches = issues_collection.distinct("UploadBatch", issues_fmt_query)
-        for b in distinct_batches:
-            if b and b != "NA" and b not in batch_ids:
-                batch_ids.append(b)
-                uploads.append({
-                    "UploadBatch": b,
-                    "FileName": f"{b}.xlsx" if not str(b).endswith(".xlsx") else b,
-                    "SourceFormat": format_filter or "CONTAINER",
-                    "UploadedAt": datetime.now(timezone.utc)
-                })
+            if target_fmt is not None:
+                if canonical_fmt != target_fmt:
+                    continue
 
-        # Fast aggregation across all batches in issues_collection directly in Mongo
+            seen_batches.add(b)
+            portal_uploads.append(doc)
+
+        batch_ids = list(seen_batches)
+        if not batch_ids:
+            return {
+                "timeline": [],
+                "total_vulnerabilities": 0,
+                "total_open": 0,
+                "total_resolved": 0
+            }
+
+        import re
+        batch_regex_pattern = "^(" + "|".join(re.escape(b) for b in batch_ids) + ")($|___|\\s*\\[)"
+
+        def _is_batch_match(candidate, parent):
+            c_str = str(candidate)
+            p_str = str(parent)
+            return c_str == p_str or c_str.startswith(f"{p_str}___") or c_str.startswith(f"{p_str} [") or c_str.startswith(f"{p_str}[")
+
+        # Fast aggregation across active portal batches in issues_collection directly in Mongo
         stats_map = {}
-        if batch_ids:
-            agg_pipeline = [
-                {"$match": {"UploadBatch": {"$in": batch_ids}}},
-                {"$group": {
-                    "_id": "$UploadBatch",
-                    "total": {"$sum": 1},
-                    "open": {"$sum": {"$cond": [
-                        {"$regexMatch": {"input": {"$toLower": {"$ifNull": ["$Status", "open"]}}, "regex": r"\b(resolved|closed|fixed|mitigated|accepted|false positive)\b"}},
-                        0,
-                        1
-                    ]}},
-                    "resolved": {"$sum": {"$cond": [
-                        {"$regexMatch": {"input": {"$toLower": {"$ifNull": ["$Status", "open"]}}, "regex": r"\b(resolved|closed|fixed|mitigated|accepted|false positive)\b"}},
-                        1,
-                        0
-                    ]}},
-                    "Critical": {"$sum": {"$cond": [{"$in": [{"$toLower": {"$ifNull": ["$Severity", ""]}}, ["critical", "crit"]]}, 1, 0]}},
-                    "High": {"$sum": {"$cond": [{"$eq": [{"$toLower": {"$ifNull": ["$Severity", ""]}}, "high"]}, 1, 0]}},
-                    "Medium": {"$sum": {"$cond": [{"$in": [{"$toLower": {"$ifNull": ["$Severity", ""]}}, ["medium", "med"]]}, 1, 0]}},
-                    "Low": {"$sum": {"$cond": [{"$eq": [{"$toLower": {"$ifNull": ["$Severity", ""]}}, "low"]}, 1, 0]}},
-                }}
-            ]
-            for doc in issues_collection.aggregate(agg_pipeline, allowDiskUse=True):
-                stats_map[doc["_id"]] = doc
+        agg_pipeline = [
+            {"$match": {"UploadBatch": {"$regex": batch_regex_pattern}}},
+            {"$group": {
+                "_id": "$UploadBatch",
+                "total": {"$sum": 1},
+                "open": {"$sum": {"$cond": [
+                    {"$regexMatch": {"input": {"$toLower": {"$ifNull": ["$Status", "open"]}}, "regex": r"\b(resolved|closed|fixed|mitigated|accepted|false positive)\b"}},
+                    0,
+                    1
+                ]}},
+                "resolved": {"$sum": {"$cond": [
+                    {"$regexMatch": {"input": {"$toLower": {"$ifNull": ["$Status", "open"]}}, "regex": r"\b(resolved|closed|fixed|mitigated|accepted|false positive)\b"}},
+                    1,
+                    0
+                ]}},
+                "Critical": {"$sum": {"$cond": [{"$in": [{"$toLower": {"$ifNull": ["$Severity", ""]}}, ["critical", "crit"]]}, 1, 0]}},
+                "High": {"$sum": {"$cond": [{"$eq": [{"$toLower": {"$ifNull": ["$Severity", ""]}}, "high"]}, 1, 0]}},
+                "Medium": {"$sum": {"$cond": [{"$in": [{"$toLower": {"$ifNull": ["$Severity", ""]}}, ["medium", "med"]]}, 1, 0]}},
+                "Low": {"$sum": {"$cond": [{"$eq": [{"$toLower": {"$ifNull": ["$Severity", ""]}}, "low"]}, 1, 0]}},
+            }}
+        ]
+        for doc in issues_collection.aggregate(agg_pipeline, allowDiskUse=True):
+            stats_map[doc["_id"]] = doc
+
+        # Aggregate unique vulnerability signatures for each batch to enable cross-dataset lifecycle tracking
+        vuln_agg_pipeline = [
+            {"$match": {"UploadBatch": {"$regex": batch_regex_pattern}}},
+            {"$group": {
+                "_id": {
+                    "batch": "$UploadBatch",
+                    "key": {
+                        "$concat": [
+                            {"$toLower": {"$ifNull": ["$DisplayID", {"$ifNull": ["$IssueID", {"$ifNull": ["$finding_name", {"$ifNull": ["$Name", "VULN"]}]}]}]}},
+                            "___",
+                            {"$toLower": {"$ifNull": ["$AffectedAsset", {"$ifNull": ["$resource_name", {"$ifNull": ["$ApplicationName", "GLOBAL"]}]}]}}
+                        ]
+                    }
+                },
+                "count": {"$sum": 1},
+                "status": {"$first": "$Status"},
+                "severity": {"$first": "$Severity"},
+                "title": {"$first": {"$ifNull": ["$Title", {"$ifNull": ["$finding_name", "$Name"]}]}},
+                "asset": {"$first": {"$ifNull": ["$AffectedAsset", {"$ifNull": ["$resource_name", "$ApplicationName"]}]}},
+                "cve": {"$first": {"$ifNull": ["$DisplayID", "$IssueID"]}}
+            }}
+        ]
+        batch_items_map = {}
+        for doc in issues_collection.aggregate(vuln_agg_pipeline, allowDiskUse=True):
+            raw_b = doc["_id"]["batch"]
+            parent_b = None
+            for b in batch_ids:
+                if _is_batch_match(raw_b, b):
+                    parent_b = b
+                    break
+            if not parent_b:
+                parent_b = raw_b
+            if parent_b not in batch_items_map:
+                batch_items_map[parent_b] = []
+            
+            st = str(doc.get("status", "open")).lower()
+            is_res = any(w in st for w in ["resolved", "closed", "fixed", "mitigated", "accepted", "false positive"])
+            batch_items_map[parent_b].append({
+                "key": doc["_id"]["key"],
+                "cve": doc.get("cve") or doc["_id"]["key"].split("___")[0],
+                "title": doc.get("title") or "Finding",
+                "asset": doc.get("asset") or "Asset",
+                "severity": doc.get("severity") or "Medium",
+                "status": "Resolved" if is_res else "Open",
+                "count": doc.get("count", 1)
+            })
 
         timeline = []
-        for u in uploads:
+        for u in portal_uploads:
             batch = u.get("UploadBatch", "")
             if not batch or batch == "NA":
                 continue
 
             # Robust matching: direct key or prefix/multi-sheet matches
-            matching_keys = [k for k in stats_map if k == batch or str(k).startswith(f"{batch}___") or (len(str(k)) > 3 and str(batch).startswith(str(k)))]
+            matching_keys = [k for k in stats_map if _is_batch_match(k, batch)]
             if matching_keys:
                 total = sum(stats_map[k].get("total", 0) for k in matching_keys)
                 open_count = sum(stats_map[k].get("open", 0) for k in matching_keys)
@@ -5737,6 +5785,7 @@ async def snapshot_timeline(format_filter: str = None):
                 "High": high_count,
                 "Medium": med_count,
                 "Low": low_count,
+                "items": batch_items_map.get(batch, []),
             })
 
         # Sort chronologically ascending

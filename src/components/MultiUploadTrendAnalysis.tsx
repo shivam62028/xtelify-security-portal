@@ -45,6 +45,7 @@ export interface HistoricalUploadDataset {
   timestamp: number;
   sourceFormat: string;
   issues: any[];
+  items?: any[];
   totalCount: number;
   openCount: number;
   resolvedCount: number;
@@ -112,6 +113,7 @@ export const isResolvedStatus = (statusValue: any): boolean => {
 // richyrik: Standardized issue status classifier
 export const isIssueResolved = (issue: any): boolean => {
   if (!issue) return false;
+  if (typeof issue.status === "string" && isResolvedStatus(issue.status)) return true;
   const statusValues = [
     issue.Status,
     issue.status,
@@ -134,7 +136,9 @@ export const isIssueResolved = (issue: any): boolean => {
 // richyrik: Unique issue key generator across sequential datasets
 export const extractIssueKey = (issue: any): string => {
   if (!issue) return "unknown";
+  if (issue.key) return String(issue.key).toLowerCase();
   const id = String(
+    issue.cve ||
     issue.IssueID ||
     issue.DisplayID ||
     issue.issue_key ||
@@ -148,6 +152,7 @@ export const extractIssueKey = (issue: any): string => {
   ).trim();
 
   const asset = String(
+    issue.asset ||
     issue.AffectedAsset ||
     issue.AssetID ||
     issue.AssetName ||
@@ -272,6 +277,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
           timestamp: parsedTimestamp,
           sourceFormat: item.sourceFormat || mod,
           issues: matchingLocalIssues,
+          items: Array.isArray(item.items) ? item.items : [],
           totalCount: Number(item.total || 0),
           openCount: Number(item.open || 0),
           resolvedCount: Number(item.resolved || 0),
@@ -312,86 +318,105 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
     setAuditPage(1);
   };
 
+  // richyrik: Exact portal dataset filter - guarantees ONLY datasets present in the portal are ever shown
+  const portalAllowedBatches = useMemo(() => {
+    if (!batches || batches.length === 0) return null;
+    return new Set(
+      batches.filter(b => {
+        if (selectedMod === "All") return true;
+        const fmt = (batchFormats[b] || "CONTAINER").toUpperCase();
+        if (selectedMod.toUpperCase() === "SAST_DAST" || selectedMod.toUpperCase() === "SAST/DAST") {
+          return fmt === "SAST_DAST" || fmt === "SAST/DAST" || fmt === "SAST-DAST";
+        }
+        return fmt === selectedMod.toUpperCase();
+      })
+    );
+  }, [batches, batchFormats, selectedMod]);
+
   // ─────────────────────────────────────────────────────────────────────────────
   // 1. Extract Real Historical Datasets from Database (remote or fallback allIssues)
   // ─────────────────────────────────────────────────────────────────────────────
   const availableDatasets = useMemo(() => {
+    let list: HistoricalUploadDataset[] = [];
+
     // If backend provided true dataset metadata, prioritize it
     if (remoteDatasets && remoteDatasets.length > 0) {
-      return remoteDatasets;
-    }
+      list = remoteDatasets;
+    } else {
+      const targetModule = selectedMod;
+      const batchMap: Record<string, any[]> = {};
 
-    const targetModule = selectedMod;
-    const batchMap: Record<string, any[]> = {};
-
-    // Group any loaded in-memory issues
-    (allIssues || []).forEach(issue => {
-      const fmt = (issue.SourceFormat || batchFormats[issue.UploadBatch] || "CONTAINER").toUpperCase();
-      if (targetModule === "All" || fmt === targetModule.toUpperCase()) {
-        const b = issue.UploadBatch || issue.FileName || "batch_upload";
-        if (!batchMap[b]) batchMap[b] = [];
-        batchMap[b].push(issue);
-      }
-    });
-
-    // Also register any batches passed via props from App metadata
-    if (batches && batches.length > 0) {
-      batches.forEach(b => {
-        const fmt = (batchFormats[b] || "CONTAINER").toUpperCase();
+      // Group any loaded in-memory issues
+      (allIssues || []).forEach(issue => {
+        const fmt = (issue.SourceFormat || batchFormats[issue.UploadBatch] || "CONTAINER").toUpperCase();
         if (targetModule === "All" || fmt === targetModule.toUpperCase()) {
-          if (!batchMap[b]) {
-            batchMap[b] = [];
-          }
+          const b = issue.UploadBatch || issue.FileName || "batch_upload";
+          if (!batchMap[b]) batchMap[b] = [];
+          batchMap[b].push(issue);
         }
       });
-    }
 
-    const batchKeys = Object.keys(batchMap);
-    if (batchKeys.length === 0) {
-      return [];
-    }
-
-    const datasets: HistoricalUploadDataset[] = batchKeys.map((batchId, idx) => {
-      const issuesInBatch = batchMap[batchId] || [];
-      const firstIssue = issuesInBatch[0] || {};
-      const rawDate = firstIssue.UploadedAt || firstIssue.DiscoveredDate || firstIssue.Date || "";
-      let parsedTimestamp = rawDate ? new Date(rawDate).getTime() : NaN;
-      if (isNaN(parsedTimestamp)) {
-        parsedTimestamp = Date.now() - (batchKeys.length - idx) * 86400000;
+      // Also register any batches passed via props from App metadata
+      if (batches && batches.length > 0) {
+        batches.forEach(b => {
+          const fmt = (batchFormats[b] || "CONTAINER").toUpperCase();
+          if (targetModule === "All" || fmt === targetModule.toUpperCase()) {
+            if (!batchMap[b]) {
+              batchMap[b] = [];
+            }
+          }
+        });
       }
 
-      let openCount = 0;
-      let resolvedCount = 0;
-      issuesInBatch.forEach(iss => {
-        if (isIssueResolved(iss)) {
-          resolvedCount++;
-        } else {
-          openCount++;
+      const batchKeys = Object.keys(batchMap);
+      list = batchKeys.map((batchId, idx) => {
+        const issuesInBatch = batchMap[batchId] || [];
+        const firstIssue = issuesInBatch[0] || {};
+        const rawDate = firstIssue.UploadedAt || firstIssue.DiscoveredDate || firstIssue.Date || "";
+        let parsedTimestamp = rawDate ? new Date(rawDate).getTime() : NaN;
+        if (isNaN(parsedTimestamp)) {
+          parsedTimestamp = Date.now() - (batchKeys.length - idx) * 86400000;
         }
+
+        let openCount = 0;
+        let resolvedCount = 0;
+        issuesInBatch.forEach(iss => {
+          if (isIssueResolved(iss)) {
+            resolvedCount++;
+          } else {
+            openCount++;
+          }
+        });
+
+        const dateStr = rawDate
+          ? new Date(rawDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+          : `Upload ${idx + 1}`;
+
+        const fName = firstIssue.FileName || (batchId.endsWith(".xlsx") ? batchId : `${batchId}.xlsx`);
+
+        return {
+          id: batchId,
+          label: `${dateStr} (${fName.slice(0, 18)})`,
+          fileName: fName,
+          uploadedAt: rawDate || new Date(parsedTimestamp).toISOString(),
+          timestamp: parsedTimestamp,
+          sourceFormat: targetModule,
+          issues: issuesInBatch,
+          items: [],
+          totalCount: issuesInBatch.length,
+          openCount,
+          resolvedCount,
+        };
       });
+    }
 
-      const dateStr = rawDate
-        ? new Date(rawDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-        : `Upload ${idx + 1}`;
+    // STRICT PORTAL FILTER: ONLY include datasets that are present in the portal!
+    if (portalAllowedBatches !== null) {
+      list = list.filter(ds => portalAllowedBatches.has(ds.id));
+    }
 
-      const fName = firstIssue.FileName || (batchId.endsWith(".xlsx") ? batchId : `${batchId}.xlsx`);
-
-      return {
-        id: batchId,
-        label: `${dateStr} (${fName.slice(0, 18)})`,
-        fileName: fName,
-        uploadedAt: rawDate || new Date(parsedTimestamp).toISOString(),
-        timestamp: parsedTimestamp,
-        sourceFormat: targetModule,
-        issues: issuesInBatch,
-        totalCount: issuesInBatch.length,
-        openCount,
-        resolvedCount,
-      };
-    });
-
-    return datasets.sort((a, b) => a.timestamp - b.timestamp);
-  }, [remoteDatasets, allIssues, selectedMod, batches, batchFormats]);
+    return list.sort((a, b) => a.timestamp - b.timestamp);
+  }, [remoteDatasets, allIssues, selectedMod, batches, batchFormats, portalAllowedBatches]);
 
   // richyrik: Initialize or synchronize selectedBatchIds with availableDatasets
   useEffect(() => {
@@ -522,40 +547,50 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
       };
     }
 
-    // Two or more datasets selected: run sequential comparison loop
+    // Two or more datasets selected: run sequential deduplicated comparison loop
     const steps: SequentialStepResult[] = [];
-    let cumulativeNewlyResolved = 0;
-    let cumulativeNewlyIntroduced = 0;
+    const everSeenOpen = new Set<string>();
+    const newlyResolvedSet = new Set<string>();
+    const baselineResolvedSet = new Set<string>();
+    const firstResolvedInStep = new Map<string, number>();
+    const itemDetails = new Map<string, { cve: string; title: string; asset: string; severity: any }>();
 
     for (let i = 0; i < selected.length; i++) {
       const currUpload = selected[i];
-      const currIssues = currUpload.issues || [];
+      const currList = (currUpload.items && currUpload.items.length > 0)
+        ? currUpload.items
+        : (currUpload.issues || []);
       const currMap = new Map<string, any>();
 
       let totalOpen = currUpload.openCount !== undefined ? currUpload.openCount : 0;
       let totalResolved = currUpload.resolvedCount !== undefined ? currUpload.resolvedCount : 0;
       let totalIssues = currUpload.totalCount !== undefined ? currUpload.totalCount : (totalOpen + totalResolved);
 
-      if (currIssues.length > 0) {
-        let calcOpen = 0;
-        let calcResolved = 0;
-        currIssues.forEach(issue => {
-          currMap.set(extractIssueKey(issue), issue);
-          if (isIssueResolved(issue)) {
-            calcResolved++;
-          } else {
-            calcOpen++;
-          }
-        });
-        if (!currUpload.totalCount) {
-          totalOpen = calcOpen;
-          totalResolved = calcResolved;
-          totalIssues = currIssues.length;
+      currList.forEach(item => {
+        const key = extractIssueKey(item);
+        currMap.set(key, item);
+        if (!itemDetails.has(key)) {
+          itemDetails.set(key, {
+            cve: item.cve || item.DisplayID || item.IssueID || key.split("___")[0],
+            title: item.title || item.Title || item["Vulnerability Name"] || "Finding",
+            asset: item.asset || item.AffectedAsset || item.Application || "Asset",
+            severity: normalizeSeverity(item.severity || item.Severity),
+          });
         }
-      }
+      });
 
       if (i === 0) {
         // Step 1: Baseline Upload
+        currList.forEach(item => {
+          const key = extractIssueKey(item);
+          if (isIssueResolved(item)) {
+            baselineResolvedSet.add(key);
+            firstResolvedInStep.set(key, 0);
+          } else {
+            everSeenOpen.add(key);
+          }
+        });
+
         steps.push({
           stepIndex: 1,
           label: currUpload.label,
@@ -569,106 +604,83 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
           newlyResolved: 0,
           persistentOpen: 0,
           noLongerPresent: 0,
-          transitions: currIssues.map(issue => ({
-            id: String(issue.IssueID || issue.DisplayID || "VULN"),
-            title: String(issue.Title || issue["Vulnerability Name"] || "Finding"),
-            asset: String(issue.AffectedAsset || issue.Application || "Asset"),
-            severity: normalizeSeverity(issue.Severity),
-            prevStatus: "Initial Baseline",
-            currStatus: isIssueResolved(issue) ? "Resolved" : "Open",
-            changeType: isIssueResolved(issue) ? "Already Resolved" : "Newly Introduced",
-            prevBatch: "None (Baseline)",
-            currBatch: currUpload.id,
-            prevBatchLabel: "Baseline",
-            currBatchLabel: currUpload.label,
-            cve: issue.DisplayID || issue.IssueID,
-          })),
+          transitions: currList.map(item => {
+            const key = extractIssueKey(item);
+            const det = itemDetails.get(key) || { cve: key.split("___")[0], title: "Finding", asset: "Asset", severity: "Medium" as const };
+            const res = isIssueResolved(item);
+            return {
+              id: det.cve,
+              title: det.title,
+              asset: det.asset,
+              severity: det.severity,
+              prevStatus: "Initial Baseline",
+              currStatus: res ? "Resolved" : "Open",
+              changeType: res ? "Already Resolved" : "Newly Introduced",
+              prevBatch: "None (Baseline)",
+              currBatch: currUpload.id,
+              prevBatchLabel: "Baseline",
+              currBatchLabel: currUpload.label,
+              cve: det.cve,
+            };
+          }),
         });
       } else {
-        // Sequential comparison against immediate predecessor: Upload N vs Upload N-1
         const prevUpload = selected[i - 1];
-        const prevIssues = prevUpload.issues || [];
-        const prevOpen = prevUpload.openCount || 0;
-        const prevResolved = prevUpload.resolvedCount || 0;
-
         let stepNewlyResolved = 0;
         let stepNewlyIntroduced = 0;
         let stepPersistentOpen = 0;
         let stepNoLongerPresent = 0;
         const stepTransitions: TransitionItem[] = [];
 
-        if (currIssues.length > 0 && prevIssues.length > 0) {
-          const prevMap = new Map<string, any>();
-          prevIssues.forEach(issue => {
-            prevMap.set(extractIssueKey(issue), issue);
-          });
+        if (currList.length > 0) {
+          // Check items in current upload
+          currMap.forEach((currItem, key) => {
+            const det = itemDetails.get(key) || { cve: key.split("___")[0], title: "Finding", asset: "Asset", severity: "Medium" as const };
+            const currRes = isIssueResolved(currItem);
 
-          // Check each current item against predecessor
-          currMap.forEach((currIssue, key) => {
-            const currOpen = !isIssueResolved(currIssue);
-            const cveId = String(currIssue.DisplayID || currIssue.IssueID || "VULN");
-            const title = String(currIssue.Title || currIssue["Vulnerability Name"] || "Finding");
-            const asset = String(currIssue.AffectedAsset || currIssue.Application || "Asset");
-            const sev = normalizeSeverity(currIssue.Severity);
-
-            if (!prevMap.has(key)) {
-              stepNewlyIntroduced++;
-              stepTransitions.push({
-                id: cveId,
-                title,
-                asset,
-                severity: sev,
-                prevStatus: "Not Present",
-                currStatus: currOpen ? "Open" : "Resolved",
-                changeType: "Newly Introduced",
-                prevBatch: prevUpload.id,
-                currBatch: currUpload.id,
-                prevBatchLabel: prevUpload.label,
-                currBatchLabel: currUpload.label,
-                cve: cveId,
-              });
-            } else {
-              const prevIssue = prevMap.get(key);
-              const pOpen = !isIssueResolved(prevIssue);
-
-              if (pOpen && !currOpen) {
+            if (currRes) {
+              // Vulnerability is resolved in this dataset
+              if (everSeenOpen.has(key) && !newlyResolvedSet.has(key)) {
+                // Previously open, newly resolved in this scan -> PROGRESS!
+                newlyResolvedSet.add(key);
+                firstResolvedInStep.set(key, i);
                 stepNewlyResolved++;
                 stepTransitions.push({
-                  id: cveId,
-                  title,
-                  asset,
-                  severity: sev,
-                  prevStatus: "Open",
-                  currStatus: "Closed / Resolved",
+                  id: det.cve,
+                  title: det.title,
+                  asset: det.asset,
+                  severity: det.severity,
+                  prevStatus: "Open in Earlier Scan",
+                  currStatus: "Closed / Resolved (Progress)",
                   changeType: "Newly Resolved",
                   prevBatch: prevUpload.id,
                   currBatch: currUpload.id,
                   prevBatchLabel: prevUpload.label,
                   currBatchLabel: currUpload.label,
-                  cve: cveId,
+                  cve: det.cve,
                 });
-              } else if (pOpen && currOpen) {
-                stepPersistentOpen++;
+              } else if (newlyResolvedSet.has(key) || baselineResolvedSet.has(key)) {
+                // Already resolved in an earlier dataset! Count as ONE, NOT multiple times!
                 stepTransitions.push({
-                  id: cveId,
-                  title,
-                  asset,
-                  severity: sev,
-                  prevStatus: "Open (Prior Scan)",
-                  currStatus: "Still Open",
-                  changeType: "Persistent Open",
+                  id: det.cve,
+                  title: det.title,
+                  asset: det.asset,
+                  severity: det.severity,
+                  prevStatus: "Resolved in Earlier Scan",
+                  currStatus: "Closed (Deduplicated)",
+                  changeType: "Already Resolved",
                   prevBatch: prevUpload.id,
                   currBatch: currUpload.id,
                   prevBatchLabel: prevUpload.label,
                   currBatchLabel: currUpload.label,
-                  cve: cveId,
+                  cve: det.cve,
                 });
-              } else if (!pOpen && !currOpen) {
+              } else {
                 stepTransitions.push({
-                  id: cveId,
-                  title,
-                  asset,
-                  severity: sev,
+                  id: det.cve,
+                  title: det.title,
+                  asset: det.asset,
+                  severity: det.severity,
                   prevStatus: "Closed",
                   currStatus: "Closed",
                   changeType: "Already Resolved",
@@ -676,69 +688,87 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
                   currBatch: currUpload.id,
                   prevBatchLabel: prevUpload.label,
                   currBatchLabel: currUpload.label,
-                  cve: cveId,
+                  cve: det.cve,
+                });
+              }
+            } else {
+              // Vulnerability is open in this dataset
+              if (everSeenOpen.has(key)) {
+                stepPersistentOpen++;
+                stepTransitions.push({
+                  id: det.cve,
+                  title: det.title,
+                  asset: det.asset,
+                  severity: det.severity,
+                  prevStatus: "Open in Prior Scan",
+                  currStatus: "Still Open (Unresolved)",
+                  changeType: "Persistent Open",
+                  prevBatch: prevUpload.id,
+                  currBatch: currUpload.id,
+                  prevBatchLabel: prevUpload.label,
+                  currBatchLabel: currUpload.label,
+                  cve: det.cve,
                 });
               } else {
+                // Newly introduced in this scan
+                everSeenOpen.add(key);
                 stepNewlyIntroduced++;
                 stepTransitions.push({
-                  id: cveId,
-                  title,
-                  asset,
-                  severity: sev,
-                  prevStatus: "Closed (Reopened)",
-                  currStatus: "Open",
+                  id: det.cve,
+                  title: det.title,
+                  asset: det.asset,
+                  severity: det.severity,
+                  prevStatus: "Not Present",
+                  currStatus: "Newly Introduced (Open)",
                   changeType: "Newly Introduced",
                   prevBatch: prevUpload.id,
                   currBatch: currUpload.id,
                   prevBatchLabel: prevUpload.label,
                   currBatchLabel: currUpload.label,
-                  cve: cveId,
+                  cve: det.cve,
                 });
               }
             }
           });
 
-          // Check predecessor items dropped in current scan
-          prevMap.forEach((prevIssue, key) => {
+          // Check earlier open items omitted (remediated) in current upload
+          everSeenOpen.forEach(key => {
             if (!currMap.has(key)) {
-              const pOpen = !isIssueResolved(prevIssue);
-              const cveId = String(prevIssue.DisplayID || prevIssue.IssueID || "VULN");
-              const title = String(prevIssue.Title || prevIssue["Vulnerability Name"] || "Finding");
-              const asset = String(prevIssue.AffectedAsset || prevIssue.Application || "Asset");
-              const sev = normalizeSeverity(prevIssue.Severity);
-
+              const det = itemDetails.get(key) || { cve: key.split("___")[0], title: "Finding", asset: "Asset", severity: "Medium" as const };
               stepNoLongerPresent++;
-              if (pOpen) {
+              if (!newlyResolvedSet.has(key) && !baselineResolvedSet.has(key)) {
+                // Remediated / resolved progress!
+                newlyResolvedSet.add(key);
+                firstResolvedInStep.set(key, i);
                 stepNewlyResolved++;
+                stepTransitions.push({
+                  id: det.cve,
+                  title: det.title,
+                  asset: det.asset,
+                  severity: det.severity,
+                  prevStatus: "Open in Earlier Scan",
+                  currStatus: "Remediated (No Longer Present)",
+                  changeType: "Newly Resolved",
+                  prevBatch: prevUpload.id,
+                  currBatch: currUpload.id,
+                  prevBatchLabel: prevUpload.label,
+                  currBatchLabel: currUpload.label,
+                  cve: det.cve,
+                });
               }
-
-              stepTransitions.push({
-                id: cveId,
-                title,
-                asset,
-                severity: sev,
-                prevStatus: pOpen ? "Open" : "Closed",
-                currStatus: "No Longer Present (Remediated)",
-                changeType: pOpen ? "Newly Resolved" : "No Longer Present",
-                prevBatch: prevUpload.id,
-                currBatch: currUpload.id,
-                prevBatchLabel: prevUpload.label,
-                currBatchLabel: currUpload.label,
-                cve: cveId,
-              });
             }
           });
         } else {
-          // Robust dataset-level metric calculation
+          // Dataset-level counts fallback
+          const prevOpen = prevUpload.openCount || 0;
+          const prevResolved = prevUpload.resolvedCount || 0;
           const openDelta = totalOpen - prevOpen;
           stepNewlyIntroduced = openDelta > 0 ? openDelta : 0;
           const resolvedDelta = Math.max(0, totalResolved - prevResolved);
           stepNewlyResolved = resolvedDelta > 0 ? resolvedDelta : (openDelta < 0 ? Math.abs(openDelta) : 0);
           stepPersistentOpen = Math.min(prevOpen, totalOpen);
+          stepNoLongerPresent = stepNewlyResolved;
         }
-
-        cumulativeNewlyResolved += stepNewlyResolved;
-        cumulativeNewlyIntroduced += stepNewlyIntroduced;
 
         steps.push({
           stepIndex: i + 1,
@@ -757,6 +787,14 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
         });
       }
     }
+
+    // Cumulative newly resolved across entire evaluated sequence:
+    // Every resolved vulnerability is counted EXACTLY ONCE!
+    const cumulativeNewlyResolved = newlyResolvedSet.size > 0
+      ? newlyResolvedSet.size
+      : steps.slice(1).reduce((acc, s) => acc + s.newlyResolved, 0);
+
+    const cumulativeNewlyIntroduced = steps.slice(1).reduce((acc, s) => acc + s.newlyIntroduced, 0);
 
     // Step C: Aggregated Metrics
     const initialBaselineOpen = steps[0]?.totalOpen || 0;
@@ -787,11 +825,14 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
 
     const auditTransitions: TransitionItem[] = [];
     if (dsX && dsY) {
+      const listX = (dsX.items && dsX.items.length > 0) ? dsX.items : (dsX.issues || []);
+      const listY = (dsY.items && dsY.items.length > 0) ? dsY.items : (dsY.issues || []);
+
       const mapX = new Map<string, any>();
-      (dsX.issues || []).forEach(it => mapX.set(extractIssueKey(it), it));
+      listX.forEach(it => mapX.set(extractIssueKey(it), it));
 
       const mapY = new Map<string, any>();
-      (dsY.issues || []).forEach(it => mapY.set(extractIssueKey(it), it));
+      listY.forEach(it => mapY.set(extractIssueKey(it), it));
 
       const allUniqueKeys = new Set([...mapX.keys(), ...mapY.keys()]);
 
@@ -799,10 +840,12 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
         const itemX = mapX.get(key);
         const itemY = mapY.get(key);
         const activeItem = itemY || itemX;
-        const cveId = String(activeItem.DisplayID || activeItem.IssueID || "VULN");
-        const title = String(activeItem.Title || activeItem["Vulnerability Name"] || "Finding");
-        const asset = String(activeItem.AffectedAsset || activeItem.Application || "Asset");
-        const sev = normalizeSeverity(activeItem.Severity);
+        const det = itemDetails.get(key) || {
+          cve: activeItem.cve || activeItem.DisplayID || activeItem.IssueID || key.split("___")[0],
+          title: activeItem.title || activeItem.Title || activeItem["Vulnerability Name"] || "Finding",
+          asset: activeItem.asset || activeItem.AffectedAsset || activeItem.Application || "Asset",
+          severity: normalizeSeverity(activeItem.severity || activeItem.Severity),
+        };
 
         let changeType: TransitionItem["changeType"] = "Persistent Open";
         let prevStatus = itemX ? (isIssueResolved(itemX) ? "Resolved" : "Open") : "Not Present";
@@ -823,10 +866,10 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
         }
 
         auditTransitions.push({
-          id: cveId,
-          title,
-          asset,
-          severity: sev,
+          id: det.cve,
+          title: det.title,
+          asset: det.asset,
+          severity: det.severity,
           prevStatus,
           currStatus,
           changeType,
@@ -834,7 +877,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
           currBatch: dsY.id,
           prevBatchLabel: dsX.label,
           currBatchLabel: dsY.label,
-          cve: cveId,
+          cve: det.cve,
         });
       });
     }

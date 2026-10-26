@@ -89,3 +89,26 @@
   - Extended fallback dataset registration using `batches` and `batchFormats` passed from `App.tsx` metadata.
   - Aligned the KPI card row from 4 to 5 cards matching Dashboard styling: Total Vulnerabilities (275,871), Active Open Backlog, Cumulative Resolved, Net Influx Rate, and Uploads Tracked.
   - Added live "Total: X VUL across Y Datasets" badge in the subheader, dataset reload button (`RefreshCw`), and formatted all counts with `.toLocaleString()`.
+
+### Trend Analysis Portal-Dataset Filtering & Deduplicated Lifecycle Resolution
+- **Problem**:
+  - In CONTAINER (and all other 3 vulnerability types), the portal has only 5 uploaded datasets (e.g. Datasets (5) in Dashboard), but Trend Analysis was displaying 19 datasets (including orphaned, sheet-fragmented, or deleted batches).
+  - Additionally, when tracking vulnerability resolutions across sequential datasets, any vulnerability that remained resolved across multiple subsequent datasets needed to be counted exactly ONCE towards progress, not multi-counted every time it appeared in later datasets.
+- **Root Cause**:
+  1. /api/analytics/snapshot-timeline was previously appending historical batches from issues_collection.distinct('UploadBatch'), resurrecting deleted, orphaned, or sheet-split uploads (___Sheet1, ___Sheet2) not present in upload_history_collection.
+  2. MultiUploadTrendAnalysis.tsx was not filtering remote datasets against the active portal batches (portalAllowedBatches) supplied by App.tsx via /api/db/metadata.
+  3. Sequential delta tracking needed persistent lifecycle sets (everSeenOpen, newlyResolvedSet, baselineResolvedSet) to ensure that once a vulnerability transitions from open to resolved, it is credited as a progress resolution at that step and marked as Closed (Deduplicated) in all subsequent steps.
+- **Solutions Implemented**:
+  1. **Strict Portal-Only Datasets (app.py)**:
+     - Query in /api/analytics/snapshot-timeline strictly mirrors /api/db/metadata using upload_history_collection.find({'DeletedAt': {'': False}}).
+     - Standardized format matching for all 4 vulnerability types (CONTAINER, CSPM, SAST_DAST / SAST/DAST, VAPT).
+     - Groups multi-sheet batches (f'{b} [{sheet}]' or f'{b}___{sheet}') under the parent batch via regex ^({batch})($|___|\s*\[) and _is_batch_match helper, completely eliminating orphaned and duplicate batches.
+     - Attaches unique vulnerability signatures (items) directly to each snapshot in the timeline.
+  2. **Portal Allowed Batches Filter (src/components/MultiUploadTrendAnalysis.tsx)**:
+     - Memoized portalAllowedBatches strictly filters availableDatasets using batches and batchFormats props passed from App.tsx.
+     - Guarantees that only datasets actively present in the portal (e.g., exactly the 5 datasets for CONTAINER) are ever displayed in Trend Analysis.
+  3. **Deduplicated Cross-Dataset Resolution Engine**:
+     - Introduced newlyResolvedSet, baselineResolvedSet, and everSeenOpen.
+     - When an issue previously open is resolved in a dataset, it increments stepNewlyResolved for that dataset and is added to newlyResolvedSet.
+     - In all subsequent datasets where this vulnerability remains resolved, it is marked as Already Resolved (Deduplicated) and NOT counted multiple times.
+     - cumulativeNewlyResolved tracks newlyResolvedSet.size, ensuring every resolved vulnerability is counted exactly once across the entire sequence.
