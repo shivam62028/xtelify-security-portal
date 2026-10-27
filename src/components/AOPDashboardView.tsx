@@ -26,6 +26,10 @@ import {
   CreditCard,
   Briefcase,
   SlidersHorizontal,
+  Tv,
+  Zap,
+  AlertTriangle,
+  Columns,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -42,16 +46,35 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import { motion, AnimatePresence } from "framer-motion";
+// richyrik: FinOps currency & global date filter context
+import { useFinOpsCurrency } from "./FinOpsCurrencyContext";
 
+// richyrik: AOP Line Item schema with Allocated Amount (Col E), Total Spent (between E and F), Subtype (IPTV vs XSTREAM), and Dynamic Custom Columns
 export interface AOPLineItem {
   id: string;
   project: string; // Column A: Project
   costComponent: string; // Column B: Cost Component
   usecase: string; // Column C: Usecase
-  lob: string; // Column D: LOB (optional / blank initially)
-  amount: number | null; // Column E: Amount (optional / blank initially)
-  paymentMode: string; // Column F: Payment mode (Monthly / One time) (optional / blank initially)
-  capexOpex: string; // Column G: Capex/Opex (optional / blank initially)
+  lob: string; // Column D: LOB (Line of Business)
+  amount: number | null; // Column E: Allocated Amount (renamed from Amount)
+  totalSpent?: number | null; // NEW: Total Spent (between Column E and Column F)
+  paymentMode: string; // Column F: Payment mode (Monthly / One time)
+  capexOpex: string; // Column G: Capex/Opex
+  subtype?: "IPTV" | "XSTREAM"; // Subtype classification: IPTV or XSTREAM (XSTRM)
+  customFields?: Record<string, string | number>; // Dynamic user-defined additional columns
+}
+
+// richyrik: Helper to safely extract or infer line item subtype
+export const getItemSubtype = (item: Partial<AOPLineItem>): "IPTV" | "XSTREAM" => {
+  if (item.subtype === "IPTV" || item.subtype === "XSTREAM") return item.subtype;
+  const combined = `${item.project || ""} ${item.lob || ""} ${item.costComponent || ""} ${item.usecase || ""}`.toLowerCase();
+  if (combined.includes("iptv")) return "IPTV";
+  return "XSTREAM";
+};
+
+export interface AOPDashboardViewProps {
+  initialSubtype?: "IPTV" | "XSTREAM";
+  onSubtypeChange?: (subtype: "IPTV" | "XSTREAM") => void;
 }
 
 // Initial company scoping data: Columns A, B, C populated; D, E, F, G empty as per company current state
@@ -63,8 +86,10 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "High-throughput audio streaming microservices, auto-scaling playback pods, and session management",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-002",
@@ -73,8 +98,10 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "FLAC and MP3 audio track asset storage, regional edge caching, and offline download sync",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-003",
@@ -83,8 +110,10 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "Subscriber playlist database, playback telemetry, and real-time social listening sessions",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-004",
@@ -93,8 +122,10 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "Distributed HLS/DASH video encoding, multi-bitrate packaging, and DRM license server infrastructure",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-005",
@@ -103,8 +134,10 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "High-concurrency live cricket and entertainment streaming with ultra-low latency playback",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-006",
@@ -113,8 +146,10 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "Personalized content discovery, viewer homepage curation, and real-time vector search embeddings",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-007",
@@ -123,8 +158,10 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "Continuous multi-cloud asset discovery, Kubernetes cluster posture, and CIS compliance auditing",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-008",
@@ -133,8 +170,10 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "Automated static code security scanning and dynamic vulnerability verification in GitLab pipelines",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-009",
@@ -143,8 +182,10 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "Vulnerability finding deduplication, asset ownership mapping, and multi-snapshot trend tracking",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-010",
@@ -153,8 +194,10 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "Broadcast linear television IP stream multiplexing, subtitling, and ad-insertion processors",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "IPTV",
   },
   {
     id: "aop-2027-011",
@@ -163,8 +206,34 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "7-day linear television rewind and catch-up TV rolling storage for digital set-top box playback",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "IPTV",
+  },
+  {
+    id: "aop-2027-015",
+    project: "IPTV NextGen Infrastructure",
+    costComponent: "Linear EPG & Metadata Aggregator",
+    usecase: "Real-time electronic programming guide data syndication and channel lineup schedules",
+    lob: "",
+    amount: null,
+    totalSpent: null,
+    paymentMode: "",
+    capexOpex: "",
+    subtype: "IPTV",
+  },
+  {
+    id: "aop-2027-016",
+    project: "IPTV NextGen Infrastructure",
+    costComponent: "DRM License Server Cluster",
+    usecase: "Verimatrix and Widevine conditional access license distribution for secure IPTV set-top playback",
+    lob: "",
+    amount: null,
+    totalSpent: null,
+    paymentMode: "",
+    capexOpex: "",
+    subtype: "IPTV",
   },
   {
     id: "aop-2027-012",
@@ -173,8 +242,10 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "Subscriber lifecycle event analytics, automated billing reconciliation, and churn prediction models",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-013",
@@ -183,8 +254,10 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "High-throughput streaming telemetry handling 250k+ subscriber interaction events per second",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-014",
@@ -193,12 +266,14 @@ const INITIAL_AOP_2027_DATA: AOPLineItem[] = [
     usecase: "Subscriber authentication gateway, telecom carrier billing integrations, and DDoS mitigation",
     lob: "",
     amount: null,
+    totalSpent: null,
     paymentMode: "",
     capexOpex: "",
+    subtype: "XSTREAM",
   },
 ];
 
-// Sample financial dataset for users who want to preview the fully populated view with D, E, F, G
+// Sample financial dataset for users who want to preview the fully populated view with D, E, F, G + Total Spent
 const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
   {
     id: "aop-2027-001",
@@ -207,8 +282,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "High-throughput audio streaming microservices, auto-scaling playback pods, and session management",
     lob: "Wynk Music",
     amount: 38000000,
+    totalSpent: 43500000, // OVER-BUDGET: Spent > Allocated -> RED HIGHLIGHT
     paymentMode: "Monthly",
     capexOpex: "Opex",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-002",
@@ -217,8 +294,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "FLAC and MP3 audio track asset storage, regional edge caching, and offline download sync",
     lob: "Wynk Music",
     amount: 24500000,
+    totalSpent: 21000000,
     paymentMode: "Monthly",
     capexOpex: "Opex",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-003",
@@ -227,8 +306,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "Subscriber playlist database, playback telemetry, and real-time social listening sessions",
     lob: "Wynk Music",
     amount: 19000000,
+    totalSpent: 17800000,
     paymentMode: "Monthly",
     capexOpex: "Opex",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-004",
@@ -237,8 +318,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "Distributed HLS/DASH video encoding, multi-bitrate packaging, and DRM license server infrastructure",
     lob: "DTH / Media",
     amount: 45000000,
+    totalSpent: 42000000,
     paymentMode: "Monthly",
     capexOpex: "Opex",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-005",
@@ -247,8 +330,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "High-concurrency live cricket and entertainment streaming with ultra-low latency playback",
     lob: "DTH / Media",
     amount: 62000000,
+    totalSpent: 69800000, // OVER-BUDGET: Spent > Allocated -> RED HIGHLIGHT
     paymentMode: "Monthly",
     capexOpex: "Opex",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-006",
@@ -257,8 +342,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "Personalized content discovery, viewer homepage curation, and real-time vector search embeddings",
     lob: "Digital Apps",
     amount: 28000000,
+    totalSpent: 26500000,
     paymentMode: "Monthly",
     capexOpex: "Opex",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-007",
@@ -267,8 +354,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "Continuous multi-cloud asset discovery, Kubernetes cluster posture, and CIS compliance auditing",
     lob: "Enterprise Security",
     amount: 14500000,
+    totalSpent: 14500000,
     paymentMode: "One time",
     capexOpex: "Capex",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-008",
@@ -277,8 +366,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "Automated static code security scanning and dynamic vulnerability verification in GitLab pipelines",
     lob: "Enterprise Security",
     amount: 9800000,
+    totalSpent: 8900000,
     paymentMode: "One time",
     capexOpex: "Capex",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-009",
@@ -287,8 +378,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "Vulnerability finding deduplication, asset ownership mapping, and multi-snapshot trend tracking",
     lob: "Enterprise Security",
     amount: 7200000,
+    totalSpent: 7000000,
     paymentMode: "Monthly",
     capexOpex: "Opex",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-010",
@@ -297,8 +390,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "Broadcast linear television IP stream multiplexing, subtitling, and ad-insertion processors",
     lob: "DTH / Media",
     amount: 34000000,
+    totalSpent: 39500000, // OVER-BUDGET: Spent > Allocated -> RED HIGHLIGHT
     paymentMode: "One time",
     capexOpex: "Capex",
+    subtype: "IPTV",
   },
   {
     id: "aop-2027-011",
@@ -307,8 +402,34 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "7-day linear television rewind and catch-up TV rolling storage for digital set-top box playback",
     lob: "DTH / Media",
     amount: 16500000,
+    totalSpent: 15200000,
     paymentMode: "Monthly",
     capexOpex: "Opex",
+    subtype: "IPTV",
+  },
+  {
+    id: "aop-2027-015",
+    project: "IPTV NextGen Infrastructure",
+    costComponent: "Linear EPG & Metadata Aggregator",
+    usecase: "Real-time electronic programming guide data syndication and channel lineup schedules",
+    lob: "DTH / Media",
+    amount: 12000000,
+    totalSpent: 11400000,
+    paymentMode: "Monthly",
+    capexOpex: "Opex",
+    subtype: "IPTV",
+  },
+  {
+    id: "aop-2027-016",
+    project: "IPTV NextGen Infrastructure",
+    costComponent: "DRM License Server Cluster",
+    usecase: "Verimatrix and Widevine conditional access license distribution for secure IPTV set-top playback",
+    lob: "DTH / Media",
+    amount: 18500000,
+    totalSpent: 21500000, // OVER-BUDGET: Spent > Allocated -> RED HIGHLIGHT
+    paymentMode: "One time",
+    capexOpex: "Capex",
+    subtype: "IPTV",
   },
   {
     id: "aop-2027-012",
@@ -317,8 +438,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "Subscriber lifecycle event analytics, automated billing reconciliation, and churn prediction models",
     lob: "Digital Apps",
     amount: 31000000,
+    totalSpent: 29500000,
     paymentMode: "Monthly",
     capexOpex: "Opex",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-013",
@@ -327,8 +450,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "High-throughput streaming telemetry handling 250k+ subscriber interaction events per second",
     lob: "Digital Apps",
     amount: 18000000,
+    totalSpent: 17200000,
     paymentMode: "Monthly",
     capexOpex: "Opex",
+    subtype: "XSTREAM",
   },
   {
     id: "aop-2027-014",
@@ -337,8 +462,10 @@ const SAMPLE_POPULATED_AOP_2027: AOPLineItem[] = [
     usecase: "Subscriber authentication gateway, telecom carrier billing integrations, and DDoS mitigation",
     lob: "Core Platform",
     amount: 22000000,
+    totalSpent: 21000000,
     paymentMode: "One time",
     capexOpex: "Capex",
+    subtype: "XSTREAM",
   },
 ];
 
@@ -377,8 +504,8 @@ const PROJECT_PALETTE: Record<string, { bg: string; text: string; border: string
 
 const DEFAULT_PALETTE = { bg: "bg-slate-700/20", text: "text-slate-300", border: "border-slate-700/40", bar: "#38BDF8" };
 
-export const AOPDashboardView: React.FC = () => {
-  // Load data from localStorage or fallback to initial scoping
+export const AOPDashboardView: React.FC<AOPDashboardViewProps> = ({ initialSubtype = "IPTV", onSubtypeChange }) => {
+  // richyrik: Purged test data, initialized clean for real user Excel uploads
   const [items, setItems] = useState<AOPLineItem[]>(() => {
     try {
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -389,8 +516,94 @@ export const AOPDashboardView: React.FC = () => {
     } catch {
       // Ignore parse errors
     }
-    return INITIAL_AOP_2027_DATA;
+    return [];
   });
+
+  // richyrik: Active AOP Subtype selection (IPTV vs XSTREAM / XSTRM)
+  const [activeSubtype, setActiveSubtype] = useState<"IPTV" | "XSTREAM">(initialSubtype);
+  useEffect(() => {
+    if (initialSubtype) setActiveSubtype(initialSubtype);
+  }, [initialSubtype]);
+
+  const handleSubtypeSelect = (st: "IPTV" | "XSTREAM") => {
+    setActiveSubtype(st);
+    if (onSubtypeChange) onSubtypeChange(st);
+  };
+
+  // richyrik: Dynamic user-defined additional columns tracking
+  const [customColumnKeys, setCustomColumnKeys] = useState<string[]>([]);
+  const [modalNewColName, setModalNewColName] = useState("");
+  const [modalNewColValue, setModalNewColValue] = useState("");
+  const [isAddColumnInlineOpen, setIsAddColumnInlineOpen] = useState(false);
+  const [inlineNewColName, setInlineNewColName] = useState("");
+
+  // Auto-discover custom columns across line items
+  useEffect(() => {
+    const set = new Set<string>();
+    items.forEach((it) => {
+      if (it.customFields) {
+        Object.keys(it.customFields).forEach((k) => set.add(k));
+      }
+    });
+    if (set.size > 0) {
+      setCustomColumnKeys((prev) => Array.from(new Set([...prev, ...Array.from(set)])));
+    }
+  }, [items]);
+
+  // richyrik: Connect to FinOps Currency, Datasets & MongoDB Context
+  const {
+    currency,
+    currencySymbol,
+    formatCurrency,
+    dateFilter,
+    parseWorkbookFile,
+    datasets,
+    setIsDatasetManagerOpen,
+  } = useFinOpsCurrency();
+
+  // richyrik: Dynamic formatters respecting global currency switch
+  const formatINR = (val: number | null | undefined): string => {
+    return formatCurrency(val, true);
+  };
+  const formatINRFull = (val: number | null | undefined): string => {
+    return formatCurrency(val, false);
+  };
+
+  // richyrik: Ingestion & Dataset Deletion event listeners
+  useEffect(() => {
+    const handleIngest = () => {
+      try {
+        const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) setItems(parsed);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    const handleDatasetDeleted = () => {
+      try {
+        const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setItems(Array.isArray(parsed) ? parsed : []);
+        } else {
+          setItems([]);
+        }
+      } catch {
+        setItems([]);
+      }
+    };
+
+    window.addEventListener("finops:ingest-aop", handleIngest);
+    window.addEventListener("finops:dataset-deleted", handleDatasetDeleted);
+    return () => {
+      window.removeEventListener("finops:ingest-aop", handleIngest);
+      window.removeEventListener("finops:dataset-deleted", handleDatasetDeleted);
+    };
+  }, []);
 
   // Persist changes to localStorage
   useEffect(() => {
@@ -426,26 +639,35 @@ export const AOPDashboardView: React.FC = () => {
     return () => clearTimeout(timer);
   }, [notification]);
 
-  // Derived unique lists for dropdown filters
+  // richyrik: Subtype partition and metrics
+  const iptvItemsAll = useMemo(() => items.filter((it) => getItemSubtype(it) === "IPTV"), [items]);
+  const xstreamItemsAll = useMemo(() => items.filter((it) => getItemSubtype(it) === "XSTREAM"), [items]);
+
+  // Line items belonging strictly to active subtype
+  const currentSubtypeItems = useMemo(() => {
+    return items.filter((it) => getItemSubtype(it) === activeSubtype);
+  }, [items, activeSubtype]);
+
+  // Derived unique lists for dropdown filters within current subtype
   const uniqueProjects = useMemo(() => {
     const set = new Set<string>();
-    items.forEach((it) => {
+    currentSubtypeItems.forEach((it) => {
       if (it.project && it.project.trim()) set.add(it.project.trim());
     });
     return Array.from(set).sort();
-  }, [items]);
+  }, [currentSubtypeItems]);
 
   const uniqueLOBs = useMemo(() => {
     const set = new Set<string>();
-    items.forEach((it) => {
+    currentSubtypeItems.forEach((it) => {
       if (it.lob && it.lob.trim()) set.add(it.lob.trim());
     });
     return Array.from(set).sort();
-  }, [items]);
+  }, [currentSubtypeItems]);
 
-  // Filtered dataset
+  // Filtered dataset for current subtype
   const filteredItems = useMemo(() => {
-    return items.filter((it) => {
+    return currentSubtypeItems.filter((it) => {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesProj = it.project.toLowerCase().includes(q);
@@ -479,22 +701,26 @@ export const AOPDashboardView: React.FC = () => {
 
       return true;
     });
-  }, [items, searchQuery, selectedProject, selectedLOB, selectedCapexOpex]);
+  }, [currentSubtypeItems, searchQuery, selectedProject, selectedLOB, selectedCapexOpex]);
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Top 4 Executive KPI Calculations (with smart empty-state handling)
+  // Top 4 Executive KPI Calculations (Subtype-Aware with Total Spent & Overrun)
   // ─────────────────────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
-    const totalLineItems = items.length;
+    const totalLineItems = currentSubtypeItems.length;
     const scopedProjectsCount = uniqueProjects.length;
-    const totalUseCases = items.filter((it) => it.usecase && it.usecase.trim().length > 0).length;
+    const totalUseCases = currentSubtypeItems.filter((it) => it.usecase && it.usecase.trim().length > 0).length;
 
-    // Check financial completeness across Columns D, E, F, G
+    // Check financial completeness across Columns D, E, Total Spent, F, G
     let filledFieldsCount = 0;
-    const totalPossibleFields = totalLineItems * 4; // D (LOB), E (Amount), F (Payment Mode), G (Capex/Opex)
+    const totalPossibleFields = totalLineItems * 5; // D (LOB), E (Allocated Amount), Total Spent, F (Payment Mode), G (Capex/Opex)
 
-    let totalBudget = 0;
+    let totalBudget = 0; // Allocated Amount sum
+    let totalSpent = 0; // Total Spent sum
     let hasAnyBudget = false;
+    let hasAnySpend = false;
+    let overBudgetCount = 0;
+    let totalOverrun = 0;
 
     let capexCount = 0;
     let opexCount = 0;
@@ -504,12 +730,28 @@ export const AOPDashboardView: React.FC = () => {
     let monthlyCount = 0;
     let oneTimeCount = 0;
 
-    items.forEach((it) => {
+    currentSubtypeItems.forEach((it) => {
       if (it.lob && it.lob.trim()) filledFieldsCount++;
       if (it.amount !== null && it.amount !== undefined && it.amount > 0) {
         filledFieldsCount++;
         totalBudget += it.amount;
         hasAnyBudget = true;
+      }
+      if (it.totalSpent !== null && it.totalSpent !== undefined && it.totalSpent > 0) {
+        filledFieldsCount++;
+        totalSpent += it.totalSpent;
+        hasAnySpend = true;
+      }
+      // Check if spend is more than allocated data
+      if (
+        it.totalSpent !== null &&
+        it.totalSpent !== undefined &&
+        it.amount !== null &&
+        it.amount !== undefined &&
+        it.totalSpent > it.amount
+      ) {
+        overBudgetCount++;
+        totalOverrun += it.totalSpent - it.amount;
       }
       if (it.paymentMode && it.paymentMode.trim()) {
         filledFieldsCount++;
@@ -531,7 +773,7 @@ export const AOPDashboardView: React.FC = () => {
     });
 
     const completenessPct = totalPossibleFields > 0 ? Math.round((filledFieldsCount / totalPossibleFields) * 100) : 0;
-    const hasAnyFinancials = hasAnyBudget || capexCount > 0 || opexCount > 0 || monthlyCount > 0 || oneTimeCount > 0;
+    const hasAnyFinancials = hasAnyBudget || hasAnySpend || capexCount > 0 || opexCount > 0 || monthlyCount > 0 || oneTimeCount > 0;
 
     return {
       totalLineItems,
@@ -541,8 +783,12 @@ export const AOPDashboardView: React.FC = () => {
       filledFieldsCount,
       totalPossibleFields,
       totalBudget,
+      totalSpent,
       hasAnyBudget,
+      hasAnySpend,
       hasAnyFinancials,
+      overBudgetCount,
+      totalOverrun,
       capexCount,
       opexCount,
       capexAmount,
@@ -550,7 +796,7 @@ export const AOPDashboardView: React.FC = () => {
       monthlyCount,
       oneTimeCount,
     };
-  }, [items, uniqueProjects]);
+  }, [currentSubtypeItems, uniqueProjects]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Left Chart Data: Project Breakdown (Components & Use Cases vs Budget)
@@ -558,10 +804,10 @@ export const AOPDashboardView: React.FC = () => {
   const projectChartData = useMemo(() => {
     const map: Record<
       string,
-      { project: string; components: number; usecases: number; totalAmount: number; shortName: string }
+      { project: string; components: number; usecases: number; totalAmount: number; totalSpent: number; shortName: string }
     > = {};
 
-    items.forEach((it) => {
+    currentSubtypeItems.forEach((it) => {
       const proj = it.project.trim() || "Unassigned";
       if (!map[proj]) {
         map[proj] = {
@@ -569,6 +815,7 @@ export const AOPDashboardView: React.FC = () => {
           components: 0,
           usecases: 0,
           totalAmount: 0,
+          totalSpent: 0,
           shortName: proj.length > 18 ? proj.slice(0, 16) + "…" : proj,
         };
       }
@@ -579,10 +826,13 @@ export const AOPDashboardView: React.FC = () => {
       if (it.amount && it.amount > 0) {
         map[proj].totalAmount += it.amount;
       }
+      if (it.totalSpent && it.totalSpent > 0) {
+        map[proj].totalSpent += it.totalSpent;
+      }
     });
 
     return Object.values(map);
-  }, [items]);
+  }, [currentSubtypeItems]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Right Chart Data: Financial Structure (Capex/Opex, LOB, Payment Mode)
@@ -605,7 +855,7 @@ export const AOPDashboardView: React.FC = () => {
 
     // LOB breakdown
     const lobMap: Record<string, { name: string; count: number; amount: number }> = {};
-    items.forEach((it) => {
+    currentSubtypeItems.forEach((it) => {
       const lob = it.lob && it.lob.trim() ? it.lob.trim() : "Pending LOB";
       if (!lobMap[lob]) lobMap[lob] = { name: lob, count: 0, amount: 0 };
       lobMap[lob].count += 1;
@@ -619,7 +869,7 @@ export const AOPDashboardView: React.FC = () => {
       count: l.count,
       color: colors[idx % colors.length],
     }));
-  }, [items, kpis, rightChartMetric]);
+  }, [currentSubtypeItems, kpis, rightChartMetric]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Excel File Upload & Parser (Supports Image 1's exact 7 headers case-insensitively)
@@ -633,6 +883,13 @@ export const AOPDashboardView: React.FC = () => {
       try {
         const data = evt.target?.result;
         const workbook = XLSX.read(data, { type: "binary" });
+
+        // richyrik: Multi-sheet workbook auto-routing trigger
+        if (workbook.SheetNames && workbook.SheetNames.length > 1) {
+          parseWorkbookFile(file);
+          return;
+        }
+
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
@@ -643,6 +900,7 @@ export const AOPDashboardView: React.FC = () => {
         }
 
         const parsedLineItems: AOPLineItem[] = [];
+        const detectedCustomCols = new Set<string>();
 
         rawJson.forEach((row, idx) => {
           // Resolve exact columns case-insensitively with flexible fallback aliases
@@ -650,9 +908,12 @@ export const AOPDashboardView: React.FC = () => {
           let costComponent = "";
           let usecase = "";
           let lob = "";
-          let amount: number | null = null;
+          let amount: number | null = null; // Col E: Allocated Amount
+          let totalSpent: number | null = null; // New: Total Spent
           let paymentMode = "";
           let capexOpex = "";
+          let subtype: "IPTV" | "XSTREAM" | undefined = undefined;
+          const customFields: Record<string, string | number> = {};
 
           for (const key of Object.keys(row)) {
             const cleanKey = key.trim().toLowerCase();
@@ -666,17 +927,27 @@ export const AOPDashboardView: React.FC = () => {
               usecase = val;
             } else if (/^lob$|^line\s*of\s*business$/i.test(cleanKey)) {
               lob = val;
-            } else if (/^amount$|^budget$|^cost$/i.test(cleanKey)) {
+            } else if (/^subtype$|^sub\s*type$/i.test(cleanKey)) {
+              if (/iptv/i.test(val)) subtype = "IPTV";
+              else if (/xstream|xstrm/i.test(val)) subtype = "XSTREAM";
+            } else if (/^allocated\s*amount$|^allocated$|^amount$|^budget$/i.test(cleanKey)) {
               const num = parseFloat(val.replace(/[₹,$\s]/g, ""));
               amount = isNaN(num) || num <= 0 ? null : num;
+            } else if (/^total\s*spent$|^spent$|^actual\s*spend|^actuals?$/i.test(cleanKey)) {
+              const num = parseFloat(val.replace(/[₹,$\s]/g, ""));
+              totalSpent = isNaN(num) || num <= 0 ? null : num;
             } else if (/^payment\s*mode|^payment\s*mode\s*\(monthly\s*\/\s*one\s*time\)$/i.test(cleanKey)) {
               paymentMode = val;
             } else if (/^capex\/opex$|^capex\s*\/\s*opex$|^capex_opex$/i.test(cleanKey)) {
               capexOpex = val;
+            } else if (val) {
+              // Custom extra columns
+              customFields[key.trim()] = val;
+              detectedCustomCols.add(key.trim());
             }
           }
 
-          // Fallback positional mapping if headers were exact column order A-G
+          // Fallback positional mapping if headers were exact column order
           const rowValues = Object.values(row).map((v) => String(v ?? "").trim());
           if (!project && rowValues[0]) project = rowValues[0];
           if (!costComponent && rowValues[1]) costComponent = rowValues[1];
@@ -686,32 +957,40 @@ export const AOPDashboardView: React.FC = () => {
             const num = parseFloat(rowValues[4].replace(/[₹,$\s]/g, ""));
             if (!isNaN(num) && num > 0) amount = num;
           }
-          if (!paymentMode && rowValues[5]) paymentMode = rowValues[5];
-          if (!capexOpex && rowValues[6]) capexOpex = rowValues[6];
+          if (totalSpent === null && rowValues[5] && !isNaN(parseFloat(rowValues[5].replace(/[₹,$\s]/g, "")))) {
+            totalSpent = parseFloat(rowValues[5].replace(/[₹,$\s]/g, ""));
+          }
 
           if (project || costComponent || usecase) {
-            parsedLineItems.push({
+            const itemCandidate: AOPLineItem = {
               id: `aop-upload-${Date.now()}-${idx}`,
               project: project || `Project ${idx + 1}`,
               costComponent: costComponent || `Component ${idx + 1}`,
               usecase: usecase || "Scoped operational requirement",
               lob,
               amount,
-              paymentMode,
-              capexOpex,
-            });
+              totalSpent,
+              paymentMode: paymentMode || (rowValues[6] && isNaN(parseFloat(rowValues[6])) ? rowValues[6] : ""),
+              capexOpex: capexOpex || (rowValues[7] ? rowValues[7] : ""),
+              subtype: subtype || getItemSubtype({ project, costComponent, usecase, lob }),
+              customFields,
+            };
+            parsedLineItems.push(itemCandidate);
           }
         });
 
         if (parsedLineItems.length > 0) {
           setItems(parsedLineItems);
+          if (detectedCustomCols.size > 0) {
+            setCustomColumnKeys((prev) => Array.from(new Set([...prev, ...Array.from(detectedCustomCols)])));
+          }
           setNotification({
             message: `Successfully loaded ${parsedLineItems.length} AOP 2027 line items from "${file.name}".`,
             type: "success",
           });
         } else {
           setNotification({
-            message: "Could not detect AOP columns. Expected: Project, Cost Component, Usecase, LOB, Amount, Payment mode, Capex/Opex.",
+            message: "Could not detect AOP columns. Expected: Project, Cost Component, Usecase, LOB, Allocated Amount, Total Spent, Payment mode, Capex/Opex.",
             type: "error",
           });
         }
@@ -724,19 +1003,30 @@ export const AOPDashboardView: React.FC = () => {
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Excel File Export (Creates exact 7-column schema matching Image 1)
+  // Excel File Export (Creates exact schema with Allocated Amount, Total Spent & Custom Cols)
   // ─────────────────────────────────────────────────────────────────────────────
   const handleExportExcel = () => {
     try {
-      const exportRows = filteredItems.map((it) => ({
-        Project: it.project,
-        "Cost Component": it.costComponent,
-        Usecase: it.usecase,
-        LOB: it.lob || "",
-        Amount: it.amount !== null && it.amount !== undefined ? it.amount : "",
-        "Payment mode (Monthly / One time)": it.paymentMode || "",
-        "Capex/Opex": it.capexOpex || "",
-      }));
+      const exportRows = filteredItems.map((it) => {
+        const rowData: Record<string, any> = {
+          Project: it.project,
+          "Cost Component": it.costComponent,
+          Usecase: it.usecase,
+          LOB: it.lob || "",
+          Subtype: it.subtype || getItemSubtype(it),
+          "Allocated Amount": it.amount !== null && it.amount !== undefined ? it.amount : "",
+          "TOTAL SPENT": it.totalSpent !== null && it.totalSpent !== undefined ? it.totalSpent : "",
+          "Payment mode (Monthly / One time)": it.paymentMode || "",
+          "Capex/Opex": it.capexOpex || "",
+        };
+
+        // Attach dynamic custom columns
+        customColumnKeys.forEach((key) => {
+          rowData[key] = it.customFields?.[key] ?? "";
+        });
+
+        return rowData;
+      });
 
       const ws = XLSX.utils.json_to_sheet(exportRows);
       // Auto column widths
@@ -745,14 +1035,17 @@ export const AOPDashboardView: React.FC = () => {
         { wch: 34 }, // Cost Component
         { wch: 60 }, // Usecase
         { wch: 20 }, // LOB
-        { wch: 18 }, // Amount
+        { wch: 14 }, // Subtype
+        { wch: 22 }, // Allocated Amount
+        { wch: 20 }, // TOTAL SPENT
         { wch: 32 }, // Payment mode (Monthly / One time)
         { wch: 16 }, // Capex/Opex
+        ...customColumnKeys.map(() => ({ wch: 20 })),
       ];
 
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "AOP 2027");
-      XLSX.writeFile(wb, "AOP_2027_Annual_Operating_Plan.xlsx");
+      XLSX.utils.book_append_sheet(wb, ws, `AOP 2027 ${activeSubtype}`);
+      XLSX.writeFile(wb, `AOP_2027_${activeSubtype}_Operating_Plan.xlsx`);
 
       setNotification({ message: `Exported ${filteredItems.length} AOP 2027 line items to Excel.`, type: "success" });
     } catch (err: any) {
@@ -762,12 +1055,12 @@ export const AOPDashboardView: React.FC = () => {
 
   // Quick action: Toggle populated sample vs clean scoped initial
   const handleTogglePopulatedPreview = () => {
-    if (kpis.hasAnyBudget) {
+    if (kpis.hasAnyBudget || kpis.hasAnySpend) {
       setItems(INITIAL_AOP_2027_DATA);
       setNotification({ message: "Reset to initial company state: Columns A, B, C populated; D–G pending.", type: "info" });
     } else {
       setItems(SAMPLE_POPULATED_AOP_2027);
-      setNotification({ message: "Loaded preview financial figures across Columns D, E, F, G.", type: "success" });
+      setNotification({ message: "Loaded preview financial figures across Columns D, E, Total Spent, F, G.", type: "success" });
     }
   };
 
@@ -782,12 +1075,24 @@ export const AOPDashboardView: React.FC = () => {
     });
     setIsModalOpen(false);
     setEditingItem(null);
-    setNotification({ message: `Updated line item: "${itemToSave.costComponent}"`, type: "success" });
+    setNotification({ message: `Saved line item: "${itemToSave.costComponent}"`, type: "success" });
   };
 
   const handleDeleteItem = (id: string) => {
     setItems((prev) => prev.filter((it) => it.id !== id));
     setNotification({ message: "Line item removed.", type: "info" });
+  };
+
+  // Dynamic custom column addition
+  const handleAddCustomColumn = (colName: string) => {
+    const trimmed = colName.trim();
+    if (!trimmed) return;
+    if (!customColumnKeys.includes(trimmed)) {
+      setCustomColumnKeys((prev) => [...prev, trimmed]);
+      setNotification({ message: `Added new column "${trimmed}" to AOP dashboard table.`, type: "success" });
+    }
+    setIsAddColumnInlineOpen(false);
+    setInlineNewColName("");
   };
 
   return (
@@ -842,17 +1147,20 @@ export const AOPDashboardView: React.FC = () => {
             onClick={() => {
               setEditingItem({
                 id: `aop-manual-${Date.now()}`,
-                project: uniqueProjects[0] || "Wynk Music Core",
+                project: uniqueProjects[0] || (activeSubtype === "IPTV" ? "IPTV NextGen Infrastructure" : "Wynk Music Core"),
                 costComponent: "",
                 usecase: "",
-                lob: "",
+                lob: activeSubtype === "IPTV" ? "iptv" : "xstrm",
                 amount: null,
+                totalSpent: null,
                 paymentMode: "",
                 capexOpex: "",
+                subtype: activeSubtype,
+                customFields: {},
               });
               setIsModalOpen(true);
             }}
-            className="px-3 py-2 rounded-xl text-xs font-semibold text-white bg-violet-600/80 hover:bg-violet-600 border border-violet-500/40 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shadow-md shadow-violet-950/40"
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 border border-violet-500/40 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shadow-md shadow-violet-950/40"
           >
             <Plus size={14} />
             <span>Add Item</span>
@@ -866,6 +1174,141 @@ export const AOPDashboardView: React.FC = () => {
             <Sparkles size={13} className="text-amber-400" />
             <span>{kpis.hasAnyBudget ? "Reset to Empty D–G" : "Preview Populated D–G"}</span>
           </button>
+        </div>
+      </div>
+
+      {/* ─────────────────────────────────────────────────────────────────────────────
+          AOP SUBTYPE SWITCHER: IPTV vs XSTRM (XSTREAM)
+      ───────────────────────────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* IPTV Subtype Card */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => handleSubtypeSelect("IPTV")}
+          className={`relative p-5 rounded-2xl border text-left transition-all duration-300 cursor-pointer overflow-hidden group ${
+            activeSubtype === "IPTV"
+              ? "bg-gradient-to-br from-emerald-950/50 via-emerald-900/25 to-[#0B0F19] border-emerald-500/60 shadow-[0_0_25px_rgba(16,185,129,0.22)] ring-1 ring-emerald-500/50"
+              : "bg-white/[0.03] border-white/[0.08] hover:border-white/[0.18] hover:bg-white/[0.05]"
+          }`}
+        >
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div
+                className={`p-3 rounded-xl border ${
+                  activeSubtype === "IPTV"
+                    ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300 shadow-md shadow-emerald-500/20"
+                    : "bg-slate-800/60 border-slate-700/60 text-slate-400 group-hover:text-emerald-400"
+                }`}
+              >
+                <Tv size={22} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-black text-white tracking-tight">IPTV Dashboard</h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                    Subtype
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  IPTV broadcast feeds, linear multicast, headend transcoding & CAS security
+                </p>
+              </div>
+            </div>
+            {activeSubtype === "IPTV" ? (
+              <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30">
+                <CheckCircle size={13} /> Active
+              </span>
+            ) : (
+              <span className="text-xs text-slate-500 group-hover:text-emerald-300 font-semibold transition-colors">
+                Switch to IPTV →
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-white/[0.06] text-xs">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Line Items</span>
+              <span className="font-bold text-white text-sm">{iptvItemsAll.length} items</span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Allocated</span>
+              <span className="font-bold text-emerald-400 text-sm font-mono">
+                {formatINR(iptvItemsAll.reduce((s, it) => s + (it.amount || 0), 0))}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Spent</span>
+              <span className="font-bold text-sky-400 text-sm font-mono">
+                {formatINR(iptvItemsAll.reduce((s, it) => s + (it.totalSpent || 0), 0))}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* XSTRM (XSTREAM) Subtype Card */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => handleSubtypeSelect("XSTREAM")}
+          className={`relative p-5 rounded-2xl border text-left transition-all duration-300 cursor-pointer overflow-hidden group ${
+            activeSubtype === "XSTREAM"
+              ? "bg-gradient-to-br from-cyan-950/50 via-sky-900/25 to-[#0B0F19] border-cyan-500/60 shadow-[0_0_25px_rgba(6,182,212,0.22)] ring-1 ring-cyan-500/50"
+              : "bg-white/[0.03] border-white/[0.08] hover:border-white/[0.18] hover:bg-white/[0.05]"
+          }`}
+        >
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div
+                className={`p-3 rounded-xl border ${
+                  activeSubtype === "XSTREAM"
+                    ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300 shadow-md shadow-cyan-500/20"
+                    : "bg-slate-800/60 border-slate-700/60 text-slate-400 group-hover:text-cyan-400"
+                }`}
+              >
+                <Zap size={22} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-black text-white tracking-tight">XSTRM (Xstream) Dashboard</h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                    Subtype
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  OTT streaming, Wynk core audio, edge playback microservices & CDN
+                </p>
+              </div>
+            </div>
+            {activeSubtype === "XSTREAM" ? (
+              <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/30">
+                <CheckCircle size={13} /> Active
+              </span>
+            ) : (
+              <span className="text-xs text-slate-500 group-hover:text-cyan-300 font-semibold transition-colors">
+                Switch to XSTRM →
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-white/[0.06] text-xs">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Line Items</span>
+              <span className="font-bold text-white text-sm">{xstreamItemsAll.length} items</span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Allocated</span>
+              <span className="font-bold text-emerald-400 text-sm font-mono">
+                {formatINR(xstreamItemsAll.reduce((s, it) => s + (it.amount || 0), 0))}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Spent</span>
+              <span className="font-bold text-sky-400 text-sm font-mono">
+                {formatINR(xstreamItemsAll.reduce((s, it) => s + (it.totalSpent || 0), 0))}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -895,15 +1338,50 @@ export const AOPDashboardView: React.FC = () => {
         )}
       </AnimatePresence>
 
+      {/* richyrik: Clean Empty State Dropzone when no AOP items have been uploaded */}
+      {items.length === 0 && (
+        <div className="border-2 border-dashed border-amber-500/30 rounded-2xl p-10 text-center bg-amber-500/[0.02]">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-4 shadow-lg shadow-amber-950/20">
+            <Target size={32} />
+          </div>
+          <h3 className="text-lg font-bold text-white mb-1">
+            Ready for your AOP 2027 Excel upload
+          </h3>
+          <p className="text-slate-400 text-xs max-w-lg mx-auto mb-6">
+            Upload your Annual Operating Plan worksheet (Columns A–G) to analyze cost components, Capex/Opex allocations, and LOB budgets. All data is automatically saved to Airtel Cloud Ops Security MongoDB (<code className="text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded">xtelify_db.finops_datasets</code>).
+          </p>
+          <div className="flex items-center justify-center flex-wrap gap-3">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 text-xs font-bold rounded-xl shadow-lg hover:from-emerald-400 hover:to-teal-400 cursor-pointer"
+            >
+              Upload AOP Excel
+            </button>
+            <button
+              onClick={() => setIsDatasetManagerOpen(true)}
+              className="px-5 py-2.5 bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 text-xs font-semibold rounded-xl border border-white/[0.08] cursor-pointer"
+            >
+              View Datasets ({datasets.length})
+            </button>
+            <button
+              onClick={() => setItems(INITIAL_AOP_2027_DATA)}
+              className="px-4 py-2.5 bg-slate-800/60 hover:bg-slate-800 text-slate-400 text-xs rounded-xl border border-slate-700/60 cursor-pointer"
+            >
+              Load Sample Template
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ─────────────────────────────────────────────────────────────────────────────
-          2. TOP 4 EXECUTIVE KPI CARDS (Smart Empty-State Handling)
+          2. TOP 4 EXECUTIVE KPI CARDS (Subtype-Aware with Overrun Alert)
       ───────────────────────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Total Scoped Projects & Use Cases */}
         <div className="rounded-2xl p-5 border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl relative overflow-hidden flex flex-col justify-between group hover:border-white/[0.18] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)]">
           <div className="absolute top-0 right-0 w-28 h-28 bg-blue-500/10 rounded-full blur-2xl pointer-events-none group-hover:bg-blue-500/15 transition-all" />
           <div className="flex items-center justify-between text-blue-400 mb-3">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Scoped Projects & Use Cases</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Scoped {activeSubtype} Projects</span>
             <div className="p-2 rounded-xl bg-blue-500/15 border border-blue-500/20 text-blue-400">
               <Layers size={18} />
             </div>
@@ -911,7 +1389,7 @@ export const AOPDashboardView: React.FC = () => {
           <div>
             <div className="flex items-baseline gap-2">
               <span className="text-3xl font-black text-white tracking-tight">{kpis.scopedProjectsCount}</span>
-              <span className="text-xs font-semibold text-blue-400">Core Projects</span>
+              <span className="text-xs font-semibold text-blue-400">Projects</span>
             </div>
             <div className="flex items-center gap-2 mt-2">
               <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-500/15 text-blue-300 border border-blue-500/30">
@@ -926,7 +1404,7 @@ export const AOPDashboardView: React.FC = () => {
         <div className="rounded-2xl p-5 border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl relative overflow-hidden flex flex-col justify-between group hover:border-white/[0.18] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)]">
           <div className="absolute top-0 right-0 w-28 h-28 bg-purple-500/10 rounded-full blur-2xl pointer-events-none group-hover:bg-purple-500/15 transition-all" />
           <div className="flex items-center justify-between text-purple-400 mb-3">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Cost Components Mapped</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{activeSubtype} Components</span>
             <div className="p-2 rounded-xl bg-purple-500/15 border border-purple-500/20 text-purple-400">
               <FileSpreadsheet size={18} />
             </div>
@@ -957,24 +1435,48 @@ export const AOPDashboardView: React.FC = () => {
           </div>
         </div>
 
-        {/* Card 3: Total AOP 2027 Budget (Smart Empty State) */}
+        {/* Card 3: Allocated Amount vs Total Spent (with Red Overrun Alert) */}
         <div className="rounded-2xl p-5 border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl relative overflow-hidden flex flex-col justify-between group hover:border-white/[0.18] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)]">
-          <div className="absolute top-0 right-0 w-28 h-28 bg-amber-500/10 rounded-full blur-2xl pointer-events-none group-hover:bg-amber-500/15 transition-all" />
-          <div className="flex items-center justify-between text-amber-400 mb-3">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total AOP 2027 Budget</span>
-            <div className="p-2 rounded-xl bg-amber-500/15 border border-amber-500/20 text-amber-400">
-              <Wallet size={18} />
+          <div className={`absolute top-0 right-0 w-28 h-28 ${kpis.overBudgetCount > 0 ? "bg-rose-500/15" : "bg-amber-500/10"} rounded-full blur-2xl pointer-events-none transition-all`} />
+          <div className="flex items-center justify-between text-amber-400 mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Allocated vs Spent</span>
+            <div className={`p-2 rounded-xl border ${kpis.overBudgetCount > 0 ? "bg-rose-500/15 border-rose-500/30 text-rose-400" : "bg-amber-500/15 border-amber-500/20 text-amber-400"}`}>
+              {kpis.overBudgetCount > 0 ? <AlertTriangle size={18} /> : <Wallet size={18} />}
             </div>
           </div>
           <div>
-            {kpis.hasAnyBudget ? (
+            {kpis.hasAnyBudget || kpis.hasAnySpend ? (
               <>
-                <div className="text-3xl font-black text-amber-300 tracking-tight">
-                  {formatINR(kpis.totalBudget)}
+                <div className="flex items-baseline justify-between">
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Allocated (Col E)</span>
+                    <span className="text-xl font-black text-emerald-400 font-mono">
+                      {formatINR(kpis.totalBudget)}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Total Spent</span>
+                    <span className={`text-xl font-black font-mono ${kpis.totalSpent > kpis.totalBudget && kpis.totalBudget > 0 ? "text-rose-400" : "text-sky-400"}`}>
+                      {formatINR(kpis.totalSpent)}
+                    </span>
+                  </div>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-2 font-mono">
-                  {formatINRFull(kpis.totalBudget)} across active line items
-                </p>
+
+                {kpis.overBudgetCount > 0 ? (
+                  <div className="mt-2.5 px-2.5 py-1 rounded-lg bg-rose-500/15 border border-rose-500/30 flex items-center justify-between text-[11px]">
+                    <span className="text-rose-300 font-bold flex items-center gap-1">
+                      <AlertTriangle size={12} className="text-rose-400" />
+                      {kpis.overBudgetCount} item(s) overrun
+                    </span>
+                    <span className="font-mono font-bold text-rose-400">
+                      +{formatINR(kpis.totalOverrun)}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400 mt-2 font-mono">
+                    Spend within allocated budget
+                  </p>
+                )}
               </>
             ) : (
               <>
@@ -1070,7 +1572,7 @@ export const AOPDashboardView: React.FC = () => {
                     : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                <span>Budget (₹)</span>
+                <span>Budget ({currencySymbol})</span>
                 {!kpis.hasAnyBudget && (
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                 )}
@@ -1437,19 +1939,72 @@ export const AOPDashboardView: React.FC = () => {
           5. AOP 2027 MASTER DATA TABLE (Exact 7 Columns from Image 1)
       ───────────────────────────────────────────────────────────────────────────── */}
       <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] rounded-2xl overflow-hidden shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)]">
-        <div className="px-6 py-4 border-b border-white/[0.08] flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="px-6 py-4 border-b border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center flex-wrap gap-3">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <FileSpreadsheet size={16} className="text-amber-400" />
-              AOP 2027 Line Items
+              <span>AOP 2027 Line Items</span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                {activeSubtype}
+              </span>
             </h3>
             <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/[0.06] text-slate-300 border border-white/[0.10]">
-              Showing {filteredItems.length} of {items.length} Rows
+              Showing {filteredItems.length} of {currentSubtypeItems.length} Rows
             </span>
+            {kpis.overBudgetCount > 0 && (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center gap-1 animate-pulse">
+                <AlertTriangle size={11} className="text-rose-400" />
+                {kpis.overBudgetCount} Over Budget (Highlighted in Red)
+              </span>
+            )}
           </div>
 
-          <div className="text-[11px] text-slate-400 hidden sm:block">
-            Click on any row or <span className="text-amber-400 font-semibold">Edit</span> to update LOB, Amount, Payment Mode, or Capex/Opex inline.
+          <div className="flex items-center gap-2">
+            {/* richyrik: + Add Column trigger allowing user to add more dynamic columns */}
+            {isAddColumnInlineOpen ? (
+              <div className="flex items-center gap-1.5 bg-[#07090E] p-1 rounded-xl border border-amber-500/40">
+                <input
+                  type="text"
+                  value={inlineNewColName}
+                  onChange={(e) => setInlineNewColName(e.target.value)}
+                  placeholder="New column name..."
+                  className="bg-transparent text-xs text-white px-2 py-1 focus:outline-none w-36"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleAddCustomColumn(inlineNewColName);
+                    else if (e.key === "Escape") setIsAddColumnInlineOpen(false);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => handleAddCustomColumn(inlineNewColName)}
+                  className="px-2 py-1 rounded-lg bg-amber-500 text-slate-950 text-xs font-bold hover:bg-amber-400"
+                >
+                  Add
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAddColumnInlineOpen(false)}
+                  className="p-1 text-slate-400 hover:text-white"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsAddColumnInlineOpen(true)}
+                className="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                title="Add custom column to this table"
+              >
+                <Columns size={13} />
+                <span>+ Add Column</span>
+              </button>
+            )}
+
+            <div className="text-[11px] text-slate-400 hidden xl:block">
+              Click any row to edit financial figures inline.
+            </div>
           </div>
         </div>
 
@@ -1459,21 +2014,44 @@ export const AOPDashboardView: React.FC = () => {
               <tr className="border-b border-white/[0.08] bg-white/[0.02] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                 <th className="py-3.5 px-4 font-bold text-slate-300">Project</th>
                 <th className="py-3.5 px-4 font-bold text-slate-300">Cost Component</th>
-                <th className="py-3.5 px-4 font-bold text-slate-300 min-w-[260px]">Usecase</th>
+                <th className="py-3.5 px-4 font-bold text-slate-300 min-w-[240px]">Usecase</th>
                 <th className="py-3.5 px-4 font-bold text-slate-300">LOB</th>
-                <th className="py-3.5 px-4 font-bold text-slate-300 text-right">Amount</th>
+                {/* Column E: Renamed to Allocated Amount */}
+                <th className="py-3.5 px-4 font-bold text-emerald-400 text-right min-w-[150px]">
+                  Allocated Amount ({currencySymbol})
+                </th>
+                {/* Column between E and F: TOTAL SPENT */}
+                <th className="py-3.5 px-4 font-bold text-amber-300 text-right min-w-[160px]">
+                  TOTAL SPENT ({currencySymbol})
+                </th>
                 <th className="py-3.5 px-4 font-bold text-slate-300">Payment mode (Monthly / One time)</th>
                 <th className="py-3.5 px-4 font-bold text-slate-300">Capex/Opex</th>
+                {/* Dynamic custom columns */}
+                {customColumnKeys.map((colKey) => (
+                  <th key={colKey} className="py-3.5 px-4 font-bold text-violet-300 uppercase">
+                    {colKey}
+                  </th>
+                ))}
                 <th className="py-3.5 px-4 font-bold text-slate-300 text-center w-16">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
               {filteredItems.map((row) => {
                 const palette = PROJECT_PALETTE[row.project] || DEFAULT_PALETTE;
+                // richyrik: Identify if spend is more than allocated data
+                const isOverBudget =
+                  row.totalSpent !== null &&
+                  row.totalSpent !== undefined &&
+                  row.amount !== null &&
+                  row.amount !== undefined &&
+                  row.totalSpent > row.amount;
+
                 return (
                   <tr
                     key={row.id}
-                    className="hover:bg-white/[0.04] transition-colors group cursor-pointer"
+                    className={`transition-colors group cursor-pointer ${
+                      isOverBudget ? "hover:bg-rose-950/20 bg-rose-950/5" : "hover:bg-white/[0.04]"
+                    }`}
                     onClick={() => {
                       setEditingItem({ ...row });
                       setIsModalOpen(true);
@@ -1482,7 +2060,10 @@ export const AOPDashboardView: React.FC = () => {
                     {/* Column A: Project (Bold white text with project badge) */}
                     <td className="py-3.5 px-4 font-semibold text-white">
                       <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${palette.bar.replace("#", "bg-[#") + "]"}`} style={{ backgroundColor: palette.bar }} />
+                        <span
+                          className={`w-2 h-2 rounded-full shrink-0 ${palette.bar.replace("#", "bg-[#") + "]"}`}
+                          style={{ backgroundColor: palette.bar }}
+                        />
                         <span className="truncate max-w-[170px]" title={row.project}>
                           {row.project}
                         </span>
@@ -1491,7 +2072,10 @@ export const AOPDashboardView: React.FC = () => {
 
                     {/* Column B: Cost Component (Cyan/blue subtle pill) */}
                     <td className="py-3.5 px-4">
-                      <span className="inline-block px-2.5 py-1 rounded-md text-[11px] font-medium bg-cyan-950/40 text-cyan-300 border border-cyan-800/40 max-w-[200px] truncate" title={row.costComponent}>
+                      <span
+                        className="inline-block px-2.5 py-1 rounded-md text-[11px] font-medium bg-cyan-950/40 text-cyan-300 border border-cyan-800/40 max-w-[200px] truncate"
+                        title={row.costComponent}
+                      >
                         {row.costComponent}
                       </span>
                     </td>
@@ -1518,7 +2102,7 @@ export const AOPDashboardView: React.FC = () => {
                       )}
                     </td>
 
-                    {/* Column E: Amount (Right-aligned monospace INR or awaiting cost in muted amber) */}
+                    {/* Column E: Allocated Amount (Renamed from Amount) */}
                     <td className="py-3.5 px-4 text-right font-mono font-bold">
                       {row.amount !== null && row.amount !== undefined && row.amount > 0 ? (
                         <span className="text-emerald-400 text-xs sm:text-sm">
@@ -1526,7 +2110,38 @@ export const AOPDashboardView: React.FC = () => {
                         </span>
                       ) : (
                         <span className="text-amber-400/70 text-xs italic font-normal">
-                          — Awaiting Cost
+                          — Awaiting Allocation
+                        </span>
+                      )}
+                    </td>
+
+                    {/* NEW Column between E and F: TOTAL SPENT (RED when spend > allocated) */}
+                    <td
+                      className={`py-3.5 px-4 text-right font-mono font-bold transition-all ${
+                        isOverBudget
+                          ? "bg-rose-500/20 text-rose-300 border-x border-rose-500/40 ring-1 ring-rose-500/30"
+                          : ""
+                      }`}
+                    >
+                      {row.totalSpent !== null && row.totalSpent !== undefined && row.totalSpent > 0 ? (
+                        <div className="flex flex-col items-end">
+                          <span
+                            className={`text-xs sm:text-sm font-black ${
+                              isOverBudget ? "text-rose-300 drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]" : "text-sky-300"
+                            }`}
+                          >
+                            {formatINRFull(row.totalSpent)}
+                          </span>
+                          {isOverBudget && (
+                            <span className="text-[10px] text-rose-300 font-extrabold flex items-center gap-1 mt-0.5 bg-rose-950/80 px-1.5 py-0.5 rounded border border-rose-500/50">
+                              <AlertTriangle size={10} className="text-rose-400 shrink-0" />
+                              +{formatINR(row.totalSpent - (row.amount || 0))} Overrun
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-500 text-xs italic font-normal">
+                          — Awaiting Spend
                         </span>
                       )}
                     </td>
@@ -1569,6 +2184,19 @@ export const AOPDashboardView: React.FC = () => {
                       )}
                     </td>
 
+                    {/* Dynamic User Custom Columns */}
+                    {customColumnKeys.map((colKey) => (
+                      <td key={colKey} className="py-3.5 px-4 text-slate-300 text-xs">
+                        {row.customFields?.[colKey] !== undefined && row.customFields?.[colKey] !== "" ? (
+                          <span className="px-2 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20 font-medium">
+                            {String(row.customFields[colKey])}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                    ))}
+
                     {/* Actions */}
                     <td className="py-3.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
@@ -1597,12 +2225,12 @@ export const AOPDashboardView: React.FC = () => {
 
               {filteredItems.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9 + customColumnKeys.length} className="py-12 text-center text-slate-400">
                     <div className="w-12 h-12 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center mx-auto mb-3 text-slate-500">
                       <Search size={20} />
                     </div>
-                    <p className="font-semibold text-slate-300">No matching line items found</p>
-                    <p className="text-xs text-slate-500 mt-1">Try adjusting your filters or search keywords.</p>
+                    <p className="font-semibold text-slate-300">No matching line items found for {activeSubtype}</p>
+                    <p className="text-xs text-slate-500 mt-1">Try adjusting your filters, adding a line item, or switching subtype.</p>
                   </td>
                 </tr>
               )}
@@ -1612,96 +2240,149 @@ export const AOPDashboardView: React.FC = () => {
       </div>
 
       {/* ─────────────────────────────────────────────────────────────────────────────
-          6. INLINE / ROW EDIT & ADD MODAL
+          6. INLINE / ROW EDIT & ADD MODAL (Matching Image 2 + Subtype & Custom Columns)
       ───────────────────────────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {isModalOpen && editingItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#0B0F19] border border-slate-700/80 rounded-2xl p-6 w-full max-w-xl shadow-2xl shadow-black/80 flex flex-col gap-5 text-slate-100 relative"
+              className="bg-[#0B0F19] border border-slate-700/80 rounded-2xl p-6 w-full max-w-2xl shadow-2xl shadow-black/80 flex flex-col gap-5 text-slate-100 relative my-8 max-h-[90vh] overflow-y-auto"
             >
               <div className="flex items-start justify-between border-b border-slate-800 pb-3">
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <Edit3 size={16} className="text-amber-400" />
-                    Edit AOP 2027 Line Item
+                    <span>{editingItem.id.startsWith("aop-manual") ? "Add AOP 2027 Line Item" : "Edit AOP 2027 Line Item"}</span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
                     Update technical scoping (Cols A–C) or enter financial figures (Cols D–G)
                   </p>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
                 >
                   <X size={16} />
                 </button>
+              </div>
+
+              {/* richyrik: Subtype Option (IPTV or XSTRM) */}
+              <div className="bg-[#07090E]/90 border border-slate-800 p-3.5 rounded-xl">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-2">
+                  Select AOP Subtype <span className="text-amber-400">*</span>
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditingItem({
+                        ...editingItem,
+                        subtype: "IPTV",
+                        lob: editingItem.lob && editingItem.lob !== "xstrm" ? editingItem.lob : "iptv",
+                      })
+                    }
+                    className={`p-3 rounded-xl border flex items-center justify-center gap-2 font-bold text-xs transition-all cursor-pointer ${
+                      (editingItem.subtype || getItemSubtype(editingItem)) === "IPTV"
+                        ? "bg-emerald-500/20 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/40 shadow-sm shadow-emerald-500/20"
+                        : "bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800"
+                    }`}
+                  >
+                    <Tv size={15} />
+                    <span>IPTV</span>
+                    {(editingItem.subtype || getItemSubtype(editingItem)) === "IPTV" && (
+                      <CheckCircle size={14} className="text-emerald-400 ml-1" />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditingItem({
+                        ...editingItem,
+                        subtype: "XSTREAM",
+                        lob: editingItem.lob && editingItem.lob !== "iptv" ? editingItem.lob : "xstrm",
+                      })
+                    }
+                    className={`p-3 rounded-xl border flex items-center justify-center gap-2 font-bold text-xs transition-all cursor-pointer ${
+                      (editingItem.subtype || getItemSubtype(editingItem)) === "XSTREAM"
+                        ? "bg-cyan-500/20 border-cyan-500/60 text-cyan-300 ring-1 ring-cyan-500/40 shadow-sm shadow-cyan-500/20"
+                        : "bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800"
+                    }`}
+                  >
+                    <Zap size={15} />
+                    <span>XSTRM</span>
+                    {(editingItem.subtype || getItemSubtype(editingItem)) === "XSTREAM" && (
+                      <CheckCircle size={14} className="text-cyan-400 ml-1" />
+                    )}
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                 {/* Project (Col A) */}
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Column A: Project <span className="text-rose-400">*</span>
+                    COLUMN A: PROJECT <span className="text-rose-400">*</span>
                   </label>
                   <input
                     type="text"
                     value={editingItem.project}
                     onChange={(e) => setEditingItem({ ...editingItem, project: e.target.value })}
-                    placeholder="e.g. Wynk Music Core"
-                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400/70"
+                    placeholder="Wynk Music Core"
+                    className="w-full bg-[#07090E] border border-slate-700/90 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-amber-400/80"
                   />
                 </div>
 
                 {/* Cost Component (Col B) */}
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Column B: Cost Component <span className="text-rose-400">*</span>
+                    COLUMN B: COST COMPONENT <span className="text-rose-400">*</span>
                   </label>
                   <input
                     type="text"
                     value={editingItem.costComponent}
                     onChange={(e) => setEditingItem({ ...editingItem, costComponent: e.target.value })}
-                    placeholder="e.g. Cloud Compute (GCP GKE Production)"
-                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400/70"
+                    placeholder="Cloud Compute (GCP GKE Production)"
+                    className="w-full bg-[#07090E] border border-slate-700/90 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-amber-400/80"
                   />
                 </div>
 
                 {/* Usecase (Col C) */}
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Column C: Usecase <span className="text-rose-400">*</span>
+                    COLUMN C: USECASE <span className="text-rose-400">*</span>
                   </label>
                   <textarea
                     rows={2}
                     value={editingItem.usecase}
                     onChange={(e) => setEditingItem({ ...editingItem, usecase: e.target.value })}
-                    placeholder="Describe operational use case and requirements..."
-                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400/70 text-xs"
+                    placeholder="High-throughput audio streaming microservices, auto-scaling playback pods, and session management"
+                    className="w-full bg-[#07090E] border border-slate-700/90 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-amber-400/80 text-xs resize-y"
                   />
                 </div>
 
                 {/* LOB (Col D) */}
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Column D: LOB (Line of Business)
+                    COLUMN D: LOB (LINE OF BUSINESS)
                   </label>
                   <input
                     type="text"
                     value={editingItem.lob}
                     onChange={(e) => setEditingItem({ ...editingItem, lob: e.target.value })}
-                    placeholder="e.g. Wynk Music, DTH, Digital"
-                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400/70"
+                    placeholder="xstrm or iptv"
+                    className="w-full bg-[#07090E] border border-slate-700/90 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-amber-400/80"
                   />
                 </div>
 
-                {/* Amount (Col E) */}
+                {/* Column E: ALLOCATED AMOUNT (Renamed from Amount) */}
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Column E: Amount (₹ INR)
+                    COLUMN E: ALLOCATED AMOUNT (₹ INR)
                   </label>
                   <input
                     type="number"
@@ -1710,8 +2391,8 @@ export const AOPDashboardView: React.FC = () => {
                       const val = e.target.value.trim();
                       setEditingItem({ ...editingItem, amount: val ? parseFloat(val) : null });
                     }}
-                    placeholder="e.g. 38000000"
-                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-amber-400/70"
+                    placeholder="360000000"
+                    className="w-full bg-[#07090E] border border-slate-700/90 rounded-xl px-3.5 py-2.5 text-white font-mono focus:outline-none focus:border-amber-400/80"
                   />
                   {editingItem.amount && editingItem.amount > 0 ? (
                     <span className="text-[10px] text-emerald-400 mt-1 block font-mono">
@@ -1722,15 +2403,48 @@ export const AOPDashboardView: React.FC = () => {
                   )}
                 </div>
 
+                {/* Column between E and F: TOTAL SPENT */}
+                <div className="sm:col-span-2 bg-[#07090E]/60 p-3 rounded-xl border border-slate-800">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-300 mb-1">
+                    TOTAL SPENT (₹ INR) <span className="text-[10px] text-slate-400 font-normal lowercase">(between Col E and Col F)</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={editingItem.totalSpent ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value.trim();
+                      setEditingItem({ ...editingItem, totalSpent: val ? parseFloat(val) : null });
+                    }}
+                    placeholder="e.g. 410000000"
+                    className="w-full bg-[#07090E] border border-slate-700/90 rounded-xl px-3.5 py-2.5 text-white font-mono focus:outline-none focus:border-amber-400/80"
+                  />
+                  {editingItem.totalSpent && editingItem.totalSpent > 0 ? (
+                    <div className="mt-1 flex items-center justify-between flex-wrap gap-1 font-mono text-[10px]">
+                      <span className="text-sky-400">
+                        Formatted: {formatINR(editingItem.totalSpent)} ({formatINRFull(editingItem.totalSpent)})
+                      </span>
+                      {editingItem.amount && editingItem.totalSpent > editingItem.amount ? (
+                        <span className="text-rose-400 font-extrabold flex items-center gap-1 bg-rose-950/60 px-2 py-0.5 rounded border border-rose-500/40">
+                          <AlertTriangle size={11} /> Over budget by {formatINR(editingItem.totalSpent - editingItem.amount)}!
+                        </span>
+                      ) : (
+                        <span className="text-emerald-400">Within allocated budget</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-[10px] text-slate-500 mt-1 block">Enter actual spent amount to calculate variances</span>
+                  )}
+                </div>
+
                 {/* Payment mode (Col F) */}
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Column F: Payment mode
+                    COLUMN F: PAYMENT MODE
                   </label>
                   <select
                     value={editingItem.paymentMode || ""}
                     onChange={(e) => setEditingItem({ ...editingItem, paymentMode: e.target.value })}
-                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400/70"
+                    className="w-full bg-[#07090E] border border-slate-700/90 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-amber-400/80 cursor-pointer"
                   >
                     <option value="" className="bg-slate-900 text-slate-400">— Pending Payment Mode —</option>
                     <option value="Monthly" className="bg-slate-900 text-purple-300">Monthly</option>
@@ -1741,32 +2455,148 @@ export const AOPDashboardView: React.FC = () => {
                 {/* Capex/Opex (Col G) */}
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Column G: Capex/Opex
+                    COLUMN G: CAPEX/OPEX
                   </label>
                   <select
                     value={editingItem.capexOpex || ""}
                     onChange={(e) => setEditingItem({ ...editingItem, capexOpex: e.target.value })}
-                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400/70"
+                    className="w-full bg-[#07090E] border border-slate-700/90 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-amber-400/80 cursor-pointer"
                   >
                     <option value="" className="bg-slate-900 text-slate-400">— Pending Classification —</option>
-                    <option value="Opex" className="bg-slate-900 text-emerald-300">Opex (Operational Expense)</option>
-                    <option value="Capex" className="bg-slate-900 text-indigo-300">Capex (Capital Expense)</option>
+                    <option value="Opex (Operational Expense)" className="bg-slate-900 text-emerald-300">Opex (Operational Expense)</option>
+                    <option value="Capex (Capital Expense)" className="bg-slate-900 text-indigo-300">Capex (Capital Expense)</option>
                   </select>
                 </div>
               </div>
 
+              {/* ─────────────────────────────────────────────────────────────────────────────
+                  DYNAMIC CUSTOM COLUMNS SECTION (User requirement from Image 2)
+              ───────────────────────────────────────────────────────────────────────────── */}
+              <div className="bg-[#07090E]/80 border border-slate-800 rounded-xl p-4 mt-2">
+                <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-800/80">
+                  <div className="flex items-center gap-2">
+                    <Columns size={15} className="text-amber-400" />
+                    <span className="text-xs font-bold text-slate-200">
+                      Additional Columns
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                      {Object.keys(editingItem.customFields || {}).length} Added
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400">Add custom attributes beyond default 9 columns</span>
+                </div>
+
+                {/* Existing Custom Columns on this Item */}
+                <div className="space-y-2 mb-3">
+                  {Object.entries(editingItem.customFields || {}).map(([key, val]) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <span className="w-32 truncate text-[11px] font-bold text-slate-300 uppercase px-2 py-1 rounded bg-slate-900 border border-slate-800" title={key}>
+                        {key}
+                      </span>
+                      <input
+                        type="text"
+                        value={String(val)}
+                        onChange={(e) => {
+                          const updated = { ...(editingItem.customFields || {}) };
+                          updated[key] = e.target.value;
+                          setEditingItem({ ...editingItem, customFields: updated });
+                        }}
+                        className="flex-1 bg-[#07090E] border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400"
+                        placeholder={`Value for ${key}...`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = { ...(editingItem.customFields || {}) };
+                          delete updated[key];
+                          setEditingItem({ ...editingItem, customFields: updated });
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg cursor-pointer"
+                        title="Remove column from this item"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* Also show global custom columns that this item might not have filled yet */}
+                  {customColumnKeys
+                    .filter((k) => editingItem.customFields?.[k] === undefined)
+                    .map((key) => (
+                      <div key={key} className="flex items-center gap-2 opacity-80 hover:opacity-100">
+                        <span className="w-32 truncate text-[11px] font-bold text-slate-400 uppercase px-2 py-1 rounded bg-slate-900/60 border border-slate-800/60" title={key}>
+                          {key}
+                        </span>
+                        <input
+                          type="text"
+                          value=""
+                          onChange={(e) => {
+                            const updated = { ...(editingItem.customFields || {}) };
+                            updated[key] = e.target.value;
+                            setEditingItem({ ...editingItem, customFields: updated });
+                          }}
+                          className="flex-1 bg-[#07090E] border border-dashed border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400"
+                          placeholder={`Enter value for ${key}...`}
+                        />
+                      </div>
+                    ))}
+                </div>
+
+                {/* Add New Custom Column Form */}
+                <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-800/80">
+                  <input
+                    type="text"
+                    value={modalNewColName}
+                    onChange={(e) => setModalNewColName(e.target.value)}
+                    placeholder="New Column Name (e.g. Vendor, Cost Center)..."
+                    className="flex-1 bg-[#07090E] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400"
+                  />
+                  <input
+                    type="text"
+                    value={modalNewColValue}
+                    onChange={(e) => setModalNewColValue(e.target.value)}
+                    placeholder="Initial Value..."
+                    className="w-full sm:w-44 bg-[#07090E] border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!modalNewColName.trim()) return;
+                      const colKey = modalNewColName.trim();
+                      setEditingItem({
+                        ...editingItem,
+                        customFields: {
+                          ...(editingItem.customFields || {}),
+                          [colKey]: modalNewColValue.trim(),
+                        },
+                      });
+                      if (!customColumnKeys.includes(colKey)) {
+                        setCustomColumnKeys((prev) => [...prev, colKey]);
+                      }
+                      setModalNewColName("");
+                      setModalNewColValue("");
+                    }}
+                    className="w-full sm:w-auto px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 shrink-0"
+                  >
+                    <Plus size={13} />
+                    <span>Add Column</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Footer Actions (Styled like Image 2: Cancel and bright orange Save Line Item) */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={() => handleSaveItem(editingItem)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 shadow-lg shadow-orange-950/40 transition-all cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-amber-500 via-orange-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 shadow-lg shadow-orange-950/50 transition-all cursor-pointer active:scale-95"
                 >
                   Save Line Item
                 </button>

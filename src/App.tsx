@@ -20,6 +20,17 @@ import airtelLogo from './airtel-logo.png';
 // richyrik: Multi-Upload Historical Tracking & Trend Analysis
 import { MultiUploadTrendAnalysis } from "./components/MultiUploadTrendAnalysis";
 import { AOPDashboardView } from "./components/AOPDashboardView";
+import { NFAGBPATrackerView } from "./components/NFAGBPATrackerView";
+import { CloudCostCreditTrackerView } from "./components/CloudCostCreditTrackerView";
+// richyrik: Enhanced Billing Observability Executive Command Center
+import { BillingObservabilityView } from "./components/BillingObservabilityView";
+// richyrik: Multi-Worksheet FinOps Ingestion & Currency Control Engine
+import { FinOpsCurrencyProvider, useFinOpsCurrency } from "./components/FinOpsCurrencyContext";
+import { FinOpsGlobalFilterBar } from "./components/FinOpsGlobalFilterBar";
+import { MultiSheetIngestionModal } from "./components/MultiSheetIngestionModal";
+import { CurrencyMismatchDialog } from "./components/CurrencyMismatchDialog";
+import { ExchangeRateModal } from "./components/ExchangeRateModal";
+import { FinOpsDatasetManagerModal } from "./components/FinOpsDatasetManagerModal";
 import {
   Shield,
   AlertTriangle,
@@ -56,6 +67,7 @@ import {
   BookmarkCheck,
   AlertCircle,
   Zap,
+  Tv,
   Calendar,
   ChevronLeft,
   ChevronRight,
@@ -1361,51 +1373,100 @@ const FinOpsDataEditorModal: React.FC<{
 // ─────────────────────────────────────────────────────────────────────────────
 // richyrik: FINOPS DASHBOARD — realistic dummy-data driven financial views
 // ─────────────────────────────────────────────────────────────────────────────
-const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateHome }) => {
+const FinOpsDashboardContent: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateHome }) => {
+  // richyrik: Access global currency, date filtering, datasets, and MongoDB status
+  const {
+    currency,
+    currencySymbol,
+    formatCurrency,
+    formatCr,
+    setIsRatesModalOpen,
+    datasets,
+    isDatasetManagerOpen,
+    setIsDatasetManagerOpen,
+    mongoStatus,
+    parseWorkbookFile,
+  } = useFinOpsCurrency();
   const [activeSection, setActiveSection] = useState<'billing' | 'credits' | 'approvals' | 'aop'>('billing');
+  // richyrik: AOP Subtype selection state (IPTV vs XSTREAM / XSTRM)
+  const [activeAopSubtype, setActiveAopSubtype] = useState<'IPTV' | 'XSTREAM'>('IPTV');
   const [darkMode] = useState(true);
   
   // richyrik: Mount state for animations
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => setIsMounted(true), []);
 
-  const [billingData, setBillingData] = useState([
-    { month: 'Jan', gcpPaid: 420000, gcpOpen: 38000, awsPaid: 180000, awsOpen: 22000 },
-    { month: 'Feb', gcpPaid: 455000, gcpOpen: 42000, awsPaid: 195000, awsOpen: 18000 },
-    { month: 'Mar', gcpPaid: 410000, gcpOpen: 55000, awsPaid: 210000, awsOpen: 31000 },
-    { month: 'Apr', gcpPaid: 490000, gcpOpen: 33000, awsPaid: 225000, awsOpen: 14000 },
-    { month: 'May', gcpPaid: 530000, gcpOpen: 61000, awsPaid: 240000, awsOpen: 27000 },
-    { month: 'Jun', gcpPaid: 515000, gcpOpen: 45000, awsPaid: 255000, awsOpen: 19000 },
-    { month: 'Jul', gcpPaid: 570000, gcpOpen: 72000, awsPaid: 270000, awsOpen: 35000 },
-    { month: 'Aug', gcpPaid: 545000, gcpOpen: 58000, awsPaid: 260000, awsOpen: 41000 },
-    { month: 'Sep', gcpPaid: 580000, gcpOpen: 49000, awsPaid: 275000, awsOpen: 22000 },
-    { month: 'Oct', gcpPaid: 395000, gcpOpen: 88000, awsPaid: 185000, awsOpen: 47000 },
-  ]);
+  // richyrik: Listen to section switch events from multi-sheet ingestion
+  useEffect(() => {
+    const handleSwitch = (e: any) => {
+      if (e.detail?.section && ['billing', 'credits', 'approvals', 'aop'].includes(e.detail.section)) {
+        setActiveSection(e.detail.section);
+      }
+    };
+    window.addEventListener('finops:switch-section', handleSwitch);
+    return () => window.removeEventListener('finops:switch-section', handleSwitch);
+  }, []);
 
-  // richyrik: Credit tracker dummy data
-  const [creditPools, setCreditPools] = useState([
-    { provider: 'GCP', name: 'Committed Use Credits', allocated: 2500000, consumed: 1820000, color: '#4285F4' },
-    { provider: 'GCP', name: 'Free Tier Credits', allocated: 300000, consumed: 287000, color: '#34A853' },
-    { provider: 'AWS', name: 'Enterprise Discount Credits', allocated: 800000, consumed: 512000, color: '#FF9900' },
-    { provider: 'AWS', name: 'Reserved Instance Savings', allocated: 450000, consumed: 390000, color: '#FF6B35' },
-  ]);
+  // richyrik: Purged hardcoded dummy test data - initialized clean for real Airtel user Excel uploads
+  const [billingData, setBillingData] = useState<any[]>([]);
+  const [creditPools, setCreditPools] = useState<any[]>([]);
+  const [approvalItems, setApprovalItems] = useState<any[]>([]);
+  const [aopData, setAopData] = useState<any[]>([]);
 
-  // richyrik: NFA/GBPA approvals dummy data
-  const [approvalItems, setApprovalItems] = useState([
-    { id: 'NFA-2024-001', type: 'NFA', title: 'GCP Committed Use — Wynk Music Infra', allocated: 2500000, consumed: 1820000, status: 'Approved', approvedBy: 'Finance Head', date: '2024-01-15', history: [{ action: 'Submitted', by: 'IT Ops', date: '2024-01-05' }, { action: 'Reviewed', by: 'Group CFO Office', date: '2024-01-10' }, { action: 'Approved', by: 'Finance Head', date: '2024-01-15' }] },
-    { id: 'GBPA-2024-007', type: 'GBPA', title: 'AWS Reserved Instances Q2', allocated: 800000, consumed: 512000, status: 'Approved', approvedBy: 'CTO & CFO', date: '2024-04-02', history: [{ action: 'Submitted', by: 'Cloud FinOps', date: '2024-03-20' }, { action: 'Approved', by: 'CTO & CFO', date: '2024-04-02' }] },
-    { id: 'NFA-2024-012', type: 'NFA', title: 'DR Infrastructure Scale-Up GCP', allocated: 600000, consumed: 120000, status: 'Pending Finance', approvedBy: '—', date: '—', history: [{ action: 'Submitted', by: 'DevOps Lead', date: '2024-09-18' }, { action: 'Under Review', by: 'Finance', date: '2024-09-25' }] },
-    { id: 'GBPA-2024-009', type: 'GBPA', title: 'Multi-Cloud CDN Cost Optimization', allocated: 350000, consumed: 280000, status: 'Approved', approvedBy: 'VP Finance', date: '2024-06-10', history: [{ action: 'Submitted', by: 'Network Ops', date: '2024-06-01' }, { action: 'Approved', by: 'VP Finance', date: '2024-06-10' }] },
-    { id: 'NFA-2024-015', type: 'NFA', title: 'SAST/DAST Tooling — Security Budget', allocated: 150000, consumed: 67000, status: 'Pending CTO', approvedBy: '—', date: '—', history: [{ action: 'Submitted', by: 'Security Team', date: '2024-10-01' }] },
-  ]);
+  // richyrik: Sync state with uploaded/deleted datasets from Airtel MongoDB
+  useEffect(() => {
+    const handleDatasetDeleted = () => {
+      // If datasets become empty, purge all view tables
+      const stored = localStorage.getItem("xtelify_finops_datasets");
+      const currentList = stored ? JSON.parse(stored) : [];
+      if (currentList.length === 0) {
+        setBillingData([]);
+        setCreditPools([]);
+        setApprovalItems([]);
+        setAopData([]);
+      }
+    };
 
-  // richyrik: AOP (Annual Operating Plan) dummy data
-  const [aopData, setAopData] = useState([
-    { quarter: 'Q1 2024', planned: 3200000, actual: 3085000 },
-    { quarter: 'Q2 2024', planned: 3500000, actual: 3720000 },
-    { quarter: 'Q3 2024', planned: 3800000, actual: 3650000 },
-    { quarter: 'Q4 2024', planned: 4100000, actual: 3210000 },
-  ]);
+    const handleIngestBilling = (e: any) => {
+      if (e.detail?.rawRows) {
+        const rows = e.detail.rawRows;
+        const newBilling = rows.slice(1).map((r: any[]) => ({
+          month: String(r[0] || 'Mth'),
+          gcpPaid: Number(r[1]) || 0,
+          gcpOpen: Number(r[2]) || 0,
+          awsPaid: Number(r[3]) || 0,
+          awsOpen: Number(r[4]) || 0,
+        })).filter((b: any) => b.gcpPaid > 0 || b.awsPaid > 0 || b.gcpOpen > 0 || b.awsOpen > 0);
+        if (newBilling.length > 0) setBillingData(newBilling);
+      }
+    };
+
+    const handleIngestAop = (e: any) => {
+      if (e.detail?.items && Array.isArray(e.detail.items)) {
+        const quarters = [
+          { quarter: 'Q1', planned: 0, actual: 0 },
+          { quarter: 'Q2', planned: 0, actual: 0 },
+          { quarter: 'Q3', planned: 0, actual: 0 },
+          { quarter: 'Q4', planned: 0, actual: 0 },
+        ];
+        e.detail.items.forEach((item: any, idx: number) => {
+          const qIdx = idx % 4;
+          quarters[qIdx].planned += Number(item.amount) || 0;
+          quarters[qIdx].actual += (Number(item.amount) || 0) * 0.95;
+        });
+        setAopData(quarters);
+      }
+    };
+
+    window.addEventListener('finops:dataset-deleted', handleDatasetDeleted);
+    window.addEventListener('finops:ingest-billing', handleIngestBilling);
+    window.addEventListener('finops:ingest-aop', handleIngestAop);
+    return () => {
+      window.removeEventListener('finops:dataset-deleted', handleDatasetDeleted);
+      window.removeEventListener('finops:ingest-billing', handleIngestBilling);
+      window.removeEventListener('finops:ingest-aop', handleIngestAop);
+    };
+  }, []);
 
   const [isManageDataOpen, setIsManageDataOpen] = useState(false);
 
@@ -1413,8 +1474,8 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
   const aopActual = aopData.reduce((s, d) => s + (Number(d.actual) || 0), 0);
   const aopVariance = aopActual - aopPlanned;
 
-  const fmt = (n: number) =>
-    n >= 1000000 ? `₹${(n / 1000000).toFixed(2)}M` : n >= 1000 ? `₹${(n / 1000).toFixed(0)}K` : `₹${n}`;
+  // richyrik: Dynamic currency formatter replacing hardcoded ₹
+  const fmt = (n: number) => formatCurrency(n, true);
 
   const nav = [
     { id: 'billing' as const, label: 'Billing Observability', icon: <Receipt size={15} /> },
@@ -1459,44 +1520,127 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {/* richyrik: Airtel MongoDB Datasets Manager button */}
+          <button
+            onClick={() => setIsDatasetManagerOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 rounded-lg ring-1 ring-emerald-500/30 text-xs font-medium transition-all shadow-[0_0_12px_rgba(16,185,129,0.15)] cursor-pointer"
+            title="View and manage uploaded Excel datasets in Airtel MongoDB (xtelify_db.finops_datasets)"
+          >
+            <Database size={13} className="text-emerald-400" />
+            <span>Datasets</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">
+              {datasets.length}
+            </span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          </button>
+
+          {/* richyrik: Direct Excel upload action */}
+          <label className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold rounded-lg text-xs cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all">
+            <Upload size={13} />
+            <span>Upload Excel</span>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) parseWorkbookFile(file);
+                e.target.value = "";
+              }}
+            />
+          </label>
+
+          {/* richyrik: FX Rates quick manager button */}
+          <button
+            onClick={() => setIsRatesModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 rounded-lg ring-1 ring-amber-500/30 text-xs font-medium transition-all cursor-pointer"
+            title="Configure Live Currency Exchange Rates"
+          >
+            <span className="font-bold">{currencySymbol}</span>
+            <span>FX Rates</span>
+          </button>
           <button
             onClick={() => setIsManageDataOpen(true)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 hover:text-indigo-200 rounded-lg ring-1 ring-indigo-500/30 transition-all text-sm font-medium hover:shadow-[0_0_15px_rgba(99,102,241,0.4)]"
+            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 hover:text-indigo-200 rounded-lg ring-1 ring-indigo-500/30 transition-all text-sm font-medium hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] cursor-pointer"
           >
             <Edit2 size={14} /> Manage Data
           </button>
-          <span className="text-xs text-slate-500">
-            FY {new Date().getFullYear()} · Data as of {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-          </span>
           <div className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/30">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Live
+            <span>MongoDB: xtelify_db</span>
           </div>
         </div>
       </header>
 
+      {/* richyrik: Multi-Year & Multi-Month Global Date Filter Bar */}
+      <FinOpsGlobalFilterBar />
+
       <div className="flex flex-1">
         {/* richyrik: FinOps left nav */}
-        <nav className="w-56 shrink-0 bg-white/[0.02] backdrop-blur-xl border-r border-white/[0.06] p-4 flex flex-col gap-1 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
+        <nav className="w-56 shrink-0 bg-white/[0.02] backdrop-blur-xl border-r border-white/[0.06] p-4 flex flex-col gap-1 sticky top-32 h-[calc(100vh-8rem)] overflow-y-auto">
           {nav.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => setActiveSection(n.id)}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
-                activeSection === n.id
-                  ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              {n.icon} {n.label}
-            </button>
+            <React.Fragment key={n.id}>
+              <button
+                onClick={() => setActiveSection(n.id)}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
+                  activeSection === n.id
+                    ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                {n.icon} {n.label}
+              </button>
+              {/* richyrik: When user clicks AOP Dashboard, show two options: IPTV and XSTRM */}
+              {n.id === 'aop' && activeSection === 'aop' && (
+                <div className="ml-4 pl-2.5 border-l-2 border-emerald-500/30 my-1 flex flex-col gap-1 py-0.5">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveAopSubtype('IPTV');
+                    }}
+                    className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all text-left cursor-pointer ${
+                      activeAopSubtype === 'IPTV'
+                        ? 'bg-emerald-500/25 text-emerald-300 ring-1 ring-emerald-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Tv size={13} className={activeAopSubtype === 'IPTV' ? 'text-emerald-400' : 'text-slate-400'} />
+                      <span>IPTV</span>
+                    </span>
+                    {activeAopSubtype === 'IPTV' && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    )}
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveAopSubtype('XSTREAM');
+                    }}
+                    className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all text-left cursor-pointer ${
+                      activeAopSubtype === 'XSTREAM'
+                        ? 'bg-cyan-500/25 text-cyan-300 ring-1 ring-cyan-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Zap size={13} className={activeAopSubtype === 'XSTREAM' ? 'text-cyan-400' : 'text-slate-400'} />
+                      <span>XSTRM</span>
+                    </span>
+                    {activeAopSubtype === 'XSTREAM' && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                    )}
+                  </button>
+                </div>
+              )}
+            </React.Fragment>
           ))}
-          {/* richyrik: KPI summary sidebar cards */}
+          {/* richyrik: KPI summary sidebar cards formatted with dynamic currency */}
           <div className="mt-6 space-y-3">
             {[
-              { label: 'YTD Cloud Spend', value: fmt(aopActual), sub: `vs ${fmt(aopPlanned)} planned`, color: aopActual > aopPlanned ? 'text-red-400' : 'text-emerald-400' },
-              { label: 'Total Credits Left', value: fmt(creditPools.reduce((s, c) => s + (c.allocated - c.consumed), 0)), sub: 'across all pools', color: 'text-blue-400' },
-              { label: 'Open Invoices', value: `₹${((billingData.reduce((s, d) => s + d.gcpOpen + d.awsOpen, 0)) / 1000).toFixed(0)}K`, sub: 'outstanding this year', color: 'text-amber-400' },
+              { label: 'YTD Cloud Spend', value: aopActual > 0 ? fmt(aopActual) : '—', sub: aopPlanned > 0 ? `vs ${fmt(aopPlanned)} planned` : 'Ready for upload', color: aopActual > aopPlanned && aopPlanned > 0 ? 'text-red-400' : 'text-emerald-400' },
+              { label: 'Total Credits Left', value: creditPools.length > 0 ? fmt(creditPools.reduce((s, c) => s + (c.allocated - c.consumed), 0)) : '—', sub: creditPools.length > 0 ? 'across all pools' : 'Ready for upload', color: 'text-blue-400' },
+              { label: 'Open Invoices', value: billingData.length > 0 ? formatCurrency(billingData.reduce((s, d) => s + d.gcpOpen + d.awsOpen, 0), true) : '—', sub: billingData.length > 0 ? 'outstanding this year' : 'Ready for upload', color: 'text-amber-400' },
             ].map((kpi) => (
               <div key={kpi.label} className="bg-white/[0.05] backdrop-blur-md rounded-lg p-3 border border-white/[0.08]">
                 <div className={`text-base font-bold ${kpi.color}`}>{kpi.value}</div>
@@ -1510,204 +1654,32 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
         {/* richyrik: Main content area */}
         <main className="flex-1 p-6 overflow-auto bg-transparent">
 
-          {/* ── BILLING OBSERVABILITY ── */}
+          {/* richyrik: Billing Observability Executive Command Center */}
           {activeSection === 'billing' && (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 to-teal-400">Billing Observability</h2>
-                <p className="text-slate-400 text-sm mt-1">Month-by-month cloud spend — GCP & AWS split by Paid vs Outstanding invoices.</p>
-              </div>
-              {/* richyrik: Summary KPI row */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                {[
-                  { label: 'Total GCP Paid', value: billingData.reduce((s, d) => s + d.gcpPaid, 0), color: 'text-blue-400', bg: 'bg-blue-500/10 ring-blue-500/20' },
-                  { label: 'GCP Outstanding', value: billingData.reduce((s, d) => s + d.gcpOpen, 0), color: 'text-amber-400', bg: 'bg-amber-500/10 ring-amber-500/20' },
-                  { label: 'Total AWS Paid', value: billingData.reduce((s, d) => s + d.awsPaid, 0), color: 'text-orange-400', bg: 'bg-orange-500/10 ring-orange-500/20' },
-                  { label: 'AWS Outstanding', value: billingData.reduce((s, d) => s + d.awsOpen, 0), color: 'text-red-400', bg: 'bg-red-500/10 ring-red-500/20' },
-                ].map((k) => (
-                  <div key={k.label} className={`rounded-xl p-4 border ${k.bg} bg-white/[0.03] backdrop-blur-xl border-white/[0.08] hover:border-white/[0.15] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)]`}>
-                    <div className={`text-2xl font-bold ${k.color}`}>
-                      <CountUpComponent end={k.value} duration={2.5} separator="," formattingFn={(val) => fmt(val)} />
-                    </div>
-                    <div className="text-xs text-slate-400 mt-1">{k.label}</div>
-                  </div>
-                ))}
-              </div>
-              {/* richyrik: Stacked BarChart */}
-              <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5">
-                <h3 className="text-sm font-semibold text-slate-300 mb-4">Monthly Cloud Spend Breakdown (₹)</h3>
-                <ResponsiveContainer width="100%" height={320}>
-                  <BarChart data={billingData} barSize={32}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="month" stroke="#64748b" fontSize={12} />
-                    <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} stroke="#64748b" fontSize={11} />
-                    <RechartsTooltip
-                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: 8 }}
-                      formatter={(v: any, n: string) => [fmt(v), n]}
-                    />
-                    <Legend />
-                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="gcpPaid" name="GCP Paid" stackId="gcp" fill="#4285F4" radius={[0, 0, 0, 0]} />
-                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="gcpOpen" name="GCP Outstanding" stackId="gcp" fill="#93C5FD" radius={[4, 4, 0, 0]} />
-                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="awsPaid" name="AWS Paid" stackId="aws" fill="#FF9900" radius={[0, 0, 0, 0]} />
-                    <Bar isAnimationActive={true} animationDuration={1500} dataKey="awsOpen" name="AWS Outstanding" stackId="aws" fill="#FCD34D" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+            <BillingObservabilityView
+              billingData={billingData}
+              fmt={fmt}
+              aopPlanned={aopPlanned}
+              aopActual={aopActual}
+            />
           )}
 
-          {/* ── CREDIT DISCOUNT TRACKER ── */}
+          {/* ── CLOUD COST & CREDIT TRACKER ── */}
           {activeSection === 'credits' && (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-300 to-cyan-400">Credit Discount Tracker</h2>
-                <p className="text-slate-400 text-sm mt-1">Total allocated credits vs. consumed — see what remains at a glance.</p>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {creditPools.map((pool) => {
-                  const pct = Math.min(100, Math.round((pool.consumed / pool.allocated) * 100));
-                  const remaining = pool.allocated - pool.consumed;
-                  const pieData = [
-                    { name: 'Consumed', value: pool.consumed },
-                    { name: 'Remaining', value: remaining },
-                  ];
-                  return (
-                    <div key={pool.name} className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5">
-                      <div className="flex items-start justify-between mb-4">
-                        <div>
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{pool.provider}</span>
-                          <h4 className="text-base font-semibold text-white mt-0.5">{pool.name}</h4>
-                        </div>
-                        <span
-                          className={`text-sm font-bold px-2 py-0.5 rounded ${
-                            pct >= 90 ? 'bg-red-500/20 text-red-400' : pct >= 70 ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'
-                          }`}
-                        >
-                          {pct}% used
-                        </span>
-                      </div>
-                      {/* richyrik: Donut chart for credit visual */}
-                      <div className="flex items-center gap-6">
-                        <ResponsiveContainer width={130} height={130}>
-                          <PieChart>
-                            <Pie
-                              isAnimationActive={true}
-                              animationDuration={1500}
-                              data={pieData}
-                              cx="50%" cy="50%"
-                              innerRadius={42} outerRadius={60}
-                              startAngle={90} endAngle={-270}
-                              dataKey="value" stroke="none"
-                            >
-                              <Cell fill={pool.color} />
-                              <Cell fill="#1e293b" />
-                            </Pie>
-                          </PieChart>
-                        </ResponsiveContainer>
-                        <div className="flex-1">
-                          <div className="space-y-2">
-                            <div>
-                              <div className="flex justify-between text-xs mb-1">
-                                <span className="text-slate-400">Consumed</span>
-                                <span className="text-white font-semibold">{fmt(pool.consumed)}</span>
-                              </div>
-                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                <motion.div 
-                                  className="h-full rounded-full" 
-                                  style={{ backgroundColor: pool.color }}
-                                  initial={{ width: 0 }}
-                                  animate={{ width: `${pct}%` }}
-                                  transition={{ duration: 1.5, ease: "easeInOut" }}
-                                />
-                              </div>
-                            </div>
-                            <div className="flex justify-between text-xs">
-                              <span className="text-slate-400">Allocated</span>
-                              <span className="text-slate-300">{fmt(pool.allocated)}</span>
-                            </div>
-                            <div className="flex justify-between text-xs">
-                              <span className="text-slate-400">Remaining</span>
-                              <span className="text-emerald-400 font-semibold">{fmt(remaining)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <CloudCostCreditTrackerView />
           )}
 
           {/* ── NFA / GBPA STATUS TRACKER ── */}
           {activeSection === 'approvals' && (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-300 to-purple-400">NFA & GBPA Status Tracker</h2>
-                <p className="text-slate-400 text-sm mt-1">Track active approval notes, consumed vs balance, and full approval history.</p>
-              </div>
-              <div className="space-y-4">
-                {approvalItems.map((item) => {
-                  const pct = Math.min(100, Math.round((item.consumed / item.allocated) * 100));
-                  return (
-                    <div key={item.id} className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] shadow-[inset_0_1px_1px_rgba(255,255,255,0.07)] rounded-xl p-5">
-                      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${item.type === 'NFA' ? 'bg-purple-500/20 text-purple-300' : 'bg-blue-500/20 text-blue-300'}`}>
-                              {item.type}
-                            </span>
-                            <span className="text-slate-500 text-xs font-mono">{item.id}</span>
-                          </div>
-                          <h4 className="text-sm font-semibold text-white">{item.title}</h4>
-                        </div>
-                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ring-1 ${statusBadge(item.status)}`}>
-                          {item.status}
-                        </span>
-                      </div>
-                      {/* richyrik: Consumed vs balance progress bar */}
-                      <div className="mb-4">
-                        <div className="flex justify-between text-xs text-slate-400 mb-1.5">
-                          <span>Consumed: <span className="text-white font-medium">{fmt(item.consumed)}</span></span>
-                          <span>Balance: <span className="text-emerald-400 font-medium">{fmt(item.allocated - item.consumed)}</span></span>
-                          <span>Allocated: <span className="text-slate-300 font-medium">{fmt(item.allocated)}</span></span>
-                        </div>
-                        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                          <motion.div
-                            className={`h-full rounded-full ${
-                              pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
-                            }`}
-                            initial={{ width: 0 }}
-                            animate={{ width: `${pct}%` }}
-                            transition={{ duration: 1.5, ease: "easeInOut" }}
-                          />
-                        </div>
-                        <div className="text-[10px] text-slate-500 mt-1">{pct}% consumed</div>
-                      </div>
-                      {/* richyrik: Approval history timeline */}
-                      <div className="border-t border-slate-800 pt-3">
-                        <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-2">Approval History</div>
-                        <div className="flex flex-wrap gap-x-6 gap-y-1">
-                          {item.history.map((h, idx) => (
-                            <div key={idx} className="flex items-center gap-1.5 text-xs">
-                              <div className={`w-1.5 h-1.5 rounded-full ${idx === item.history.length - 1 ? 'bg-emerald-400' : 'bg-slate-600'}`} />
-                              <span className="text-slate-400">{h.date}</span>
-                              <span className="text-slate-300 font-medium">{h.action}</span>
-                              <span className="text-slate-500">by {h.by}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <NFAGBPATrackerView />
           )}
 
           {/* ── AOP DASHBOARD ── */}
           {activeSection === 'aop' && (
-            <AOPDashboardView />
+            <AOPDashboardView
+              initialSubtype={activeAopSubtype}
+              onSubtypeChange={setActiveAopSubtype}
+            />
           )}
         </main>
       </div>
@@ -1734,7 +1706,22 @@ const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateH
           else if (activeSection === 'aop') setAopData(newData);
         }}
       />
+
+      {/* richyrik: Global Multi-Sheet Ingestion, Dataset Manager & Currency Resolution Modals */}
+      <FinOpsDatasetManagerModal />
+      <MultiSheetIngestionModal />
+      <CurrencyMismatchDialog />
+      <ExchangeRateModal />
     </motion.div>
+  );
+};
+
+// richyrik: Root FinOps Dashboard providing currency & filter context to all subcomponents
+const FinOpsDashboard: React.FC<{ onNavigateHome: () => void }> = ({ onNavigateHome }) => {
+  return (
+    <FinOpsCurrencyProvider>
+      <FinOpsDashboardContent onNavigateHome={onNavigateHome} />
+    </FinOpsCurrencyProvider>
   );
 };
 

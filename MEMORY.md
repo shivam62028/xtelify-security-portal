@@ -159,3 +159,133 @@
     - Client-side parser with case-insensitive and flexible regex matching for the 7 exact headers.
     - Supports empty D, E, F, G cells seamlessly and persists user updates to `localStorage`.
 
+### NFA & GBPA Status Tracker Overhaul (FinOps Section)
+- **Problem**:
+  - The previous FinOps NFA/GBPA view (`approvals`) displayed hardcoded mock approval notes with dummy allocation bars.
+  - The company's actual Excel tracker schema consists of 13 exact columns (Images 1 & 2):
+    1. `Project` (Col A)
+    2. `NFA Number` (Col B)
+    3. `Status` (Col C)
+    4. `Comment` (Col D)
+    5. `AOP?` (Col E)
+    6. `Capex / Opex` (Col F)
+    7. `Cost Component` (Col G)
+    8. `Usecase` (Col H)
+    9. `Owner` (Col I)
+    10. `Vendor` (Col J)
+    11. `Quantity and Duration` (Col K)
+    12. `Annual Cost (Cr)` (Col L)
+    13. `Email Thread` (Col M)
+- **Implementation (`src/components/NFAGBPATrackerView.tsx`, `src/App.tsx`)**:
+  - **Header & Action Bar**:
+    - Title: `NFA & GBPA Status Tracker`
+    - Subtitle: `Track active approval notes, financial commitments, vendor allocations, and annual costs from uploaded Excel sheets.`
+    - Buttons: `Upload NFA Excel` (file picker + drag-and-drop supporting `.xlsx`, `.xls`, `.csv`), `Export Excel` (exports formatted 13-column `.xlsx`), `Add Note`, and `Reset Sample Data`.
+  - **4 Executive KPI Cards**:
+    - *Total Approvals*: Total count with NFA vs GBPA breakdown badges.
+    - *Approved vs Pending*: Count of approved items, percentage badge, and pending/rejected breakdown.
+    - *Total Annual Cost*: Monospace sum of `Annual Cost (Cr)` formatted in INR (e.g., `₹7.57 Cr`) with Capex vs Opex breakdown.
+    - *AOP 2027 Alignment*: Count and percentage of approvals marked `Yes` under `AOP?`.
+  - **Filter & Search Bar**:
+    - Search input (searches Project, NFA Number, Vendor, Owner, Usecase, Comment).
+    - Status Filter (`All`, `Approved`, `Pending`, `Rejected`).
+    - Capex / Opex Filter (`All`, `Capex`, `Opex`).
+    - AOP Filter (`All`, `Yes`, `No`).
+    - View Mode Switcher: **Cards View** (Image 3 modernized) vs. **Master Table View** (13 columns).
+  - **Master Card Grid & Table View**:
+    - *Card View*:
+      - Header: Purple `NFA` / Cyan `GBPA` pill + NFA Number monospace font + Project title + Status badge with animated glowing indicator.
+      - Key Metadata Grid: `Owner` (user icon), `Vendor` (cloud/building icon), `Capex / Opex` badge, `AOP?` badge.
+      - Financials: Highlighted `Annual Cost (Cr)` box in INR + `Quantity and Duration` with clock icon.
+      - Operational Scope: `Cost Component` pill, `Usecase` text, and `Comment / Remarks` info callout.
+      - Action Bar: `Email Thread` link button opening an approval thread viewer modal with deep-linking, plus inline edit and delete actions.
+    - *Table View*: Full 13-column interactive master table matching the exact headers.
+    - *Empty State*: Clean drag-and-drop dropzone when 0 records are present with file selector and sample data loader.
+  - **Excel Parsing & Persistence**:
+    - Case-insensitive regex matching for all 13 columns.
+    - Auto-sanitizes currency strings (`₹`, `Cr`, commas) and parses numbers cleanly.
+    - Persists state to `localStorage` (`xtelify_nfa_gbpa_records_v1`).
+
+### Cloud Cost & Credit Tracker Hierarchical Overhaul (FinOps Section)
+- **Problem**:
+  - The previous Credit Tracker view rendered 4 generic hardcoded donut cards for discount pools.
+  - The actual company Excel sheet (Images 1 & 2) features a hierarchical structure:
+    - Column A: Main Category (`Cloud Cost`)
+    - Column B: Sub-Category (`CDN`, `Video Platform`, `Cross Charge`, `Total`)
+    - Column C: Line Items (e.g. `AWS (CloudFront)`, `GCP (MediaCDN)`, `Akamai`, `Akamai (Fixed)`, `CDN AOP`, `CDN Total`, `Ateme AOP`, `Ateme`, `API AOP`, `API`, `Direct Connect`, `Cumulative AOP`, `Cumulative Spend`)
+    - Columns D–O: Monthly financial timeline spanning Actuals (`Apr-2026`, `May-2026`, `Jun-2026`) and Projected (`Jul-2026` to `Mar-2027`).
+- **Implementation (`src/components/CloudCostCreditTrackerView.tsx`, `src/App.tsx`)**:
+  - **Header & Action Bar**:
+    - Title: `Cloud Cost & Credit Tracker`
+    - Subtitle: `Hierarchical cost tracking across CDN, Video Platforms, Cross Charges, and monthly Actual vs Projected forecasts.`
+    - Buttons: `Upload Tracker Excel` (supports `.xlsx`, `.xls`, `.csv`), `Export Excel` (exports hierarchical Excel matching company schema), and `Reset to Default`.
+  - **Category Selector Bar**:
+    - Pill filters: `All Categories`, `CDN`, `Video Platform`, `Cross Charge`, `Total` with live item counts.
+    - Component search bar and `Expand All` / `Collapse` controls.
+  - **3 Executive KPI Cards**:
+    - *Total YTD Actual Spend*: Formatted sum of Apr-2026 to Jun-2026 actuals in INR (`₹ Cr / ₹ L`).
+    - *Total Annual Projected Spend*: 12-month full-year forecast sum.
+    - *YTD AOP Variance*: Difference between YTD Actual Spend and YTD AOP Budget, with favorable/unfavorable indicator badge and rate.
+  - **Hierarchical Accordion Table**:
+    - Collapsible accordion sections for each Sub-Category with item count and subtotal badges.
+    - Super-headers visually distinguishing **Actuals** (emerald green tint) from **Projected Forecast** (warm amber tint), with full-year row totals.
+    - Distinct styling for `AOP Target` budget rows (cyan pill) and `Total` summary rows (bold text, dark background).
+    - **Inline Cell Editing**: Clicking any monthly cell allows editing values directly in-place with instant KPI recalculation.
+    - **Add Row Modal**: Insert new line items dynamically per sub-category.
+  - **Excel Parsing & Persistence**:
+    - Handles merged cells for Main and Sub-Categories using downward propagation.
+    - Automatically discovers monthly timeline columns and labels.
+    - Saves state to `localStorage` (`xtelify_cloud_cost_tracker_v1`).
+
+### Billing Observability Executive FinOps Command Center Overhaul
+- **Problem**:
+  - The previous Billing Observability tab only rendered 4 simple invoice KPI cards and a single static AWS vs GCP bar chart, disconnected from AOP targets, Credit Tracker categories, and NFA approval coverage.
+- **Implementation (`src/components/BillingObservabilityView.tsx`, `src/App.tsx`)**:
+  - All additions tagged with `// richyrik`.
+  - **1. Executive Summary & AOP Pacing Header**:
+    - Top executive banner showing **YTD Cloud Spend** (`₹13.66M`) vs **AOP 2027 Target** (`₹14.60M`).
+    - Animated gradient pacing bar (`93.5% of AOP 2027 Budget Consumed`) with headroom indicator (`₹935K Remaining Buffer`).
+    - Quick-status pills: `Active NFAs: 12`, `Pending Approvals: 2`, `Total Outstanding Invoices: ₹817K`, and `NFA Coverage: 92% Aligned`.
+  - **2. Expanded 6-Card KPI Grid**:
+    - *Total Cloud Spend (YTD)*: Combined AWS + GCP paid (`₹7.20M`) with `+4.8% MoM` growth delta.
+    - *Total Outstanding Invoices*: `₹817K` in amber/red alert styling with open invoice count.
+    - *CDN vs Video Share*: `68% CDN • 32% Video` (`₹7.13M` media run-rate) with dual-color breakdown bar.
+    - *Approved NFA Coverage*: `88% Backed` (`₹12.02M` backed by active NFAs).
+    - *GCP Net Paid & Outstanding*: `₹4.91M Paid` vs `₹541K Open` (90.1% settled progress bar).
+    - *AWS Net Paid & Outstanding*: `₹2.29M Paid` vs `₹276K Open` (89.2% settled progress bar).
+  - **3. Multi-Dimensional Monthly Spend Chart (Interactive Toggle)**:
+    - *Toggle Option A — By Cloud Provider*: Existing grouped bar chart with `gcpPaid` (`#4285F4`), `gcpOpen` (`#EF4444`), `awsPaid` (`#FF9900`), `awsOpen` (`#F59E0B`).
+    - *Toggle Option B — By Service Category*: Groups monthly spend by Credit Tracker categories: `CDN` (`#06B6D4`), `Video Platform` (`#8B5CF6`), `Cross Charge` (`#F59E0B`), and `Core Compute & Storage` (`#10B981`).
+  - **4. Billing Anomaly & Recent Invoice Audit Table**:
+    - Granular transaction log with columns: `Invoice ID`, `Provider / Vendor`, `Category`, `Billing Month`, `Amount (₹)`, `Status`, `Linked NFA / AOP Ref`, and `Risk / Anomaly Flag` (e.g. `Normal`, `Surge +18%`, `Due in 5 Days`, `Under Reconciliation`).
+    - Instant text search, status dropdown filter, provider dropdown filter, and `.xlsx` export button.
+
+### Multi-Worksheet FinOps Ingestion & Currency Control Engine
+- **Implementation (`src/components/FinOpsCurrencyContext.tsx`, `src/components/FinOpsGlobalFilterBar.tsx`, `src/components/MultiSheetIngestionModal.tsx`, `src/components/CurrencyMismatchDialog.tsx`, `src/components/ExchangeRateModal.tsx`, `src/App.tsx`)**:
+  - All additions tagged with `// richyrik`.
+  - **1. Multi-Sheet Auto-Categorization & Ingestion Modal**:
+    - Uses SheetJS (`xlsx`) to automatically parse workbooks with multiple worksheets (e.g., "New Components", "AOP 2027", "Cloud Cost").
+    - Smart heuristic router detects worksheet targets (`aop`, `credits`, `approvals`, or `billing`) using both sheet names and header patterns.
+    - Shows an interactive upload preview modal displaying detected sheets, row counts, detected currency, target route, and allow manual re-mapping before ingestion.
+  - **2. Multi-Year & Multi-Month Global Date Filter Bar**:
+    - Global sticky bar at the top of the FinOps portal with Fiscal Year selector (FY 2026-27, FY 2027-28, FY 2025-26, FY 2024-25) and Multi-Month dropdown with checkboxes.
+    - Quick selection presets: Q1, Q2, Q3, Q4, YTD Actuals, All Months, and Clear.
+    - Active month filtering is hooked directly into all 4 FinOps views (`BillingObservabilityView`, `CloudCostCreditTrackerView`, `AOPDashboardView`, `NFAGBPATrackerView`).
+  - **3. Intelligent Currency Detection & Mismatch Dialog**:
+    - Scans numeric columns, headers, and values for currency indicators (`$`, `₹`, `USD`, `INR`, `EUR`, `GBP`).
+    - When newly uploaded worksheets conflict with existing stored currency (e.g. historical USD vs uploaded INR), pauses ingestion and presents a 3-way resolution modal:
+      - *Option A:* Convert new incoming data to match existing currency.
+      - *Option B:* Convert existing stored data to match new incoming currency.
+      - *Option C:* Keep separate and apply on-the-fly exchange rate conversion.
+  - **4. Global Currency Switcher & Editable Exchange Rate Audit Log**:
+    - Global switcher in the top bar for `INR - ₹`, `USD - $`, `EUR - €`, `GBP - £`.
+    - Live exchange rate calculations convert all KPI cards, tables, and charts on the fly.
+    - Dedicated Exchange Rate Management modal allowing users to edit current FX rates (USD, EUR, GBP) and test live amounts in an interactive conversion sandbox.
+    - Emits and renders an audit log badge: *"Exchange rate updated to X.XX INR/USD by User on [Timestamp]"* with persistent audit trail.
+  - **5. Tooltip & Hover Data Consistency Guard**:
+    - All Recharts tooltips, hover cards, and bar/line series format values according to the active currency (`formatCurrency(v, false)`).
+    - Table columns and row totals directly reflect the exact underlying filter state (Year, Month, and Category), with the "Data Consistency Guard: Active" badge displayed in the global filter bar.
+
+
+
+
