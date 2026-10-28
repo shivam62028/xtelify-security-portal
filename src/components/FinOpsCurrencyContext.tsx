@@ -500,13 +500,13 @@ export const FinOpsCurrencyProvider: React.FC<{ children: React.ReactNode }> = (
     const sName = sheetName.toLowerCase().trim();
     const hStr = headers.join(" ").toLowerCase();
 
-    // richyrik: Multi-sheet IPTV & Xstream AOP (2027-2028) worksheets routing
+    // Multi-sheet IPTV & Xstream AOP (2027-2028) worksheets routing
     if (/iptv|xstream|xstrm|dth.*aop|ht.*aop|leadership\s*summary|video-platform|common\s*xstrm|base\s*cost/i.test(sName)) {
       let lobTag = "IPTV";
       if (/xstream|xstrm/i.test(sName)) lobTag = "Xstream";
-      else if (/dth/i.test(sName)) lobTag = "DTH";
-      else if (/\bht\b/i.test(sName)) lobTag = "HT";
-      return { target: "aop", label: `AOP Dashboard (${lobTag} LOB)` };
+      else if (/dth/i.test(sName)) lobTag = "Xstream · DTH";
+      else if (/\bht\b/i.test(sName)) lobTag = "Xstream · HT";
+      return { target: "aop", label: `AOP Dashboard (${lobTag})` };
     }
 
     // 1. By Sheet Name Heuristics (e.g. "New Components", "AOP 2027", "Cloud Cost")
@@ -796,7 +796,7 @@ export const FinOpsCurrencyProvider: React.FC<{ children: React.ReactNode }> = (
               capexOpex = String(row[6] || "Opex").trim();
             }
 
-            // richyrik: Classify LOB into IPTV, XSTREAM, DTH, or HT
+            // Classify line item subtype into IPTV, XSTREAM, DTH, or HT
             const combinedText = `${sheet.sheetName || ""} ${project} ${costComponent} ${usecase} ${lob}`.toLowerCase();
             let subtype: "IPTV" | "XSTREAM" | "DTH" | "HT" = "XSTREAM";
             if (combinedText.includes("iptv")) subtype = "IPTV";

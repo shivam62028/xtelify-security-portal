@@ -33,6 +33,16 @@ import { ExchangeRateModal } from "./components/ExchangeRateModal";
 import { FinOpsDatasetManagerModal } from "./components/FinOpsDatasetManagerModal";
 import { getFinOpsDataForFY, hasDataForSection, saveFinOpsDataForFY } from "./components/finopsMultiYearStorage";
 import {
+  getCustomCatalog,
+  fetchCustomCatalogFromBackend,
+  addCustomCatalogLOB,
+  deleteCustomCatalogLOB,
+  type CustomCatalogLOB,
+  type FinOpsCustomCatalog,
+  BUILTIN_IPTV_SUB_BRANCHES,
+  BUILTIN_XSTREAM_SUB_BRANCHES,
+} from "./components/finopsCustomCatalogStorage";
+import {
   Shield,
   AlertTriangle,
   Clock,
@@ -99,6 +109,9 @@ import {
   Trophy,
   CalendarRange,
   ArrowUpRight,
+  Cpu,
+  Globe,
+  Building2,
 } from "lucide-react";
 import {
   PieChart,
@@ -1425,13 +1438,31 @@ const FinOpsDashboardContent: React.FC<{ onNavigateHome: () => void }> = ({ onNa
   }, [currentFYData, hasAopData]);
 
   const [activeSection, setActiveSection] = useState<'billing' | 'credits' | 'approvals' | 'aop'>('billing');
-  // richyrik: AOP LOB selection state (All LOBs, IPTV, Xstream, DTH, HT)
-  const [activeAopSubtype, setActiveAopSubtype] = useState<'ALL' | 'IPTV' | 'XSTREAM' | 'DTH' | 'HT'>('ALL');
+  const [activeAopSubtype, setActiveAopSubtype] = useState<string>('ALL');
+  const [customCatalog, setCustomCatalog] = useState<FinOpsCustomCatalog>(getCustomCatalog);
+  const [isAddLobModalOpen, setIsAddLobModalOpen] = useState(false);
+  const [addLobParent, setAddLobParent] = useState<string>('TOP');
+  const [newLobName, setNewLobName] = useState('');
+  const [newLobCode, setNewLobCode] = useState('');
   const [darkMode] = useState(true);
   
-  // richyrik: Mount state for animations
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => setIsMounted(true), []);
+
+  useEffect(() => {
+    fetchCustomCatalogFromBackend().then((cat) => {
+      setCustomCatalog(cat);
+    });
+    const handleCatalogUpdate = (e: any) => {
+      if (e.detail) {
+        setCustomCatalog(e.detail);
+      } else {
+        setCustomCatalog(getCustomCatalog());
+      }
+    };
+    window.addEventListener('finops:custom-catalog-updated', handleCatalogUpdate);
+    return () => window.removeEventListener('finops:custom-catalog-updated', handleCatalogUpdate);
+  }, []);
 
   // richyrik: Listen to section switch events from multi-sheet ingestion
   useEffect(() => {
@@ -1643,37 +1674,365 @@ const FinOpsDashboardContent: React.FC<{ onNavigateHome: () => void }> = ({ onNa
               >
                 {n.icon} {n.label}
               </button>
-              {/* richyrik: When user clicks AOP Dashboard, show all LOB options: All LOBs, IPTV, Xstream, DTH, HT */}
               {n.id === 'aop' && activeSection === 'aop' && (
                 <div className="ml-4 pl-2.5 border-l-2 border-emerald-500/30 my-1 flex flex-col gap-1 py-0.5">
-                  {[
-                    { id: 'ALL', label: 'All LOBs', icon: <Layers size={13} className={activeAopSubtype === 'ALL' ? 'text-emerald-400' : 'text-slate-400'} /> },
-                    { id: 'IPTV', label: 'IPTV', icon: <Tv size={13} className={activeAopSubtype === 'IPTV' ? 'text-emerald-400' : 'text-slate-400'} /> },
-                    { id: 'XSTREAM', label: 'Xstream', icon: <Zap size={13} className={activeAopSubtype === 'XSTREAM' ? 'text-cyan-400' : 'text-slate-400'} /> },
-                    { id: 'DTH', label: 'DTH', icon: <Radio size={13} className={activeAopSubtype === 'DTH' ? 'text-amber-400' : 'text-slate-400'} /> },
-                    { id: 'HT', label: 'HT', icon: <Home size={13} className={activeAopSubtype === 'HT' ? 'text-purple-400' : 'text-slate-400'} /> },
-                  ].map((lobItem) => (
-                    <button
-                      key={lobItem.id}
+                  {/* All LOBs with hover + */}
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveAopSubtype('ALL');
+                    }}
+                    className={`group flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all text-left cursor-pointer ${
+                      activeAopSubtype === 'ALL'
+                        ? 'bg-emerald-500/25 text-emerald-300 ring-1 ring-emerald-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5 flex-1">
+                      <Layers size={13} className={activeAopSubtype === 'ALL' ? 'text-emerald-400' : 'text-slate-400'} />
+                      <span>All LOBs</span>
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {activeAopSubtype === 'ALL' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAddLobParent('TOP');
+                          setNewLobName('');
+                          setNewLobCode('');
+                          setIsAddLobModalOpen(true);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-400 hover:text-emerald-300 hover:bg-white/10 transition-opacity cursor-pointer"
+                        title="Add Custom Top-Level LOB (e.g. UCLM, i360, Xsafe, B2B)"
+                      >
+                        <Plus size={12} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* IPTV with Nested Branches */}
+                  <div className="flex flex-col gap-0.5">
+                    <div
                       onClick={(e) => {
                         e.stopPropagation();
-                        setActiveAopSubtype(lobItem.id as any);
+                        setActiveAopSubtype('IPTV');
                       }}
-                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all text-left cursor-pointer ${
-                        activeAopSubtype === lobItem.id
+                      className={`group flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all text-left cursor-pointer ${
+                        activeAopSubtype === 'IPTV' || (activeAopSubtype && activeAopSubtype.startsWith('IPTV_'))
                           ? 'bg-emerald-500/25 text-emerald-300 ring-1 ring-emerald-500/40 shadow-sm'
                           : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
                       }`}
                     >
-                      <span className="flex items-center gap-1.5">
-                        {lobItem.icon}
-                        <span>{lobItem.label}</span>
+                      <span className="flex items-center gap-1.5 flex-1">
+                        <Tv size={13} className={activeAopSubtype === 'IPTV' || (activeAopSubtype && activeAopSubtype.startsWith('IPTV_')) ? 'text-emerald-400' : 'text-slate-400'} />
+                        <span>IPTV</span>
                       </span>
-                      {activeAopSubtype === lobItem.id && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      )}
-                    </button>
-                  ))}
+                      <div className="flex items-center gap-1">
+                        {activeAopSubtype === 'IPTV' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAddLobParent('IPTV');
+                            setNewLobName('');
+                            setNewLobCode('');
+                            setIsAddLobModalOpen(true);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-400 hover:text-emerald-300 hover:bg-white/10 transition-opacity cursor-pointer"
+                          title="Add Sub-branch under IPTV"
+                        >
+                          <Plus size={12} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* IPTV Nested Tree Branches: Core (STB), App, VP & VP DR, API & Cross-Charge */}
+                    <div className="ml-3 pl-2 border-l border-emerald-500/30 flex flex-col gap-0.5 py-0.5">
+                      {[
+                        { id: 'IPTV_CORE', label: 'IPTV Core (STB)', icon: Cpu, color: 'text-emerald-400', activeBg: 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40' },
+                        { id: 'IPTV_APP', label: 'IPTV App', icon: Globe, color: 'text-teal-400', activeBg: 'bg-teal-500/20 text-teal-300 ring-1 ring-teal-500/40' },
+                        { id: 'IPTV_VP', label: 'VP & VP DR', icon: Server, color: 'text-emerald-400', activeBg: 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40' },
+                        { id: 'IPTV_API', label: 'API & Cross-Charge', icon: Building2, color: 'text-cyan-400', activeBg: 'bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-500/40' },
+                      ].map((subBranch) => {
+                        const SubIcon = subBranch.icon;
+                        const isSelected = activeAopSubtype === subBranch.id;
+                        return (
+                          <button
+                            key={subBranch.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveAopSubtype(subBranch.id);
+                            }}
+                            className={`flex items-center justify-between px-2 py-1 rounded text-[11px] font-medium transition-all text-left cursor-pointer ${
+                              isSelected
+                                ? `${subBranch.activeBg} shadow-sm`
+                                : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <SubIcon size={11} className={isSelected ? subBranch.color : 'text-slate-500'} />
+                              <span>{subBranch.label}</span>
+                            </span>
+                            {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                          </button>
+                        );
+                      })}
+
+                      {/* Custom sub-branches under IPTV */}
+                      {customCatalog.lobs
+                        .filter((l) => l.parentId === 'IPTV' && !['IPTV_CORE', 'IPTV_APP', 'IPTV_VP', 'IPTV_API'].includes(l.id))
+                        .map((customSub) => {
+                          const isSelected = activeAopSubtype === customSub.id;
+                          return (
+                            <div
+                              key={customSub.id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveAopSubtype(customSub.id);
+                              }}
+                              className={`group flex items-center justify-between px-2 py-1 rounded text-[11px] font-medium transition-all text-left cursor-pointer ${
+                                isSelected
+                                  ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40 shadow-sm'
+                                  : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                              }`}
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <Tv size={11} className={isSelected ? 'text-emerald-400' : 'text-slate-500'} />
+                                <span>{customSub.label}</span>
+                              </span>
+                              <div className="flex items-center gap-1">
+                                {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    await deleteCustomCatalogLOB(customSub.id);
+                                    if (activeAopSubtype === customSub.id) setActiveAopSubtype('IPTV');
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-0.5 transition-opacity"
+                                  title={`Delete ${customSub.label}`}
+                                >
+                                  <X size={10} />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+
+                  {/* Xstream with Nested Branches */}
+                  <div className="flex flex-col gap-0.5">
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveAopSubtype('XSTREAM');
+                      }}
+                      className={`group flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all text-left cursor-pointer ${
+                        activeAopSubtype === 'XSTREAM' || activeAopSubtype === 'DTH' || activeAopSubtype === 'HT' || (activeAopSubtype && activeAopSubtype.startsWith('XSTREAM_'))
+                          ? 'bg-cyan-500/25 text-cyan-300 ring-1 ring-cyan-500/40 shadow-sm'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1.5 flex-1">
+                        <Zap size={13} className={activeAopSubtype === 'XSTREAM' || activeAopSubtype === 'DTH' || activeAopSubtype === 'HT' || (activeAopSubtype && activeAopSubtype.startsWith('XSTREAM_')) ? 'text-cyan-400' : 'text-slate-400'} />
+                        <span>Xstream</span>
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {activeAopSubtype === 'XSTREAM' && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAddLobParent('XSTREAM');
+                            setNewLobName('');
+                            setNewLobCode('');
+                            setIsAddLobModalOpen(true);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-white/10 transition-opacity cursor-pointer"
+                          title="Add Sub-branch under Xstream"
+                        >
+                          <Plus size={12} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Xstream Nested Tree Branches: DTH, HT, Xstream Core, Sub-Projects */}
+                    <div className="ml-3 pl-2 border-l border-cyan-500/30 flex flex-col gap-0.5 py-0.5">
+                      {[
+                        { id: 'DTH', label: 'DTH', icon: Radio, color: 'text-amber-400', activeBg: 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40' },
+                        { id: 'HT', label: 'HT (Home Terminal)', icon: Home, color: 'text-purple-400', activeBg: 'bg-purple-500/20 text-purple-300 ring-1 ring-purple-500/40' },
+                        { id: 'XSTREAM_CORE', label: 'Xstream Core', icon: Layers, color: 'text-cyan-400', activeBg: 'bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-500/40' },
+                        { id: 'XSTREAM_SUBPROJECTS', label: 'Sub-Projects (Disco, WCF, Search)', icon: Search, color: 'text-blue-400', activeBg: 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/40' },
+                      ].map((subBranch) => {
+                        const SubIcon = subBranch.icon;
+                        const isSelected = activeAopSubtype === subBranch.id;
+                        return (
+                          <button
+                            key={subBranch.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveAopSubtype(subBranch.id);
+                            }}
+                            className={`flex items-center justify-between px-2 py-1 rounded text-[11px] font-medium transition-all text-left cursor-pointer ${
+                              isSelected
+                                ? `${subBranch.activeBg} shadow-sm`
+                                : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <SubIcon size={11} className={isSelected ? subBranch.color : 'text-slate-500'} />
+                              <span>{subBranch.label}</span>
+                            </span>
+                            {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />}
+                          </button>
+                        );
+                      })}
+
+                      {/* Custom sub-branches under Xstream */}
+                      {customCatalog.lobs
+                        .filter((l) => l.parentId === 'XSTREAM' && !['DTH', 'HT', 'XSTREAM_CORE', 'XSTREAM_SUBPROJECTS'].includes(l.id))
+                        .map((customSub) => {
+                          const isSelected = activeAopSubtype === customSub.id;
+                          return (
+                            <div
+                              key={customSub.id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveAopSubtype(customSub.id);
+                              }}
+                              className={`group flex items-center justify-between px-2 py-1 rounded text-[11px] font-medium transition-all text-left cursor-pointer ${
+                                isSelected
+                                  ? 'bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-500/40 shadow-sm'
+                                  : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                              }`}
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <Zap size={11} className={isSelected ? 'text-cyan-400' : 'text-slate-500'} />
+                                <span>{customSub.label}</span>
+                              </span>
+                              <div className="flex items-center gap-1">
+                                {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />}
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    await deleteCustomCatalogLOB(customSub.id);
+                                    if (activeAopSubtype === customSub.id) setActiveAopSubtype('XSTREAM');
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-0.5 transition-opacity"
+                                  title={`Delete ${customSub.label}`}
+                                >
+                                  <X size={10} />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+
+                  {/* Custom Top-Level LOBs (e.g. UCLM, i360, Xsafe, B2B) */}
+                  {customCatalog.lobs
+                    .filter((l) => (!l.parentId || l.parentId === 'TOP') && !['IPTV', 'XSTREAM', 'ALL'].includes(l.id.toUpperCase()))
+                    .map((customTopLob) => {
+                      const isSelected = activeAopSubtype === customTopLob.id;
+                      const childBranches = customCatalog.lobs.filter((l) => l.parentId === customTopLob.id);
+
+                      return (
+                        <div key={customTopLob.id} className="flex flex-col gap-0.5">
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveAopSubtype(customTopLob.id);
+                            }}
+                            className={`group flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all text-left cursor-pointer ${
+                              isSelected
+                                ? 'bg-purple-500/25 text-purple-300 ring-1 ring-purple-500/40 shadow-sm'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5 flex-1">
+                              <Shield size={13} className={isSelected ? 'text-purple-400' : 'text-slate-400'} />
+                              <span>{customTopLob.label}</span>
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAddLobParent(customTopLob.id);
+                                  setNewLobName('');
+                                  setNewLobCode('');
+                                  setIsAddLobModalOpen(true);
+                                }}
+                                className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-400 hover:text-purple-300 hover:bg-white/10 transition-opacity cursor-pointer"
+                                title={`Add Sub-branch under ${customTopLob.label}`}
+                              >
+                                <Plus size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  await deleteCustomCatalogLOB(customTopLob.id);
+                                  if (activeAopSubtype === customTopLob.id) setActiveAopSubtype('ALL');
+                                }}
+                                className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-500 hover:text-rose-400 transition-opacity cursor-pointer"
+                                title={`Delete ${customTopLob.label}`}
+                              >
+                                <X size={11} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Nested tree branches under Custom Top LOB */}
+                          {childBranches.length > 0 && (
+                            <div className="ml-3 pl-2 border-l border-purple-500/30 flex flex-col gap-0.5 py-0.5">
+                              {childBranches.map((child) => {
+                                const isChildSelected = activeAopSubtype === child.id;
+                                return (
+                                  <div
+                                    key={child.id}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveAopSubtype(child.id);
+                                    }}
+                                    className={`group flex items-center justify-between px-2 py-1 rounded text-[11px] font-medium transition-all text-left cursor-pointer ${
+                                      isChildSelected
+                                        ? 'bg-purple-500/20 text-purple-300 ring-1 ring-purple-500/40 shadow-sm'
+                                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                                    }`}
+                                  >
+                                    <span className="flex items-center gap-1.5">
+                                      <Shield size={11} className={isChildSelected ? 'text-purple-400' : 'text-slate-500'} />
+                                      <span>{child.label}</span>
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      {isChildSelected && <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />}
+                                      <button
+                                        type="button"
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          await deleteCustomCatalogLOB(child.id);
+                                          if (activeAopSubtype === child.id) setActiveAopSubtype(customTopLob.id);
+                                        }}
+                                        className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-0.5 transition-opacity cursor-pointer"
+                                        title={`Delete ${child.label}`}
+                                      >
+                                        <X size={10} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </React.Fragment>
@@ -1769,6 +2128,140 @@ const FinOpsDashboardContent: React.FC<{ onNavigateHome: () => void }> = ({ onNa
       <MultiSheetIngestionModal />
       <CurrencyMismatchDialog />
       <ExchangeRateModal />
+
+      {/* Add New LOB or Nested Sub-LOB Modal */}
+      {isAddLobModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="bg-[#0B0F19] border border-slate-700/80 rounded-2xl p-6 w-full max-w-md space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Plus size={16} className="text-emerald-400" />
+                <span>Add New LOB or Nested Sub-LOB</span>
+              </h3>
+              <button
+                onClick={() => setIsAddLobModalOpen(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Quick Suggestions Chips */}
+            <div>
+              <span className="text-[11px] text-slate-400 block mb-1.5 font-medium">Quick Suggestions:</span>
+              <div className="flex flex-wrap gap-1.5">
+                {['UCLM', 'i360', 'Xsafe', 'B2B', 'Airtel IQ', 'Cloud & DevOps'].map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={() => {
+                      setNewLobName(chip);
+                      setNewLobCode(chip.toUpperCase().replace(/[^A-Z0-9]/g, '_'));
+                    }}
+                    className="px-2 py-1 rounded text-[10px] font-semibold bg-white/[0.05] hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-300 border border-white/[0.08] hover:border-emerald-500/40 transition-colors cursor-pointer"
+                  >
+                    + {chip}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-slate-400 font-semibold block mb-1">
+                  Parent Hierarchy / Placement
+                </label>
+                <select
+                  value={addLobParent}
+                  onChange={(e) => setAddLobParent(e.target.value)}
+                  className="w-full bg-[#07090E] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-400 text-xs"
+                >
+                  <option value="TOP" className="bg-slate-900 text-emerald-300 font-semibold">
+                    Top-Level LOB (Sibling to IPTV / Xstream)
+                  </option>
+                  <option value="IPTV" className="bg-slate-900 text-white">
+                    Nested Sub-branch under IPTV
+                  </option>
+                  <option value="XSTREAM" className="bg-slate-900 text-white">
+                    Nested Sub-branch under Xstream
+                  </option>
+                  {customCatalog.lobs
+                    .filter((l) => (!l.parentId || l.parentId === 'TOP') && !['IPTV', 'XSTREAM', 'ALL'].includes(l.id.toUpperCase()))
+                    .map((customParent) => (
+                      <option key={customParent.id} value={customParent.id} className="bg-slate-900 text-purple-300">
+                        Nested Sub-branch under {customParent.label}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-slate-400 font-semibold block mb-1">
+                  LOB / Sub-LOB Name <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newLobName}
+                  onChange={(e) => {
+                    setNewLobName(e.target.value);
+                    if (!newLobCode || newLobCode === newLobName.toUpperCase().replace(/[^A-Z0-9]/g, '_')) {
+                      setNewLobCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '_'));
+                    }
+                  }}
+                  placeholder="e.g. UCLM, Xsafe, i360, B2B"
+                  className="w-full bg-[#07090E] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-400 text-xs"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-400 font-semibold block mb-1">
+                  Unique Code / ID
+                </label>
+                <input
+                  type="text"
+                  value={newLobCode}
+                  onChange={(e) => setNewLobCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '_'))}
+                  placeholder="e.g. UCLM"
+                  className="w-full bg-[#07090E] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-400 text-xs font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsAddLobModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!newLobName.trim()}
+                onClick={async () => {
+                  const trimmedName = newLobName.trim();
+                  if (!trimmedName) return;
+                  const finalId = newLobCode.trim() || trimmedName.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+                  await addCustomCatalogLOB({
+                    id: finalId,
+                    label: trimmedName,
+                    parentId: addLobParent === 'TOP' ? undefined : addLobParent,
+                    isCustom: true,
+                  });
+                  setActiveAopSubtype(finalId);
+                  setIsAddLobModalOpen(false);
+                  setNewLobName('');
+                  setNewLobCode('');
+                }}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-950 bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 shadow-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Save LOB / Sub-LOB
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 };

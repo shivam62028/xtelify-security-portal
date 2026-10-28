@@ -3,6 +3,10 @@ import {
   type AOPLeadershipSummary,
   type AOPSubComponent,
   type MonthlyDataPoint,
+  type CustomColumnDef,
+  type CustomKPICardDef,
+  type TrashItem,
+  type AOPSnapshot,
   DEFAULT_AOP_CATEGORIES,
   DEFAULT_LEADERSHIP_SUMMARIES,
   MONTHS_12_KEYS,
@@ -26,8 +30,11 @@ export interface FinOpsFYSectionData {
   aopCategories?: AOPCategoryGroup[];
   aopLeadershipSummaries?: Record<string, AOPLeadershipSummary>;
   aopLineItems?: any[];
-  aopCustomColumns?: { id: string; name: string }[];
+  aopCustomColumns?: CustomColumnDef[];
   aopCustomLOBs?: { id: string; label: string; isCustom?: boolean }[];
+  aopKpiCards?: CustomKPICardDef[];
+  aopTrashItems?: TrashItem[];
+  aopSnapshots?: AOPSnapshot[];
 
   // Billing Observability
   billingData?: any[];
@@ -86,9 +93,25 @@ export const addFiscalYear = (newYearInput: string): FiscalYearOption[] => {
   return updated;
 };
 
+export const normalizeFYKey = (raw: string | undefined | null): string => {
+  if (!raw) return "FY 2026-27";
+  const str = String(raw).trim();
+  const m = str.match(/(?:FY\s*)?(\d{4})[–\-](\d{2,4})/i);
+  if (m) {
+    const startYr = m[1];
+    let endYr = m[2];
+    if (endYr.length === 4) {
+      endYr = endYr.slice(-2);
+    }
+    return `FY ${startYr}-${endYr}`;
+  }
+  if (str.toUpperCase().startsWith("FY ")) return str;
+  return `FY ${str}`;
+};
+
 export const get12MonthKeysForFY = (fy: string) => {
-  // Extract base years if formatted e.g. "FY 2026-27"
-  const match = fy.match(/(\d{4})-(\d{2,4})/);
+  const normFY = normalizeFYKey(fy);
+  const match = normFY.match(/(\d{4})-(\d{2,4})/);
   const startYr = match ? parseInt(match[1], 10) : 2026;
   const startYr2Digit = String(startYr).slice(-2);
   const endYr2Digit = String(startYr + 1).slice(-2);
@@ -116,14 +139,12 @@ export const isScrapAOPCategory = (cat: any): boolean => {
   if (typeof cat.id === "string") {
     const id = cat.id.toLowerCase();
     if (
-      id.startsWith("cat-iptv") ||
-      id.startsWith("cat-xstream") ||
-      id.startsWith("cat-dth") ||
-      id.startsWith("cat-ht") ||
-      id.startsWith("cat-airtel") ||
-      id.startsWith("cat-b2b") ||
-      id.startsWith("cat-bank") ||
-      id.startsWith("demo-")
+      id.startsWith("demo-") ||
+      id.startsWith("mock-") ||
+      id.startsWith("scrap-") ||
+      id === "cat-airtel" ||
+      id === "cat-b2b" ||
+      id === "cat-bank"
     ) {
       return true;
     }
@@ -281,21 +302,28 @@ export const getFinOpsMultiYearStore = (): FinOpsMultiYearStore => {
 };
 
 export const getFinOpsDataForFY = (fy: string): FinOpsFYSectionData | null => {
+  const norm = normalizeFYKey(fy);
   const store = getFinOpsMultiYearStore();
-  return store[fy] || null;
+  return store[norm] || store[fy] || null;
 };
 
 export const saveFinOpsDataForFY = (fy: string, data: Partial<FinOpsFYSectionData>): void => {
   try {
+    const norm = normalizeFYKey(fy);
     const store = getFinOpsMultiYearStore();
-    const existing = store[fy] || {};
-    store[fy] = {
+    const existing = store[norm] || store[fy] || {};
+    store[norm] = {
       ...existing,
       ...data,
     };
     localStorage.setItem(STORAGE_KEY_BY_FY, JSON.stringify(store));
+    if (data.aopCategories) {
+      try {
+        localStorage.setItem("xtelify_aop_categories_v3", JSON.stringify(data.aopCategories));
+      } catch {}
+    }
     window.dispatchEvent(
-      new CustomEvent("finops:fy-data-updated", { detail: { fy, data: store[fy] } })
+      new CustomEvent("finops:fy-data-updated", { detail: { fy: norm, data: store[norm] } })
     );
   } catch {}
 };
@@ -304,7 +332,8 @@ export const hasDataForSection = (
   fy: string,
   section: "aop" | "billing" | "credits" | "approvals"
 ): boolean => {
-  const fyData = getFinOpsDataForFY(fy);
+  const norm = normalizeFYKey(fy);
+  const fyData = getFinOpsDataForFY(norm);
   if (!fyData) return false;
 
   switch (section) {
@@ -328,15 +357,16 @@ export const cloneFinOpsDataFromPreviousYear = (
   targetFY: string,
   sourceFY?: string
 ): FinOpsFYSectionData => {
+  const normTarget = normalizeFYKey(targetFY);
   const store = getFinOpsMultiYearStore();
 
-  // Find source fiscal year if not provided
-  let src = sourceFY;
+  let src = sourceFY ? normalizeFYKey(sourceFY) : undefined;
   if (!src) {
     const years = getFiscalYears();
     for (const y of years) {
-      if (y.id !== targetFY && store[y.id]?.aopCategories && store[y.id]!.aopCategories!.length > 0) {
-        src = y.id;
+      const yNorm = normalizeFYKey(y.id);
+      if (yNorm !== normTarget && store[yNorm]?.aopCategories && store[yNorm]!.aopCategories!.length > 0) {
+        src = yNorm;
         break;
       }
     }
@@ -344,12 +374,25 @@ export const cloneFinOpsDataFromPreviousYear = (
   }
 
   const sourceData = store[src] || getFinOpsDataForFY("FY 2026-27") || {};
-  const m12Meta = get12MonthKeysForFY(targetFY);
+  const m12Meta = get12MonthKeysForFY(normTarget);
 
-  // Clone AOP categories and reset all amounts to 0
   const clonedAopCategories: AOPCategoryGroup[] = (sourceData.aopCategories || DEFAULT_AOP_CATEGORIES).map(
     (cat) => {
+      const existingCatYearly = cat.yearlyData?.[normTarget];
       const clonedSubs: AOPSubComponent[] = cat.subComponents.map((sub) => {
+        const existingSubYearly = sub.yearlyData?.[normTarget];
+        if (existingSubYearly) {
+          return {
+            ...sub,
+            allocatedBudgetCr: Number(existingSubYearly.allocatedBudgetCr) || 0,
+            totalSpentCr: Number(existingSubYearly.totalSpentCr) || 0,
+            monthlyData: existingSubYearly.monthlyData || [],
+            yearlyData: {
+              ...(sub.yearlyData || {}),
+              [normTarget]: existingSubYearly,
+            },
+          };
+        }
         const clonedMonthly: MonthlyDataPoint[] = m12Meta.map((mMeta) => ({
           month: mMeta.key,
           quarter: mMeta.quarter,
@@ -366,14 +409,29 @@ export const cloneFinOpsDataFromPreviousYear = (
           allocatedBudgetCr: 0,
           totalSpentCr: 0,
           monthlyData: clonedMonthly,
+          yearlyData: sub.yearlyData || {},
         };
       });
+
+      if (existingCatYearly) {
+        return {
+          ...cat,
+          allocatedBudgetCr: Number(existingCatYearly.allocatedBudgetCr) || 0,
+          totalSpentCr: Number(existingCatYearly.totalSpentCr) || 0,
+          subComponents: clonedSubs,
+          yearlyData: {
+            ...(cat.yearlyData || {}),
+            [normTarget]: existingCatYearly,
+          },
+        };
+      }
 
       return {
         ...cat,
         allocatedBudgetCr: 0,
         totalSpentCr: 0,
         subComponents: clonedSubs,
+        yearlyData: cat.yearlyData || {},
       };
     }
   );
@@ -423,6 +481,102 @@ export const cloneFinOpsDataFromPreviousYear = (
     approvalRecords: clonedApprovals,
   };
 
-  saveFinOpsDataForFY(targetFY, newFYData);
+  saveFinOpsDataForFY(normTarget, newFYData);
   return newFYData;
+};
+
+export const persistAOPHierarchyToBackend = async (
+  fy: string,
+  categories: AOPCategoryGroup[],
+  leadershipSummaries?: Record<string, AOPLeadershipSummary>,
+  extra?: {
+    kpiCards?: CustomKPICardDef[];
+    customColumns?: CustomColumnDef[];
+    trashItems?: TrashItem[];
+  }
+) => {
+  try {
+    const normFY = normalizeFYKey(fy);
+    await fetch("/api/finops/aop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fiscal_year: normFY,
+        categories,
+        aopCategories: categories,
+        groups: categories,
+        leadershipSummaries,
+        kpi_cards: extra?.kpiCards,
+        kpiCards: extra?.kpiCards,
+        custom_columns: extra?.customColumns,
+        customColumns: extra?.customColumns,
+        trash_items: extra?.trashItems,
+        trashItems: extra?.trashItems,
+      }),
+    });
+  } catch (err) {
+    console.warn("Failed to persist AOP to backend:", err);
+  }
+};
+
+export const fetchAOPHierarchyFromBackend = async (fy?: string) => {
+  try {
+    const url = fy ? `/api/finops/aop?fiscal_year=${encodeURIComponent(normalizeFYKey(fy))}` : "/api/finops/aop";
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = await res.json();
+    const payload = json?.data || json;
+    if (!payload) return null;
+    return {
+      ...payload,
+      aopCategories: payload.aopCategories || payload.categories || payload.groups || [],
+      aopLeadershipSummaries: payload.aopLeadershipSummaries || payload.leadership_summaries || payload.leadershipSummaries || {},
+      kpiCards: payload.kpiCards || payload.kpi_cards || [],
+      customColumns: payload.customColumns || payload.custom_columns || [],
+      trashItems: payload.trashItems || payload.trash_items || [],
+    };
+  } catch {
+    return null;
+  }
+};
+
+export const saveAOPSnapshotToBackend = async (snapshot: AOPSnapshot): Promise<boolean> => {
+  try {
+    const res = await fetch("/api/finops/aop/snapshots", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(snapshot),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn("Failed to save snapshot to backend:", err);
+    return false;
+  }
+};
+
+export const fetchAOPSnapshotsFromBackend = async (fy?: string): Promise<AOPSnapshot[]> => {
+  try {
+    const url = fy
+      ? `/api/finops/aop/snapshots?fiscal_year=${encodeURIComponent(normalizeFYKey(fy))}`
+      : "/api/finops/aop/snapshots";
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json?.snapshots || [];
+  } catch (err) {
+    console.warn("Failed to fetch snapshots from backend:", err);
+    return [];
+  }
+};
+
+export const deleteAOPSnapshotFromBackend = async (snapshotId: string): Promise<boolean> => {
+  try {
+    const res = await fetch(`/api/finops/aop/snapshots/${encodeURIComponent(snapshotId)}`, {
+      method: "DELETE",
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn("Failed to delete snapshot from backend:", err);
+    return false;
+  }
 };

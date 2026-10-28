@@ -45,9 +45,12 @@ mongo_db = client[MONGO_DB_NAME]
 issues_collection = mongo_db["vulnerabilities"]
 upload_history_collection = mongo_db["upload_history"]
 ai_remediation_cache_collection = mongo_db["ai_remediation_cache"]
-# richyrik: FinOps MongoDB collections
+# FinOps MongoDB collections
 finops_datasets_collection = mongo_db["finops_datasets"]
 finops_sheets_collection = mongo_db["finops_sheets"]
+finops_aop_collection = mongo_db["finops_aop"]
+finops_aop_snapshots_collection = mongo_db["finops_aop_snapshots"]
+finops_custom_catalog_collection = mongo_db["finops_custom_catalog"]
 
 # In-memory cache for faster loading
 _db_cache = None
@@ -1368,6 +1371,7 @@ def _ensure_mongo_indexes():
         finops_datasets_collection.create_index([("uploaded_at", -1)])
         finops_sheets_collection.create_index([("dataset_id", 1), ("sheet_name", 1)])
         finops_sheets_collection.create_index([("target", 1)])
+        finops_custom_catalog_collection.create_index([("catalog_key", 1)], unique=True)
         
         print("[DB] MongoDB indexes ensured for all collections (including FinOps)")
     except Exception as e:
@@ -6205,8 +6209,345 @@ async def upload_finops_excel(
     }
 
 
+_FINOPS_AOP_FALLBACK_FILE = os.path.join(os.path.dirname(__file__), "finops_aop.json")
 
-# Only mount static files if dist folder exists (production mode)
+def _read_finops_aop_fallback() -> dict:
+    if os.path.exists(_FINOPS_AOP_FALLBACK_FILE):
+        try:
+            with open(_FINOPS_AOP_FALLBACK_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def _write_finops_aop_fallback(data: dict):
+    try:
+        with open(_FINOPS_AOP_FALLBACK_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, default=str)
+    except Exception as e:
+        print(f"[FinOps AOP] Error writing fallback file: {e}")
+
+def normalize_fy_key(raw: str) -> str:
+    if not raw:
+        return "FY 2026-27"
+    raw_str = str(raw).strip()
+    m = re.search(r"(?:FY\s*)?(\d{4})[–\-](\d{2,4})", raw_str, re.IGNORECASE)
+    if m:
+        start_yr = m.group(1)
+        end_yr = m.group(2)
+        if len(end_yr) == 4:
+            end_yr = end_yr[-2:]
+        return f"FY {start_yr}-{end_yr}"
+    if raw_str.upper().startswith("FY "):
+        return raw_str
+    return f"FY {raw_str}"
+
+from typing import Optional, List, Dict, Any, Union
+from pydantic import BaseModel, ConfigDict
+
+class MonthlyItemModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    month: Optional[str] = None
+    shortLabel: Optional[str] = None
+    quarter: Optional[str] = None
+    budgetCr: Optional[float] = 0.0
+    actualSpentCr: Optional[float] = 0.0
+    projectedCr: Optional[float] = 0.0
+    isActual: Optional[bool] = False
+    status: Optional[str] = "PROJECTED"
+    amount: Optional[float] = 0.0
+
+class YearlyDataEntryModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    allocatedBudgetCr: Optional[float] = 0.0
+    totalSpentCr: Optional[float] = 0.0
+    months: Optional[Any] = None
+    monthlyData: Optional[List[Any]] = None
+
+class AOPSubComponentModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    name: Optional[str] = ""
+    vendorOrPlatform: Optional[str] = ""
+    capexOpex: Optional[str] = "Opex"
+    paymentMode: Optional[str] = "Monthly"
+    allocatedBudgetCr: Optional[float] = 0.0
+    totalSpentCr: Optional[float] = 0.0
+    monthlyData: Optional[List[Any]] = []
+    yearlyData: Optional[Dict[str, Any]] = None
+    notes: Optional[str] = None
+    customFields: Optional[Dict[str, Any]] = None
+
+class AOPCategoryGroupModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    categoryName: Optional[str] = ""
+    categoryCode: Optional[str] = "CDN"
+    icon: Optional[str] = None
+    lob: Optional[str] = "IPTV"
+    sourceSheet: Optional[str] = ""
+    allocatedBudgetCr: Optional[float] = 0.0
+    totalSpentCr: Optional[float] = 0.0
+    subComponents: Optional[List[AOPSubComponentModel]] = []
+    yearlyData: Optional[Dict[str, Any]] = None
+
+class AOPDataPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    fiscal_year: Optional[str] = None
+    fiscalYear: Optional[str] = None
+    categories: Optional[List[AOPCategoryGroupModel]] = None
+    aopCategories: Optional[List[AOPCategoryGroupModel]] = None
+    groups: Optional[List[AOPCategoryGroupModel]] = None
+    leadershipSummaries: Optional[Dict[str, Any]] = None
+    aopLeadershipSummaries: Optional[Dict[str, Any]] = None
+    kpiCards: Optional[List[Dict[str, Any]]] = None
+    customColumns: Optional[List[Dict[str, Any]]] = None
+    trashItems: Optional[List[Dict[str, Any]]] = None
+    snapshots: Optional[List[Dict[str, Any]]] = None
+
+MonthlyItemModel.model_rebuild()
+YearlyDataEntryModel.model_rebuild()
+AOPSubComponentModel.model_rebuild()
+AOPCategoryGroupModel.model_rebuild()
+AOPDataPayload.model_rebuild()
+
+_FINOPS_SNAPSHOTS_FALLBACK_FILE = os.path.join(os.path.dirname(__file__), "finops_aop_snapshots.json")
+
+def _read_finops_snapshots_fallback() -> list:
+    if os.path.exists(_FINOPS_SNAPSHOTS_FALLBACK_FILE):
+        try:
+            with open(_FINOPS_SNAPSHOTS_FALLBACK_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except Exception:
+            return []
+    return []
+
+def _write_finops_snapshots_fallback(data: list):
+    try:
+        with open(_FINOPS_SNAPSHOTS_FALLBACK_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, default=str)
+    except Exception as e:
+        print(f"[FinOps Snapshots] Error writing fallback file: {e}")
+
+@app.get("/api/finops/aop")
+async def get_finops_aop(fiscal_year: Optional[str] = None):
+    if fiscal_year:
+        norm_fy = normalize_fy_key(fiscal_year)
+        if _is_mongo_available():
+            try:
+                doc = finops_aop_collection.find_one({"fiscal_year": norm_fy}, {"_id": 0})
+                if doc:
+                    return {"success": True, "fiscal_year": norm_fy, "data": doc, "source": "mongodb"}
+            except Exception as e:
+                print(f"[FinOps AOP] MongoDB read error: {e}")
+        fallback = _read_finops_aop_fallback()
+        data = fallback.get(norm_fy)
+        return {"success": True, "fiscal_year": norm_fy, "data": data, "source": "local_cache"}
+
+    if _is_mongo_available():
+        try:
+            docs = list(finops_aop_collection.find({}, {"_id": 0}))
+            return {"success": True, "years": docs, "source": "mongodb"}
+        except Exception as e:
+            print(f"[FinOps AOP] MongoDB read all error: {e}")
+    fallback = _read_finops_aop_fallback()
+    return {"success": True, "years": list(fallback.values()), "source": "local_cache"}
+
+@app.post("/api/finops/aop")
+@app.put("/api/finops/aop")
+async def save_finops_aop(payload: AOPDataPayload):
+    fy_raw = payload.fiscal_year or payload.fiscalYear or "FY 2026-27"
+    norm_fy = normalize_fy_key(fy_raw)
+    
+    cats = payload.categories or payload.aopCategories or payload.groups or []
+    sums = payload.leadershipSummaries or payload.aopLeadershipSummaries or {}
+    kpi_cards = payload.kpiCards or []
+    custom_cols = payload.customColumns or []
+    trash_items = payload.trashItems or []
+    
+    cats_dump = [c.model_dump(exclude_unset=False) if hasattr(c, "model_dump") else c for c in cats]
+    
+    now_iso = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "fiscal_year": norm_fy,
+        "categories": cats_dump,
+        "aopCategories": cats_dump,
+        "groups": cats_dump,
+        "leadership_summaries": sums,
+        "kpi_cards": kpi_cards,
+        "custom_columns": custom_cols,
+        "trash_items": trash_items,
+        "updated_at": now_iso
+    }
+    
+    saved_mongo = False
+    if _is_mongo_available():
+        try:
+            finops_aop_collection.update_one(
+                {"fiscal_year": norm_fy},
+                {"$set": doc},
+                upsert=True
+            )
+            saved_mongo = True
+        except Exception as e:
+            print(f"[FinOps AOP] MongoDB write error: {e}")
+            
+    fallback = _read_finops_aop_fallback()
+    fallback[norm_fy] = doc
+    _write_finops_aop_fallback(fallback)
+    
+    return {
+        "success": True,
+        "fiscal_year": norm_fy,
+        "saved_to_mongo": saved_mongo,
+        "categories_count": len(cats_dump),
+        "message": f"FinOps AOP hierarchy for {norm_fy} saved successfully."
+    }
+
+@app.get("/api/finops/aop/snapshots")
+async def get_aop_snapshots(fiscal_year: Optional[str] = None):
+    norm_fy = normalize_fy_key(fiscal_year) if fiscal_year else None
+    query = {"fiscalYear": norm_fy} if norm_fy else {}
+    if _is_mongo_available():
+        try:
+            snaps = list(finops_aop_snapshots_collection.find(query, {"_id": 0}))
+            return {"success": True, "snapshots": snaps, "source": "mongodb"}
+        except Exception as e:
+            print(f"[FinOps Snapshots] MongoDB read error: {e}")
+    snaps = _read_finops_snapshots_fallback()
+    if norm_fy:
+        snaps = [s for s in snaps if s.get("fiscalYear") == norm_fy]
+    return {"success": True, "snapshots": snaps, "source": "local_cache"}
+
+@app.post("/api/finops/aop/snapshots")
+async def create_aop_snapshot(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    snap_id = body.get("id") or f"snap_{int(time.time() * 1000)}"
+    body["id"] = snap_id
+    if "createdAt" not in body:
+        body["createdAt"] = datetime.now(timezone.utc).isoformat()
+    if "fiscalYear" in body:
+        body["fiscalYear"] = normalize_fy_key(body["fiscalYear"])
+
+    saved_mongo = False
+    if _is_mongo_available():
+        try:
+            finops_aop_snapshots_collection.update_one(
+                {"id": snap_id},
+                {"$set": body},
+                upsert=True
+            )
+            saved_mongo = True
+        except Exception as e:
+            print(f"[FinOps Snapshots] MongoDB write error: {e}")
+
+    snaps = _read_finops_snapshots_fallback()
+    snaps = [s for s in snaps if s.get("id") != snap_id]
+    snaps.insert(0, body)
+    _write_finops_snapshots_fallback(snaps)
+
+    return {"success": True, "snapshot": body, "saved_to_mongo": saved_mongo}
+
+@app.delete("/api/finops/aop/snapshots/{snapshot_id}")
+async def delete_aop_snapshot(snapshot_id: str):
+    deleted_mongo = False
+    if _is_mongo_available():
+        try:
+            res = finops_aop_snapshots_collection.delete_one({"id": snapshot_id})
+            deleted_mongo = res.deleted_count > 0
+        except Exception as e:
+            print(f"[FinOps Snapshots] MongoDB delete error: {e}")
+
+    snaps = _read_finops_snapshots_fallback()
+    snaps = [s for s in snaps if s.get("id") != snapshot_id]
+    _write_finops_snapshots_fallback(snaps)
+
+    return {"success": True, "id": snapshot_id, "deleted_from_mongo": deleted_mongo}
+
+_FINOPS_CUSTOM_CATALOG_FALLBACK_FILE = os.path.join(os.path.dirname(__file__), "finops_custom_catalog.json")
+
+def _read_finops_custom_catalog_fallback() -> dict:
+    if os.path.exists(_FINOPS_CUSTOM_CATALOG_FALLBACK_FILE):
+        try:
+            with open(_FINOPS_CUSTOM_CATALOG_FALLBACK_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[FinOps Catalog] Error reading fallback file: {e}")
+    return {"lobs": [], "subtypes": [], "categories": []}
+
+def _write_finops_custom_catalog_fallback(data: dict):
+    try:
+        with open(_FINOPS_CUSTOM_CATALOG_FALLBACK_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, default=str)
+    except Exception as e:
+        print(f"[FinOps Catalog] Error writing fallback file: {e}")
+
+@app.get("/api/finops/catalog")
+async def get_finops_custom_catalog():
+    fallback = _read_finops_custom_catalog_fallback()
+    if _is_mongo_available():
+        try:
+            doc = finops_custom_catalog_collection.find_one({"catalog_key": "finops_main_catalog"}, {"_id": 0})
+            if doc and "catalog" in doc:
+                return {"success": True, "catalog": doc["catalog"], "source": "mongodb"}
+        except Exception as e:
+            print(f"[FinOps Catalog] MongoDB read error: {e}")
+    return {"success": True, "catalog": fallback, "source": "local_cache"}
+
+@app.post("/api/finops/catalog")
+async def save_finops_custom_catalog(request: Request):
+    body = await request.json()
+    catalog_data = body.get("catalog", body)
+    
+    saved_mongo = False
+    if _is_mongo_available():
+        try:
+            finops_custom_catalog_collection.update_one(
+                {"catalog_key": "finops_main_catalog"},
+                {"$set": {
+                    "catalog_key": "finops_main_catalog",
+                    "catalog": catalog_data,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }},
+                upsert=True
+            )
+            saved_mongo = True
+        except Exception as e:
+            print(f"[FinOps Catalog] MongoDB write error: {e}")
+            
+    _write_finops_custom_catalog_fallback(catalog_data)
+    return {"success": True, "saved_to_mongo": saved_mongo, "message": "FinOps custom catalog saved successfully."}
+
+@app.delete("/api/finops/catalog/{item_id}")
+async def delete_finops_custom_catalog_item(item_id: str):
+    deleted_mongo = False
+    fallback = _read_finops_custom_catalog_fallback()
+    
+    fallback["lobs"] = [x for x in fallback.get("lobs", []) if x.get("id") != item_id]
+    fallback["subtypes"] = [x for x in fallback.get("subtypes", []) if x.get("id") != item_id and x.get("name") != item_id]
+    fallback["categories"] = [x for x in fallback.get("categories", []) if x.get("code") != item_id]
+    _write_finops_custom_catalog_fallback(fallback)
+    
+    if _is_mongo_available():
+        try:
+            finops_custom_catalog_collection.update_one(
+                {"catalog_key": "finops_main_catalog"},
+                {"$set": {
+                    "catalog": fallback,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }},
+                upsert=True
+            )
+            deleted_mongo = True
+        except Exception as e:
+            print(f"[FinOps Catalog] MongoDB delete error: {e}")
+            
+    return {"success": True, "id": item_id, "deleted_from_mongo": deleted_mongo}
+
 if os.path.exists("dist/assets"):
     app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
 
