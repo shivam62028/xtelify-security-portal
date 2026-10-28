@@ -28,8 +28,10 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { motion, AnimatePresence } from "framer-motion";
-// richyrik: FinOps currency & global date filter context
+// FinOps currency & global date filter context
 import { useFinOpsCurrency } from "./FinOpsCurrencyContext";
+import { FinOpsEmptyStateCard } from "./FinOpsEmptyStateCard";
+import { saveFinOpsDataForFY } from "./finopsMultiYearStorage";
 
 export interface MonthColumn {
   key: string; // e.g. "Apr-2026"
@@ -69,277 +71,43 @@ export const DEFAULT_MONTH_COLUMNS: MonthColumn[] = [
   { key: "Mar-2027", label: "Mar-2027", type: "projected" },
 ];
 
-const INITIAL_GROUPS: SubCategoryGroup[] = [
-  {
-    id: "subcat-cdn",
-    name: "CDN",
-    mainCategory: "Cloud Cost",
-    lineItems: [
-      {
-        id: "item-aws-cf",
-        name: "AWS (CloudFront)",
-        values: {
-          "Apr-2026": 485000,
-          "May-2026": 512000,
-          "Jun-2026": 498000,
-          "Jul-2026": 520000,
-          "Aug-2026": 535000,
-          "Sep-2026": 540000,
-          "Oct-2026": 550000,
-          "Nov-2026": 560000,
-          "Dec-2026": 580000,
-          "Jan-2027": 565000,
-          "Feb-2027": 550000,
-          "Mar-2027": 570000,
-        },
-      },
-      {
-        id: "item-gcp-mcdn",
-        name: "GCP (MediaCDN)",
-        values: {
-          "Apr-2026": 395000,
-          "May-2026": 420000,
-          "Jun-2026": 410000,
-          "Jul-2026": 430000,
-          "Aug-2026": 445000,
-          "Sep-2026": 450000,
-          "Oct-2026": 460000,
-          "Nov-2026": 470000,
-          "Dec-2026": 490000,
-          "Jan-2027": 480000,
-          "Feb-2027": 465000,
-          "Mar-2027": 485000,
-        },
-      },
-      {
-        id: "item-akamai",
-        name: "Akamai",
-        values: {
-          "Apr-2026": 820000,
-          "May-2026": 845000,
-          "Jun-2026": 830000,
-          "Jul-2026": 860000,
-          "Aug-2026": 875000,
-          "Sep-2026": 890000,
-          "Oct-2026": 905000,
-          "Nov-2026": 920000,
-          "Dec-2026": 940000,
-          "Jan-2027": 915000,
-          "Feb-2027": 890000,
-          "Mar-2027": 910000,
-        },
-      },
-      {
-        id: "item-akamai-fixed",
-        name: "Akamai (Fixed)",
-        values: {
-          "Apr-2026": 250000,
-          "May-2026": 250000,
-          "Jun-2026": 250000,
-          "Jul-2026": 250000,
-          "Aug-2026": 250000,
-          "Sep-2026": 250000,
-          "Oct-2026": 250000,
-          "Nov-2026": 250000,
-          "Dec-2026": 250000,
-          "Jan-2027": 250000,
-          "Feb-2027": 250000,
-          "Mar-2027": 250000,
-        },
-      },
-      {
-        id: "item-cdn-aop",
-        name: "CDN AOP",
-        isAop: true,
-        values: {
-          "Apr-2026": 2000000,
-          "May-2026": 2050000,
-          "Jun-2026": 2050000,
-          "Jul-2026": 2100000,
-          "Aug-2026": 2150000,
-          "Sep-2026": 2200000,
-          "Oct-2026": 2250000,
-          "Nov-2026": 2300000,
-          "Dec-2026": 2350000,
-          "Jan-2027": 2300000,
-          "Feb-2027": 2250000,
-          "Mar-2027": 2300000,
-        },
-      },
-      {
-        id: "item-cdn-total",
-        name: "CDN Total",
-        isTotal: true,
-        values: {
-          "Apr-2026": 1950000,
-          "May-2026": 2027000,
-          "Jun-2026": 1988000,
-          "Jul-2026": 2060000,
-          "Aug-2026": 2105000,
-          "Sep-2026": 2130000,
-          "Oct-2026": 2165000,
-          "Nov-2026": 2200000,
-          "Dec-2026": 2260000,
-          "Jan-2027": 2210000,
-          "Feb-2027": 2155000,
-          "Mar-2027": 2215000,
-        },
-      },
-    ],
-  },
-  {
-    id: "subcat-video",
-    name: "Video Platform",
-    mainCategory: "Cloud Cost",
-    lineItems: [
-      {
-        id: "item-ateme-aop",
-        name: "Ateme AOP",
-        isAop: true,
-        values: {
-          "Apr-2026": 600000,
-          "May-2026": 600000,
-          "Jun-2026": 600000,
-          "Jul-2026": 620000,
-          "Aug-2026": 620000,
-          "Sep-2026": 620000,
-          "Oct-2026": 650000,
-          "Nov-2026": 650000,
-          "Dec-2026": 650000,
-          "Jan-2027": 650000,
-          "Feb-2027": 650000,
-          "Mar-2027": 650000,
-        },
-      },
-      {
-        id: "item-ateme",
-        name: "Ateme",
-        values: {
-          "Apr-2026": 560000,
-          "May-2026": 575000,
-          "Jun-2026": 580000,
-          "Jul-2026": 595000,
-          "Aug-2026": 610000,
-          "Sep-2026": 605000,
-          "Oct-2026": 625000,
-          "Nov-2026": 630000,
-          "Dec-2026": 645000,
-          "Jan-2027": 635000,
-          "Feb-2027": 620000,
-          "Mar-2027": 640000,
-        },
-      },
-    ],
-  },
-  {
-    id: "subcat-crosscharge",
-    name: "Cross Charge",
-    mainCategory: "Cloud Cost",
-    lineItems: [
-      {
-        id: "item-api-aop",
-        name: "API AOP",
-        isAop: true,
-        values: {
-          "Apr-2026": 350000,
-          "May-2026": 350000,
-          "Jun-2026": 350000,
-          "Jul-2026": 360000,
-          "Aug-2026": 360000,
-          "Sep-2026": 360000,
-          "Oct-2026": 380000,
-          "Nov-2026": 380000,
-          "Dec-2026": 380000,
-          "Jan-2027": 380000,
-          "Feb-2027": 380000,
-          "Mar-2027": 380000,
-        },
-      },
-      {
-        id: "item-api",
-        name: "API",
-        values: {
-          "Apr-2026": 128658.49,
-          "May-2026": 134200.0,
-          "Jun-2026": 139500.0,
-          "Jul-2026": 145000.0,
-          "Aug-2026": 150000.0,
-          "Sep-2026": 152000.0,
-          "Oct-2026": 158000.0,
-          "Nov-2026": 162000.0,
-          "Dec-2026": 168000.0,
-          "Jan-2027": 164000.0,
-          "Feb-2027": 159000.0,
-          "Mar-2027": 165000.0,
-        },
-      },
-      {
-        id: "item-direct-connect",
-        name: "Direct Connect",
-        values: {
-          "Apr-2026": 210000,
-          "May-2026": 210000,
-          "Jun-2026": 210000,
-          "Jul-2026": 210000,
-          "Aug-2026": 210000,
-          "Sep-2026": 210000,
-          "Oct-2026": 210000,
-          "Nov-2026": 210000,
-          "Dec-2026": 210000,
-          "Jan-2027": 210000,
-          "Feb-2027": 210000,
-          "Mar-2027": 210000,
-        },
-      },
-    ],
-  },
-  {
-    id: "subcat-total",
-    name: "Total",
-    mainCategory: "Cloud Cost",
-    lineItems: [
-      {
-        id: "item-cumulative-aop",
-        name: "Cumulative AOP",
-        isAop: true,
-        isTotal: true,
-        values: {
-          "Apr-2026": 2950000,
-          "May-2026": 3000000,
-          "Jun-2026": 3000000,
-          "Jul-2026": 3080000,
-          "Aug-2026": 3130000,
-          "Sep-2026": 3180000,
-          "Oct-2026": 3280000,
-          "Nov-2026": 3330000,
-          "Dec-2026": 3380000,
-          "Jan-2027": 3330000,
-          "Feb-2027": 3280000,
-          "Mar-2027": 3330000,
-        },
-      },
-      {
-        id: "item-cumulative-spend",
-        name: "Cumulative Spend",
-        isTotal: true,
-        values: {
-          "Apr-2026": 2848658.49,
-          "May-2026": 2946200.0,
-          "Jun-2026": 2917500.0,
-          "Jul-2026": 3010000.0,
-          "Aug-2026": 3075000.0,
-          "Sep-2026": 3097000.0,
-          "Oct-2026": 3158000.0,
-          "Nov-2026": 3202000.0,
-          "Dec-2026": 3283000.0,
-          "Jan-2027": 3219000.0,
-          "Feb-2027": 3144000.0,
-          "Mar-2027": 3230000.0,
-        },
-      },
-    ],
-  },
-];
+const INITIAL_GROUPS: SubCategoryGroup[] = [];
+
+const isScrapCreditGroup = (g: SubCategoryGroup): boolean => {
+  if (!g) return true;
+  if (
+    g.id === "subcat-cdn" ||
+    g.id === "subcat-video" ||
+    g.id === "subcat-crosscharge" ||
+    g.id === "subcat-total"
+  ) {
+    return true;
+  }
+  const mockItemIds = new Set([
+    "item-aws-cf",
+    "item-gcp-mcdn",
+    "item-akamai",
+    "item-akamai-fixed",
+    "item-cdn-aop",
+    "item-cdn-total",
+    "item-ateme-aop",
+    "item-ateme",
+    "item-api-aop",
+    "item-api",
+    "item-direct-connect",
+    "item-cumulative-aop",
+    "item-cumulative-spend",
+  ]);
+  if (g.lineItems && g.lineItems.length > 0 && g.lineItems.every((item) => mockItemIds.has(item.id))) {
+    return true;
+  }
+  return false;
+};
+
+const sanitizeCreditGroups = (list: any[]): SubCategoryGroup[] => {
+  if (!Array.isArray(list)) return [];
+  return list.filter((g) => !isScrapCreditGroup(g));
+};
 
 export const formatINR = (val: number | null | undefined): string => {
   if (val === null || val === undefined || isNaN(val)) return "—";
@@ -364,7 +132,11 @@ export const CloudCostCreditTrackerView: React.FC = () => {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        const cleaned = sanitizeCreditGroups(parsed);
+        if (cleaned.length !== parsed.length) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
+        }
+        return cleaned;
       }
     } catch {
       // ignore
@@ -373,14 +145,10 @@ export const CloudCostCreditTrackerView: React.FC = () => {
   });
 
   const [monthColumns, setMonthColumns] = useState<MonthColumn[]>(DEFAULT_MONTH_COLUMNS);
+  const [selectedTrackerType, setSelectedTrackerType] = useState<string>("All");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
-    "subcat-cdn": true,
-    "subcat-video": true,
-    "subcat-crosscharge": true,
-    "subcat-total": true,
-  });
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const [editingCell, setEditingCell] = useState<{
     groupId: string;
@@ -389,10 +157,54 @@ export const CloudCostCreditTrackerView: React.FC = () => {
     value: string;
   } | null>(null);
 
+  // Hierarchical Add Row / Component Modal States
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [targetGroupId, setTargetGroupId] = useState<string>("");
+  const [addModalDomain, setAddModalDomain] = useState<string>("Cloud Cost");
+  const [customAddDomain, setCustomAddDomain] = useState<string>("");
+  const [addModalCategoryName, setAddModalCategoryName] = useState<string>("");
   const [newLineItemName, setNewLineItemName] = useState("");
   const [newLineItemIsAop, setNewLineItemIsAop] = useState(false);
+
+
+  // Category Creation & Editing Modal States
+  const [isNewCategoryModalOpen, setIsNewCategoryModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newTrackerType, setNewTrackerType] = useState("Cloud Cost");
+  const [customTrackerType, setCustomTrackerType] = useState("");
+  const [initialLineItemName, setInitialLineItemName] = useState("");
+
+  const [editingCategory, setEditingCategory] = useState<SubCategoryGroup | null>(null);
+  const [editCategoryName, setEditCategoryName] = useState("");
+  const [editTrackerType, setEditTrackerType] = useState("Cloud Cost");
+  const [customEditTrackerType, setCustomEditTrackerType] = useState("");
+
+  // Line Item Rename / Config State
+  const [editingLineItem, setEditingLineItem] = useState<{
+    groupId: string;
+    item: CostLineItem;
+  } | null>(null);
+  const [editLineItemName, setEditLineItemName] = useState("");
+  const [editLineItemIsAop, setEditLineItemIsAop] = useState(false);
+  const [editLineItemIsTotal, setEditLineItemIsTotal] = useState(false);
+
+  const PRESET_TRACKER_TYPES = [
+    "Cloud Cost",
+    "SaaS & Software Licenses",
+    "Database & Storage Credits",
+    "Network & Bandwidth Transit",
+    "AI / ML & GPU Compute",
+    "Third-Party Vendor Commitments",
+  ];
+
+  const allTrackerTypes = useMemo(() => {
+    const set = new Set<string>();
+    groups.forEach((g) => {
+      if (g.mainCategory && g.mainCategory.trim()) set.add(g.mainCategory.trim());
+    });
+    PRESET_TRACKER_TYPES.forEach((t) => set.add(t));
+    return Array.from(set);
+  }, [groups]);
 
   const [uploadFeedback, setUploadFeedback] = useState<{
     type: "success" | "error" | "info";
@@ -400,8 +212,6 @@ export const CloudCostCreditTrackerView: React.FC = () => {
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const dropzoneInputRef = useRef<HTMLInputElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
 
   // richyrik: FinOps currency, datasets & MongoDB context
   const {
@@ -415,17 +225,57 @@ export const CloudCostCreditTrackerView: React.FC = () => {
     setIsDatasetManagerOpen,
   } = useFinOpsCurrency();
 
-  // richyrik: Dynamically filter visible month columns based on global date filter
+  const activeFY = dateFilter?.fiscalYear || "FY 2026-27";
+  const getStorageKeyForFY = (fy: string) => `${STORAGE_KEY}_${fy.replace(/\s+/g, "_")}`;
+
+  // Load isolated groups when activeFY changes
+  useEffect(() => {
+    try {
+      const fyKey = getStorageKeyForFY(activeFY);
+      const saved = localStorage.getItem(fyKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const cleaned = sanitizeCreditGroups(parsed);
+          if (cleaned.length !== parsed.length) {
+            localStorage.setItem(fyKey, JSON.stringify(cleaned));
+          }
+          setGroups(cleaned);
+          return;
+        }
+      }
+      if (activeFY === "FY 2026-27") {
+        const legacy = localStorage.getItem(STORAGE_KEY);
+        if (legacy) {
+          const parsed = JSON.parse(legacy);
+          if (Array.isArray(parsed)) {
+            const cleaned = sanitizeCreditGroups(parsed);
+            if (cleaned.length !== parsed.length) {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
+            }
+            setGroups(cleaned);
+            return;
+          }
+        }
+      }
+      setGroups([]);
+    } catch {
+      setGroups([]);
+    }
+  }, [activeFY]);
+
+  // Dynamically filter visible month columns based on global date filter
   const visibleMonthColumns = useMemo(() => {
     const list = monthColumns.filter((m) => isMonthSelected(m.key));
     return list.length > 0 ? list : monthColumns;
   }, [monthColumns, dateFilter.selectedMonths]);
 
-  // richyrik: Ingestion & Dataset Deletion event listeners
+  // Ingestion & Dataset Deletion event listeners
   useEffect(() => {
     const handleIngest = () => {
       try {
-        const saved = localStorage.getItem(STORAGE_KEY);
+        const fyKey = getStorageKeyForFY(activeFY);
+        const saved = localStorage.getItem(fyKey) || localStorage.getItem(STORAGE_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed) && parsed.length > 0) setGroups(parsed);
@@ -437,7 +287,8 @@ export const CloudCostCreditTrackerView: React.FC = () => {
 
     const handleDatasetDeleted = () => {
       try {
-        const saved = localStorage.getItem(STORAGE_KEY);
+        const fyKey = getStorageKeyForFY(activeFY);
+        const saved = localStorage.getItem(fyKey);
         if (saved) {
           const parsed = JSON.parse(saved);
           setGroups(Array.isArray(parsed) ? parsed : []);
@@ -455,20 +306,22 @@ export const CloudCostCreditTrackerView: React.FC = () => {
       window.removeEventListener("finops:ingest-credits", handleIngest);
       window.removeEventListener("finops:dataset-deleted", handleDatasetDeleted);
     };
-  }, []);
+  }, [activeFY]);
 
-  // richyrik: Dynamic currency formatter replacing static INR
+  // Dynamic currency formatter replacing static INR
   const formatINR = (val: number | null | undefined): string => {
     return formatCurrency(val, true);
   };
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(groups));
+      const fyKey = getStorageKeyForFY(activeFY);
+      localStorage.setItem(fyKey, JSON.stringify(groups));
+      saveFinOpsDataForFY(activeFY, { creditPools: groups });
     } catch {
       // ignore
     }
-  }, [groups]);
+  }, [groups, activeFY]);
 
   // Executive KPI summary calculations
   const kpiSummary = useMemo(() => {
@@ -519,12 +372,20 @@ export const CloudCostCreditTrackerView: React.FC = () => {
     };
   }, [groups, monthColumns]);
 
-  // Filtered categories
+  // Filtered categories respecting active tracker type, category, and search query
   const filteredGroups = useMemo(() => {
     return groups
       .filter((g) => {
-        if (selectedCategory === "All") return true;
-        return g.name.toLowerCase() === selectedCategory.toLowerCase();
+        if (
+          selectedTrackerType !== "All" &&
+          g.mainCategory?.toLowerCase() !== selectedTrackerType.toLowerCase()
+        ) {
+          return false;
+        }
+        if (selectedCategory !== "All" && g.name.toLowerCase() !== selectedCategory.toLowerCase()) {
+          return false;
+        }
+        return true;
       })
       .map((g) => {
         if (!searchQuery.trim()) return g;
@@ -536,7 +397,14 @@ export const CloudCostCreditTrackerView: React.FC = () => {
         };
       })
       .filter((g) => g.lineItems.length > 0 || !searchQuery.trim());
-  }, [groups, selectedCategory, searchQuery]);
+  }, [groups, selectedTrackerType, selectedCategory, searchQuery]);
+
+  const categoriesForSelectedTracker = useMemo(() => {
+    if (selectedTrackerType === "All") return groups;
+    return groups.filter(
+      (g) => g.mainCategory?.toLowerCase() === selectedTrackerType.toLowerCase()
+    );
+  }, [groups, selectedTrackerType]);
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups((prev) => ({
@@ -551,6 +419,111 @@ export const CloudCostCreditTrackerView: React.FC = () => {
       updated[g.id] = expand;
     });
     setExpandedGroups(updated);
+  };
+
+  // Delete entire category (e.g. Delete whole CDN or Video Platform)
+  const handleDeleteCategory = (groupId: string, groupName: string) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete the whole "${groupName}" category and all of its line items?`
+      )
+    ) {
+      return;
+    }
+
+    const updated = groups.filter((g) => g.id !== groupId);
+    setGroups(updated);
+    const fyKey = getStorageKeyForFY(activeFY);
+    localStorage.setItem(fyKey, JSON.stringify(updated));
+    saveFinOpsDataForFY(activeFY, { creditPools: updated });
+    window.dispatchEvent(
+      new CustomEvent("finops:fy-data-updated", { detail: { fy: activeFY } })
+    );
+
+    if (selectedCategory.toLowerCase() === groupName.toLowerCase()) {
+      setSelectedCategory("All");
+    }
+    setUploadFeedback({
+      type: "info",
+      message: `Deleted "${groupName}" category and its line items.`,
+    });
+  };
+
+  // Create new category under specified or custom tracker type
+  const handleCreateCategory = () => {
+    if (!newCategoryName.trim()) return;
+    const resolvedTracker =
+      newTrackerType === "Custom..."
+        ? (customTrackerType.trim() || "Custom Tracker")
+        : newTrackerType;
+
+    const newGroupId = `subcat-${Date.now()}`;
+    const lineItemName = initialLineItemName.trim() || `${newCategoryName.trim()} Item 1`;
+    const initialItem: CostLineItem = {
+      id: `item-${Date.now()}`,
+      name: lineItemName,
+      isAop: false,
+      values: {},
+    };
+    monthColumns.forEach((m) => {
+      initialItem.values[m.key] = 0;
+    });
+
+    const newGroup: SubCategoryGroup = {
+      id: newGroupId,
+      name: newCategoryName.trim(),
+      mainCategory: resolvedTracker,
+      lineItems: [initialItem],
+    };
+
+    const updated = [...groups, newGroup];
+    setGroups(updated);
+    const fyKey = getStorageKeyForFY(activeFY);
+    localStorage.setItem(fyKey, JSON.stringify(updated));
+    saveFinOpsDataForFY(activeFY, { creditPools: updated });
+    window.dispatchEvent(
+      new CustomEvent("finops:fy-data-updated", { detail: { fy: activeFY } })
+    );
+
+    setExpandedGroups((prev) => ({ ...prev, [newGroupId]: true }));
+    setIsNewCategoryModalOpen(false);
+    setNewCategoryName("");
+    setNewTrackerType("Cloud Cost");
+    setCustomTrackerType("");
+    setInitialLineItemName("");
+    setUploadFeedback({
+      type: "success",
+      message: `Created new category "${newGroup.name}" under ${resolvedTracker}.`,
+    });
+  };
+
+  // Save changes to category name and tracker type
+  const handleSaveCategoryEdit = () => {
+    if (!editingCategory || !editCategoryName.trim()) return;
+    const resolvedTracker =
+      editTrackerType === "Custom..."
+        ? (customEditTrackerType.trim() || "Custom Tracker")
+        : editTrackerType;
+
+    const updated = groups.map((g) => {
+      if (g.id !== editingCategory.id) return g;
+      return {
+        ...g,
+        name: editCategoryName.trim(),
+        mainCategory: resolvedTracker,
+      };
+    });
+
+    setGroups(updated);
+    const fyKey = getStorageKeyForFY(activeFY);
+    localStorage.setItem(fyKey, JSON.stringify(updated));
+    saveFinOpsDataForFY(activeFY, { creditPools: updated });
+    window.dispatchEvent(
+      new CustomEvent("finops:fy-data-updated", { detail: { fy: activeFY } })
+    );
+
+    setEditingCategory(null);
+    setUploadFeedback({ type: "success", message: `Category updated successfully.` });
   };
 
   // Inline cell edit save
@@ -580,35 +553,116 @@ export const CloudCostCreditTrackerView: React.FC = () => {
     setEditingCell(null);
   };
 
-  // Add line item
-  const handleAddLineItem = () => {
-    if (!newLineItemName.trim() || !targetGroupId) return;
+  // Existing categories matching the currently selected domain in Add Row modal
+  const addModalDomainGroups = useMemo(() => {
+    const effectiveDomain =
+      addModalDomain === "Custom..." ? customAddDomain.trim() : addModalDomain.trim();
+    if (!effectiveDomain) return [];
+    return groups.filter(
+      (g) => (g.mainCategory || "Cloud Cost").toLowerCase() === effectiveDomain.toLowerCase()
+    );
+  }, [groups, addModalDomain, customAddDomain]);
 
-    setGroups((prev) =>
-      prev.map((g) => {
-        if (g.id !== targetGroupId) return g;
-        const newItem: CostLineItem = {
-          id: `item-custom-${Date.now()}`,
-          name: newLineItemName.trim(),
-          isAop: newLineItemIsAop,
-          values: {},
-        };
-        monthColumns.forEach((m) => {
-          newItem.values[m.key] = 0;
-        });
+  const handleOpenAddRowModal = (
+    prefillDomain?: string,
+    prefillGroupId?: string,
+    prefillCategoryName?: string
+  ) => {
+    const domain =
+      prefillDomain || (selectedTrackerType !== "All" ? selectedTrackerType : "Cloud Cost");
+    const isPreset = PRESET_TRACKER_TYPES.includes(domain);
+    setAddModalDomain(isPreset ? domain : "Custom...");
+    setCustomAddDomain(isPreset ? "" : domain);
+    setTargetGroupId(prefillGroupId || "");
+    setAddModalCategoryName(prefillCategoryName || "");
+    setNewLineItemName("");
+    setNewLineItemIsAop(false);
+    setIsAddModalOpen(true);
+  };
+
+  const handleCloseAddRowModal = () => {
+    setIsAddModalOpen(false);
+    setTargetGroupId("");
+    setAddModalCategoryName("");
+    setNewLineItemName("");
+    setNewLineItemIsAop(false);
+    setCustomAddDomain("");
+  };
+
+  // Add line item / row to category (or create new category under selected domain)
+  const handleAddLineItem = () => {
+    const effectiveDomain =
+      addModalDomain === "Custom..." ? customAddDomain.trim() : addModalDomain.trim();
+    if (!effectiveDomain || !newLineItemName.trim()) return;
+
+    let chosenGroup = groups.find((g) => g.id === targetGroupId);
+    const catName = chosenGroup ? chosenGroup.name : addModalCategoryName.trim();
+    if (!chosenGroup && !catName) return;
+
+    const newItem: CostLineItem = {
+      id: `item-custom-${Date.now()}`,
+      name: newLineItemName.trim(),
+      isAop: newLineItemIsAop,
+      values: {},
+    };
+    monthColumns.forEach((m) => {
+      newItem.values[m.key] = 0;
+    });
+
+    let updated: SubCategoryGroup[];
+    if (chosenGroup) {
+      updated = groups.map((g) => {
+        if (g.id !== chosenGroup!.id) return g;
         return {
           ...g,
           lineItems: [...g.lineItems, newItem],
         };
-      })
+      });
+    } else {
+      const existing = groups.find(
+        (g) =>
+          (g.mainCategory || "Cloud Cost").toLowerCase() === effectiveDomain.toLowerCase() &&
+          g.name.toLowerCase() === catName.toLowerCase()
+      );
+      if (existing) {
+        updated = groups.map((g) => {
+          if (g.id !== existing.id) return g;
+          return {
+            ...g,
+            lineItems: [...g.lineItems, newItem],
+          };
+        });
+      } else {
+        const newG: SubCategoryGroup = {
+          id: `subcat-${Date.now()}`,
+          name: catName,
+          mainCategory: effectiveDomain,
+          lineItems: [newItem],
+        };
+        updated = [...groups, newG];
+      }
+    }
+
+    setGroups(updated);
+    const fyKey = getStorageKeyForFY(activeFY);
+    localStorage.setItem(fyKey, JSON.stringify(updated));
+    saveFinOpsDataForFY(activeFY, { creditPools: updated });
+    window.dispatchEvent(
+      new CustomEvent("finops:fy-data-updated", { detail: { fy: activeFY } })
     );
 
-    setIsAddModalOpen(false);
-    setNewLineItemName("");
-    setNewLineItemIsAop(false);
+    handleCloseAddRowModal();
+    setUploadFeedback({
+      type: "success",
+      message: `Added row "${newItem.name}" under ${effectiveDomain} / ${catName}.`,
+    });
   };
 
-  const handleDeleteLineItem = (groupId: string, itemId: string) => {
+  // Delete line item / row from category
+  const handleDeleteLineItem = (groupId: string, itemId: string, itemName?: string) => {
+    if (itemName && !window.confirm(`Are you sure you want to delete row "${itemName}"?`)) {
+      return;
+    }
     setGroups((prev) =>
       prev.map((g) => {
         if (g.id !== groupId) return g;
@@ -618,6 +672,29 @@ export const CloudCostCreditTrackerView: React.FC = () => {
         };
       })
     );
+  };
+
+  // Save line item rename & config
+  const handleSaveLineItemEdit = () => {
+    if (!editingLineItem || !editLineItemName.trim()) return;
+    setGroups((prev) =>
+      prev.map((g) => {
+        if (g.id !== editingLineItem.groupId) return g;
+        return {
+          ...g,
+          lineItems: g.lineItems.map((item) => {
+            if (item.id !== editingLineItem.item.id) return item;
+            return {
+              ...item,
+              name: editLineItemName.trim(),
+              isAop: editLineItemIsAop,
+              isTotal: editLineItemIsTotal,
+            };
+          }),
+        };
+      })
+    );
+    setEditingLineItem(null);
   };
 
   // Excel parser for hierarchical tracker
@@ -759,13 +836,6 @@ export const CloudCostCreditTrackerView: React.FC = () => {
     if (e.target) e.target.value = "";
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) parseExcelFile(file);
-  };
-
   // Export to Excel with Images 1 & 2 layout
   const handleExportExcel = () => {
     const headerRow1 = ["Main Category", "Sub-category", "Line Item", ...monthColumns.map((m) => m.label)];
@@ -832,8 +902,30 @@ export const CloudCostCreditTrackerView: React.FC = () => {
           />
 
           <button
+            onClick={() => handleOpenAddRowModal()}
+            className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-cyan-900/30 transition-all border border-cyan-400/20 active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add Row
+          </button>
+
+          <button
+            onClick={() => {
+              setNewCategoryName("");
+              setNewTrackerType(selectedTrackerType !== "All" ? selectedTrackerType : "Cloud Cost");
+              setCustomTrackerType("");
+              setInitialLineItemName("");
+              setIsNewCategoryModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-teal-900/30 transition-all border border-teal-400/20 active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add Tracker Category
+          </button>
+
+          <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-cyan-900/30 transition-all border border-cyan-400/20 active:scale-95"
+            className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-cyan-900/30 transition-all border border-cyan-400/20 active:scale-95 cursor-pointer"
           >
             <Upload className="w-3.5 h-3.5" />
             Upload Tracker Excel
@@ -841,7 +933,7 @@ export const CloudCostCreditTrackerView: React.FC = () => {
 
           <button
             onClick={handleExportExcel}
-            className="flex items-center gap-2 px-3.5 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white text-xs font-semibold rounded-xl border border-white/[0.08] transition-all active:scale-95"
+            className="flex items-center gap-2 px-3.5 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white text-xs font-semibold rounded-xl border border-white/[0.08] transition-all active:scale-95 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 text-slate-400" />
             Export Excel
@@ -850,7 +942,7 @@ export const CloudCostCreditTrackerView: React.FC = () => {
           <button
             onClick={handleResetDefault}
             title="Reset to default company template"
-            className="p-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-slate-200 rounded-xl border border-white/[0.08] transition-all"
+            className="p-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-slate-200 rounded-xl border border-white/[0.08] transition-all cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
@@ -893,62 +985,122 @@ export const CloudCostCreditTrackerView: React.FC = () => {
       </AnimatePresence>
 
       {/* ── CATEGORY SELECTOR BAR & CONTROLS ── */}
-      <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl p-4 shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-        {/* Category Pills */}
-        <div className="flex items-center flex-wrap gap-2">
+      <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl p-4 shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] space-y-3">
+        {/* Tier 1: Tracker Type Filter Bar */}
+        <div className="flex items-center flex-wrap gap-2 pb-3 border-b border-slate-800/80">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1.5">
+            <Layers className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Tracker Type:</span>
+          </span>
           <button
-            onClick={() => setSelectedCategory("All")}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-              selectedCategory === "All"
-                ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-900/30"
+            onClick={() => {
+              setSelectedTrackerType("All");
+              setSelectedCategory("All");
+            }}
+            className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              selectedTrackerType === "All"
+                ? "bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-md shadow-cyan-900/30 border border-cyan-400/30"
                 : "bg-[#07090E]/60 text-slate-400 hover:text-white border border-slate-800"
             }`}
           >
-            All Categories
+            All Tracker Types ({groups.length})
           </button>
-          {groups.map((g) => (
+          {allTrackerTypes.map((type) => {
+            const count = groups.filter((g) => g.mainCategory?.toLowerCase() === type.toLowerCase()).length;
+            return (
+              <button
+                key={type}
+                onClick={() => {
+                  setSelectedTrackerType(type);
+                  setSelectedCategory("All");
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  selectedTrackerType.toLowerCase() === type.toLowerCase()
+                    ? "bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-md shadow-cyan-900/30 border border-cyan-400/30"
+                    : "bg-[#07090E]/60 text-slate-400 hover:text-white border border-slate-800"
+                }`}
+              >
+                <span>{type}</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-400">
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+
+          <button
+            onClick={() => {
+              setNewCategoryName("");
+              setNewTrackerType(selectedTrackerType !== "All" ? selectedTrackerType : "Cloud Cost");
+              setCustomTrackerType("");
+              setInitialLineItemName("");
+              setIsNewCategoryModalOpen(true);
+            }}
+            className="ml-auto flex items-center gap-1 px-3 py-1 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition-all cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Category</span>
+          </button>
+        </div>
+
+        {/* Tier 2: Category Pills & Controls */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          {/* Category Pills */}
+          <div className="flex items-center flex-wrap gap-2">
             <button
-              key={g.id}
-              onClick={() => setSelectedCategory(g.name)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                selectedCategory.toLowerCase() === g.name.toLowerCase()
+              onClick={() => setSelectedCategory("All")}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                selectedCategory === "All"
                   ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-900/30"
                   : "bg-[#07090E]/60 text-slate-400 hover:text-white border border-slate-800"
               }`}
             >
-              <span>{g.name}</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-400">
-                {g.lineItems.length}
-              </span>
+              All Categories
             </button>
-          ))}
-        </div>
-
-        {/* Search & Accordion Controls */}
-        <div className="flex items-center gap-2 self-end md:self-auto">
-          <div className="relative min-w-[200px]">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search component..."
-              className="w-full bg-[#07090E]/80 border border-slate-700/80 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/70"
-            />
+            {categoriesForSelectedTracker.map((g) => (
+              <button
+                key={g.id}
+                onClick={() => setSelectedCategory(g.name)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  selectedCategory.toLowerCase() === g.name.toLowerCase()
+                    ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-900/30"
+                    : "bg-[#07090E]/60 text-slate-400 hover:text-white border border-slate-800"
+                }`}
+              >
+                <span>{g.name}</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-400">
+                  {g.lineItems.length}
+                </span>
+              </button>
+            ))}
           </div>
 
-          <button
-            onClick={() => expandAll(true)}
-            className="px-2.5 py-1.5 bg-[#07090E]/80 border border-slate-700/80 text-slate-300 hover:text-white text-xs rounded-xl"
-          >
-            Expand All
-          </button>
-          <button
-            onClick={() => expandAll(false)}
-            className="px-2.5 py-1.5 bg-[#07090E]/80 border border-slate-700/80 text-slate-300 hover:text-white text-xs rounded-xl"
-          >
-            Collapse
-          </button>
+          {/* Search & Accordion Controls */}
+          <div className="flex items-center gap-2 self-end md:self-auto">
+            <div className="relative min-w-[200px]">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search component..."
+                className="w-full bg-[#07090E]/80 border border-slate-700/80 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/70"
+              />
+            </div>
+
+            <button
+              onClick={() => expandAll(true)}
+              className="px-2.5 py-1.5 bg-[#07090E]/80 border border-slate-700/80 text-slate-300 hover:text-white text-xs rounded-xl cursor-pointer"
+            >
+              Expand All
+            </button>
+            <button
+              onClick={() => expandAll(false)}
+              className="px-2.5 py-1.5 bg-[#07090E]/80 border border-slate-700/80 text-slate-300 hover:text-white text-xs rounded-xl cursor-pointer"
+            >
+              Collapse
+            </button>
+          </div>
         </div>
       </div>
 
@@ -987,7 +1139,7 @@ export const CloudCostCreditTrackerView: React.FC = () => {
             {formatINR(kpiSummary.totalAnnualProjectedSpend)}
           </div>
           <div className="mt-2.5 flex items-center justify-between text-xs text-slate-400">
-            <span>12-Month Fiscal Run-rate</span>
+            <span>12-Month Fiscal Spend Rate</span>
             <span className="text-slate-300 font-mono">
               Target: {formatINR(kpiSummary.totalAnnualAopTarget)}
             </span>
@@ -1030,55 +1182,36 @@ export const CloudCostCreditTrackerView: React.FC = () => {
         </div>
       </div>
 
-      {/* ── EMPTY STATE DROPZONE ── */}
+      {/* ── EMPTY STATE ── */}
       {groups.length === 0 ? (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all bg-white/[0.01] ${
-            isDragging ? "border-cyan-500 bg-cyan-500/10" : "border-slate-700/80 hover:border-slate-600"
-          }`}
-        >
-          <input
-            type="file"
-            ref={dropzoneInputRef}
-            onChange={handleFileUpload}
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
+        <div className="relative">
+          <FinOpsEmptyStateCard
+            sectionName="Credit Tracker"
+            fiscalYear={activeFY}
+            onCreateNew={() => handleOpenAddRowModal("Cloud Cost")}
+            onUploadExcel={parseExcelFile}
+            onClonePrevious={() => {
+              let srcGroups: SubCategoryGroup[] = [];
+              try {
+                const savedPrev =
+                  localStorage.getItem(getStorageKeyForFY("FY 2026-27")) ||
+                  localStorage.getItem(STORAGE_KEY);
+                if (savedPrev) srcGroups = JSON.parse(savedPrev);
+              } catch {}
+              if (srcGroups.length === 0) srcGroups = INITIAL_GROUPS;
+              const cloned = srcGroups.map((g) => ({
+                ...g,
+                lineItems: g.lineItems.map((item) => ({
+                  ...item,
+                  values: {},
+                })),
+              }));
+              setGroups(cloned);
+              const fyKey = getStorageKeyForFY(activeFY);
+              localStorage.setItem(fyKey, JSON.stringify(cloned));
+              saveFinOpsDataForFY(activeFY, { creditPools: cloned });
+            }}
           />
-          <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-4">
-            <FileSpreadsheet className="w-8 h-8" />
-          </div>
-          <h3 className="text-lg font-bold text-white mb-1">
-            Ready for your Cloud Cost & Credit Tracker Excel upload
-          </h3>
-          <p className="text-slate-400 text-xs max-w-lg mx-auto mb-6">
-            Upload your Excel file to start tracking monthly spend and run-rates. All uploaded sheets are automatically saved to Airtel Cloud Ops Security MongoDB (<code className="text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded">xtelify_db.finops_datasets</code>).
-          </p>
-          <div className="flex items-center justify-center flex-wrap gap-3">
-            <button
-              onClick={() => dropzoneInputRef.current?.click()}
-              className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 text-xs font-bold rounded-xl shadow-lg hover:from-emerald-400 hover:to-teal-400 cursor-pointer"
-            >
-              Select Excel File
-            </button>
-            <button
-              onClick={() => setIsDatasetManagerOpen(true)}
-              className="px-5 py-2.5 bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 text-xs font-semibold rounded-xl border border-white/[0.08] cursor-pointer"
-            >
-              View Datasets ({datasets.length})
-            </button>
-            <button
-              onClick={handleResetDefault}
-              className="px-4 py-2.5 bg-slate-800/60 hover:bg-slate-800 text-slate-400 text-xs rounded-xl border border-slate-700/60 cursor-pointer"
-            >
-              Load Sample Template
-            </button>
-          </div>
         </div>
       ) : (
         /* ── HIERARCHICAL ACCORDION TABLE VIEW ── */
@@ -1156,13 +1289,41 @@ export const CloudCostCreditTrackerView: React.FC = () => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setTargetGroupId(group.id);
-                        setIsAddModalOpen(true);
+                        handleOpenAddRowModal(group.mainCategory || "Cloud Cost", group.id, group.name);
                       }}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 font-medium transition-all"
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 font-medium transition-all cursor-pointer"
+                      title="Add a new row/component to this category"
                     >
                       <Plus className="w-3 h-3" />
                       <span>Add Row</span>
+                    </button>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingCategory(group);
+                        setEditCategoryName(group.name);
+                        const isPreset = PRESET_TRACKER_TYPES.includes(group.mainCategory || "");
+                        setEditTrackerType(isPreset ? (group.mainCategory || "Cloud Cost") : "Custom...");
+                        setCustomEditTrackerType(isPreset ? "" : (group.mainCategory || ""));
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 border border-white/10 font-medium transition-all"
+                      title="Edit category name or change tracker type"
+                    >
+                      <Edit2 className="w-3 h-3 text-cyan-400" />
+                      <span>Edit Category</span>
+                    </button>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteCategory(group.id, group.name);
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-300 border border-rose-500/25 font-medium transition-all"
+                      title={`Delete whole "${group.name}" category and its line items`}
+                    >
+                      <Trash2 className="w-3 h-3 text-rose-400" />
+                      <span>Delete Category</span>
                     </button>
                   </div>
                 </div>
@@ -1219,7 +1380,9 @@ export const CloudCostCreditTrackerView: React.FC = () => {
                             <th className="py-3 px-4 text-right font-mono text-violet-200 bg-violet-950/10">
                               {visibleMonthColumns.length === monthColumns.length ? "FY Total" : `Total (${visibleMonthColumns.length}M)`}
                             </th>
-                            <th className="py-3 px-2 text-center bg-[#07090E]"></th>
+                            <th className="py-3 px-2 text-center bg-[#07090E] text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                              Action
+                            </th>
                           </tr>
                         </thead>
 
@@ -1274,6 +1437,20 @@ export const CloudCostCreditTrackerView: React.FC = () => {
                                     )}
                                     <span className="truncate">{item.name}</span>
                                   </div>
+
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingLineItem({ groupId: group.id, item });
+                                      setEditLineItemName(item.name);
+                                      setEditLineItemIsAop(!!item.isAop);
+                                      setEditLineItemIsTotal(!!item.isTotal);
+                                    }}
+                                    className="p-1 text-slate-500 hover:text-cyan-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title="Rename or configure line item"
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                  </button>
                                 </td>
 
                                 {/* Monthly Data Cells */}
@@ -1353,17 +1530,29 @@ export const CloudCostCreditTrackerView: React.FC = () => {
                                   {hasAnyValue ? formatINR(rowSum) : "—"}
                                 </td>
 
-                                {/* Delete Row Action */}
+                                {/* Action Column: Edit & Delete Row */}
                                 <td className="py-3 px-2 text-center whitespace-nowrap">
-                                  {!isTotalRow && (
+                                  <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button
-                                      onClick={() => handleDeleteLineItem(group.id, item.id)}
-                                      className="p-1 text-slate-600 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      onClick={() => {
+                                        setEditingLineItem({ groupId: group.id, item });
+                                        setEditLineItemName(item.name);
+                                        setEditLineItemIsAop(!!item.isAop);
+                                        setEditLineItemIsTotal(!!item.isTotal);
+                                      }}
+                                      className="p-1 text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded transition-colors"
+                                      title="Edit Line Item Name or Row Type"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteLineItem(group.id, item.id, item.name)}
+                                      className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
                                       title="Delete Row"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>
-                                  )}
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -1387,37 +1576,144 @@ export const CloudCostCreditTrackerView: React.FC = () => {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#0B0F19] border border-slate-700/80 rounded-2xl w-full max-w-md shadow-2xl p-6 text-xs text-slate-300 space-y-4"
+              className="bg-[#0B0F19] border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl p-6 text-xs text-slate-300 space-y-4"
             >
               <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-300 flex items-center justify-center font-bold">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center font-bold border border-cyan-500/30">
                     <Plus className="w-4 h-4" />
                   </div>
-                  <h3 className="text-sm font-bold text-white">Add Cost Component</h3>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Add Cost Component / Row</h3>
+                    <p className="text-[11px] text-slate-400">
+                      Configure tracker domain, cost category, and component row details.
+                    </p>
+                  </div>
                 </div>
                 <button
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="text-slate-400 hover:text-white"
+                  onClick={handleCloseAddRowModal}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/5 cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-3.5">
+                {/* 1. Tracker Domain / Type */}
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">
-                    Component / Vendor Name *
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    1. Tracker Domain / Type *
+                  </label>
+                  <select
+                    value={addModalDomain}
+                    onChange={(e) => {
+                      setAddModalDomain(e.target.value);
+                      setTargetGroupId("");
+                      setAddModalCategoryName("");
+                    }}
+                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500 cursor-pointer"
+                  >
+                    {PRESET_TRACKER_TYPES.map((t) => (
+                      <option key={t} value={t} className="bg-slate-900 text-white">
+                        {t}
+                      </option>
+                    ))}
+                    {allTrackerTypes
+                      .filter((t) => !PRESET_TRACKER_TYPES.includes(t))
+                      .map((t) => (
+                        <option key={t} value={t} className="bg-slate-900 text-white">
+                          {t}
+                        </option>
+                      ))}
+                    <option value="Custom..." className="bg-slate-900 text-teal-300 font-semibold">
+                      + Custom Tracker Type...
+                    </option>
+                  </select>
+                </div>
+
+                {addModalDomain === "Custom..." && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-teal-300 mb-1">
+                      Specify Custom Tracker Type *
+                    </label>
+                    <input
+                      type="text"
+                      value={customAddDomain}
+                      onChange={(e) => setCustomAddDomain(e.target.value)}
+                      placeholder="e.g. Edge Infrastructure, Hardware Capex, Software Licensing"
+                      className="w-full bg-[#07090E] border border-teal-500/50 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-teal-400"
+                    />
+                  </div>
+                )}
+
+                {/* 2. Category / Group */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    2. Cost Category *
+                  </label>
+                  {addModalDomainGroups.length > 0 ? (
+                    <div className="space-y-2">
+                      <select
+                        value={targetGroupId}
+                        onChange={(e) => {
+                          setTargetGroupId(e.target.value);
+                          if (e.target.value !== "__NEW__") {
+                            setAddModalCategoryName("");
+                          }
+                        }}
+                        className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500 cursor-pointer"
+                      >
+                        <option value="">-- Choose Existing Category --</option>
+                        {addModalDomainGroups.map((g) => (
+                          <option key={g.id} value={g.id} className="bg-slate-900 text-white">
+                            {g.name} ({g.lineItems.length} rows)
+                          </option>
+                        ))}
+                        <option value="__NEW__" className="bg-slate-900 text-cyan-300 font-semibold">
+                          + Create New Category in this Domain...
+                        </option>
+                      </select>
+
+                      {(targetGroupId === "__NEW__" || !targetGroupId) && (
+                        <div>
+                          <input
+                            type="text"
+                            value={addModalCategoryName}
+                            onChange={(e) => setAddModalCategoryName(e.target.value)}
+                            placeholder="Enter new category name (e.g. CDN, Video Platform, Storage)"
+                            className="w-full bg-[#07090E] border border-cyan-500/40 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-400"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="text"
+                        value={addModalCategoryName}
+                        onChange={(e) => setAddModalCategoryName(e.target.value)}
+                        placeholder="e.g. CDN, Video Platform, Databases, Compute"
+                        className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Component / Row Name */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    3. Component / Vendor Name *
                   </label>
                   <input
                     type="text"
                     value={newLineItemName}
                     onChange={(e) => setNewLineItemName(e.target.value)}
-                    placeholder="e.g. Fastly CDN or Azure Edge"
-                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
+                    placeholder="e.g. AWS CloudFront, MediaCDN, Akamai, Datadog"
+                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500"
                   />
                 </div>
 
+                {/* 4. AOP Budget checkbox */}
                 <div className="flex items-center gap-2 pt-1">
                   <input
                     type="checkbox"
@@ -1427,25 +1723,356 @@ export const CloudCostCreditTrackerView: React.FC = () => {
                     className="rounded bg-slate-900 border-slate-700 text-cyan-600 focus:ring-0"
                   />
                   <label htmlFor="isAopCheck" className="text-xs text-slate-300 cursor-pointer">
-                    Is this an AOP Budget target row?
+                    Is this an AOP Budget target benchmark row?
                   </label>
                 </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
                 <button
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 rounded-xl font-medium"
+                  onClick={handleCloseAddRowModal}
+                  className="px-4 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 rounded-xl font-medium cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleAddLineItem}
-                  disabled={!newLineItemName.trim()}
-                  className="px-5 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 disabled:opacity-50 text-white rounded-xl font-semibold shadow-lg shadow-cyan-900/30"
+                  disabled={
+                    !newLineItemName.trim() ||
+                    (!targetGroupId && !addModalCategoryName.trim()) ||
+                    (targetGroupId === "__NEW__" && !addModalCategoryName.trim()) ||
+                    (addModalDomain === "Custom..." && !customAddDomain.trim())
+                  }
+                  className="px-5 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 disabled:opacity-50 text-white rounded-xl font-semibold shadow-lg shadow-cyan-900/30 cursor-pointer"
                 >
-                  Add Component
+                  Add Row
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* ── CREATE NEW TRACKER CATEGORY MODAL ── */}
+        {isNewCategoryModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#0B0F19] border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl p-6 text-xs text-slate-300 space-y-4"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 text-emerald-400 flex items-center justify-center font-bold border border-emerald-500/30">
+                    <Plus className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Add Tracker Category</h3>
+                    <p className="text-[11px] text-slate-400">
+                      Create cost categories under Cloud Cost or customized credit tracker domains.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsNewCategoryModalOpen(false)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/5"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    Category Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    placeholder="e.g. CDN, Video Platform, Snowflake, Kubernetes, LLM APIs"
+                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    Credit Tracker Type *
+                  </label>
+                  <select
+                    value={newTrackerType}
+                    onChange={(e) => setNewTrackerType(e.target.value)}
+                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500"
+                  >
+                    {PRESET_TRACKER_TYPES.map((t) => (
+                      <option key={t} value={t} className="bg-slate-900 text-white">
+                        {t}
+                      </option>
+                    ))}
+                    <option value="Custom..." className="bg-slate-900 text-teal-300 font-semibold">
+                      + Custom Tracker Type...
+                    </option>
+                  </select>
+                </div>
+
+                {newTrackerType === "Custom..." && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-teal-300 mb-1">
+                      Specify Custom Tracker Type *
+                    </label>
+                    <input
+                      type="text"
+                      value={customTrackerType}
+                      onChange={(e) => setCustomTrackerType(e.target.value)}
+                      placeholder="e.g. Edge Infrastructure, Hardware Capex, or Security Vendor Licenses"
+                      className="w-full bg-[#07090E] border border-teal-500/50 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-teal-400"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    Initial Line Item / Vendor (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={initialLineItemName}
+                    onChange={(e) => setInitialLineItemName(e.target.value)}
+                    placeholder="e.g. Akamai CDN, Cloudflare, OpenAI Platform"
+                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  onClick={() => setIsNewCategoryModalOpen(false)}
+                  className="px-4 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 rounded-xl font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateCategory}
+                  disabled={!newCategoryName.trim() || (newTrackerType === "Custom..." && !customTrackerType.trim())}
+                  className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white rounded-xl font-semibold shadow-lg shadow-teal-900/30"
+                >
+                  Create Category
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* ── EDIT CATEGORY MODAL ── */}
+        {editingCategory && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#0B0F19] border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl p-6 text-xs text-slate-300 space-y-4"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center font-bold border border-cyan-500/30">
+                    <Edit2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Edit Category</h3>
+                    <p className="text-[11px] text-slate-400">
+                      Rename category or reassign it to another credit tracker domain.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setEditingCategory(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/5"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    Category Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={editCategoryName}
+                    onChange={(e) => setEditCategoryName(e.target.value)}
+                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    Credit Tracker Type *
+                  </label>
+                  <select
+                    value={editTrackerType}
+                    onChange={(e) => setEditTrackerType(e.target.value)}
+                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500"
+                  >
+                    {PRESET_TRACKER_TYPES.map((t) => (
+                      <option key={t} value={t} className="bg-slate-900 text-white">
+                        {t}
+                      </option>
+                    ))}
+                    <option value="Custom..." className="bg-slate-900 text-teal-300 font-semibold">
+                      + Custom Tracker Type...
+                    </option>
+                  </select>
+                </div>
+
+                {editTrackerType === "Custom..." && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-teal-300 mb-1">
+                      Specify Custom Tracker Type *
+                    </label>
+                    <input
+                      type="text"
+                      value={customEditTrackerType}
+                      onChange={(e) => setCustomEditTrackerType(e.target.value)}
+                      placeholder="e.g. Edge Infrastructure or Hardware Capex"
+                      className="w-full bg-[#07090E] border border-teal-500/50 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-teal-400"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800">
+                <button
+                  onClick={() => {
+                    handleDeleteCategory(editingCategory.id, editingCategory.name);
+                    setEditingCategory(null);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/25 rounded-xl font-medium transition-all"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Delete Whole Category</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setEditingCategory(null)}
+                    className="px-4 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 rounded-xl font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveCategoryEdit}
+                    disabled={!editCategoryName.trim() || (editTrackerType === "Custom..." && !customEditTrackerType.trim())}
+                    className="px-5 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 disabled:opacity-50 text-white rounded-xl font-semibold shadow-lg shadow-cyan-900/30"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* ── EDIT LINE ITEM MODAL ── */}
+        {editingLineItem && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#0B0F19] border border-slate-700/80 rounded-2xl w-full max-w-md shadow-2xl p-6 text-xs text-slate-300 space-y-4"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center font-bold border border-cyan-500/30">
+                    <Edit2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Edit Line Item</h3>
+                    <p className="text-[11px] text-slate-400">Rename or reconfigure this row</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setEditingLineItem(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/5"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                    Line Item / Component Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={editLineItemName}
+                    onChange={(e) => setEditLineItemName(e.target.value)}
+                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div className="space-y-2 pt-1 border-t border-slate-800/80">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="editIsAop"
+                      checked={editLineItemIsAop}
+                      onChange={(e) => setEditLineItemIsAop(e.target.checked)}
+                      className="rounded bg-slate-900 border-slate-700 text-cyan-600 focus:ring-0"
+                    />
+                    <label htmlFor="editIsAop" className="text-xs text-slate-300 cursor-pointer">
+                      Is this an AOP Target Budget row?
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="editIsTotal"
+                      checked={editLineItemIsTotal}
+                      onChange={(e) => setEditLineItemIsTotal(e.target.checked)}
+                      className="rounded bg-slate-900 border-slate-700 text-violet-600 focus:ring-0"
+                    />
+                    <label htmlFor="editIsTotal" className="text-xs text-slate-300 cursor-pointer">
+                      Is this a Total / Summary row?
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800">
+                <button
+                  onClick={() => {
+                    handleDeleteLineItem(
+                      editingLineItem.groupId,
+                      editingLineItem.item.id,
+                      editingLineItem.item.name
+                    );
+                    setEditingLineItem(null);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/25 rounded-xl font-medium transition-all"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Delete Row</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setEditingLineItem(null)}
+                    className="px-4 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 rounded-xl font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveLineItemEdit}
+                    disabled={!editLineItemName.trim()}
+                    className="px-5 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 disabled:opacity-50 text-white rounded-xl font-semibold shadow-lg shadow-cyan-900/30"
+                  >
+                    Save Changes
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>

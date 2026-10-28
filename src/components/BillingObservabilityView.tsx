@@ -1,5 +1,5 @@
 // richyrik: Enhanced Billing Observability Executive FinOps Command Center
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   DollarSign,
   TrendingUp,
@@ -23,6 +23,10 @@ import {
   Info,
   Receipt,
   Upload,
+  Plus,
+  Trash2,
+  Edit2,
+  X,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -36,8 +40,9 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import { motion, AnimatePresence } from "framer-motion";
-// richyrik: FinOps currency & global date filter context
 import { useFinOpsCurrency } from "./FinOpsCurrencyContext";
+import { FinOpsEmptyStateCard } from "./FinOpsEmptyStateCard";
+import { saveFinOpsDataForFY, hasDataForSection, get12MonthKeysForFY, getFinOpsDataForFY } from "./finopsMultiYearStorage";
 
 export interface MonthlyBillingItem {
   month: string;
@@ -66,155 +71,9 @@ interface BillingObservabilityViewProps {
   aopActual?: number;
 }
 
-// richyrik: Realistic invoice audit dataset matching Airtel FinOps ecosystem
-const SAMPLE_INVOICES: BillingInvoiceRecord[] = [
-  {
-    id: "inv-01",
-    invoiceId: "INV-2026-10-GCP",
-    provider: "Google Cloud",
-    category: "Core Compute & Storage",
-    month: "Oct 2026",
-    amount: 395000,
-    status: "Paid",
-    linkedRef: "NFA-2024-001",
-    anomalyFlag: "Normal",
-  },
-  {
-    id: "inv-02",
-    invoiceId: "INV-2026-10-GCP-DR",
-    provider: "Google Cloud",
-    category: "Core Compute & Storage",
-    month: "Oct 2026",
-    amount: 88000,
-    status: "Outstanding",
-    linkedRef: "NFA-2024-012",
-    anomalyFlag: "Due in 5 Days",
-  },
-  {
-    id: "inv-03",
-    invoiceId: "INV-2026-10-AWS-EC2",
-    provider: "Amazon Web Services",
-    category: "Core Compute & Storage",
-    month: "Oct 2026",
-    amount: 185000,
-    status: "Paid",
-    linkedRef: "GBPA-2024-007",
-    anomalyFlag: "Normal",
-  },
-  {
-    id: "inv-04",
-    invoiceId: "INV-2026-10-AWS-CDN",
-    provider: "Amazon Web Services",
-    category: "CDN",
-    month: "Oct 2026",
-    amount: 47000,
-    status: "Outstanding",
-    linkedRef: "GBPA-2024-009",
-    anomalyFlag: "Under Reconciliation",
-  },
-  {
-    id: "inv-05",
-    invoiceId: "INV-2026-09-AKAM",
-    provider: "Akamai Technologies",
-    category: "CDN",
-    month: "Sep 2026",
-    amount: 250000,
-    status: "Paid",
-    linkedRef: "AOP-CDN-02",
-    anomalyFlag: "Normal",
-  },
-  {
-    id: "inv-06",
-    invoiceId: "INV-2026-09-ATEM",
-    provider: "Ateme Platform",
-    category: "Video Platform",
-    month: "Sep 2026",
-    amount: 580000,
-    status: "Paid",
-    linkedRef: "NFA-2024-015",
-    anomalyFlag: "Normal",
-  },
-  {
-    id: "inv-07",
-    invoiceId: "INV-2026-09-GCP",
-    provider: "Google Cloud",
-    category: "Core Compute & Storage",
-    month: "Sep 2026",
-    amount: 580000,
-    status: "Paid",
-    linkedRef: "NFA-2024-019",
-    anomalyFlag: "Normal",
-  },
-  {
-    id: "inv-08",
-    invoiceId: "INV-2026-09-AWS",
-    provider: "Amazon Web Services",
-    category: "Core Compute & Storage",
-    month: "Sep 2026",
-    amount: 275000,
-    status: "Paid",
-    linkedRef: "GBPA-2024-007",
-    anomalyFlag: "Normal",
-  },
-  {
-    id: "inv-09",
-    invoiceId: "INV-2026-09-GCP-OPEN",
-    provider: "Google Cloud",
-    category: "Cross Charge",
-    month: "Sep 2026",
-    amount: 49000,
-    status: "Under Review",
-    linkedRef: "NFA-2024-012",
-    anomalyFlag: "Surge +18%",
-  },
-  {
-    id: "inv-10",
-    invoiceId: "INV-2026-08-CFLR",
-    provider: "Cloudflare",
-    category: "CDN",
-    month: "Aug 2026",
-    amount: 115000,
-    status: "Paid",
-    linkedRef: "GBPA-2024-009",
-    anomalyFlag: "Normal",
-  },
-  {
-    id: "inv-11",
-    invoiceId: "INV-2026-08-GCP",
-    provider: "Google Cloud",
-    category: "Core Compute & Storage",
-    month: "Aug 2026",
-    amount: 545000,
-    status: "Paid",
-    linkedRef: "NFA-2024-001",
-    anomalyFlag: "Normal",
-  },
-  {
-    id: "inv-12",
-    invoiceId: "INV-2026-08-AWS",
-    provider: "Amazon Web Services",
-    category: "Core Compute & Storage",
-    month: "Aug 2026",
-    amount: 260000,
-    status: "Paid",
-    linkedRef: "GBPA-2024-007",
-    anomalyFlag: "Normal",
-  },
-];
-
-// richyrik: Category Breakdown monthly derived data for Toggle Option B
-const CATEGORY_MONTHLY_DATA = [
-  { month: "Jan", cdn: 280000, video: 140000, crossCharge: 60000, otherCompute: 120000 },
-  { month: "Feb", cdn: 310000, video: 155000, crossCharge: 65000, otherCompute: 120000 },
-  { month: "Mar", cdn: 295000, video: 145000, crossCharge: 68000, otherCompute: 157000 },
-  { month: "Apr", cdn: 340000, video: 175000, crossCharge: 72000, otherCompute: 128000 },
-  { month: "May", cdn: 375000, video: 190000, crossCharge: 78000, otherCompute: 127000 },
-  { month: "Jun", cdn: 360000, video: 185000, crossCharge: 75000, otherCompute: 140000 },
-  { month: "Jul", cdn: 410000, video: 210000, crossCharge: 85000, otherCompute: 135000 },
-  { month: "Aug", cdn: 390000, video: 195000, crossCharge: 82000, otherCompute: 138000 },
-  { month: "Sep", cdn: 420000, video: 215000, crossCharge: 88000, otherCompute: 132000 },
-  { month: "Oct", cdn: 285000, video: 145000, crossCharge: 62000, otherCompute: 88000 },
-];
+// Clean invoices dataset: empty until ingested via Excel or database
+const SAMPLE_INVOICES: BillingInvoiceRecord[] = [];
+const CATEGORY_MONTHLY_DATA: any[] = [];
 
 export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> = ({
   billingData,
@@ -234,24 +93,156 @@ export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> =
     setIsDatasetManagerOpen,
   } = useFinOpsCurrency();
 
-  // richyrik: State for chart toggle and invoice table filters
+  const activeFY = dateFilter?.fiscalYear || "FY 2026-27";
+
+  const [isAddBillingModalOpen, setIsAddBillingModalOpen] = useState(false);
+  const [entryMonth, setEntryMonth] = useState("");
+  const [entryGcpPaid, setEntryGcpPaid] = useState<string>("0");
+  const [entryGcpOpen, setEntryGcpOpen] = useState<string>("0");
+  const [entryAwsPaid, setEntryAwsPaid] = useState<string>("0");
+  const [entryAwsOpen, setEntryAwsOpen] = useState<string>("0");
+
+  const [localBillingData, setLocalBillingData] = useState<MonthlyBillingItem[]>(() => {
+    if (billingData && billingData.length > 0) return billingData;
+    const fyData = getFinOpsDataForFY(activeFY);
+    if (fyData?.billingData && Array.isArray(fyData.billingData) && fyData.billingData.length > 0) {
+      return fyData.billingData;
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    if (billingData && billingData.length > 0) {
+      setLocalBillingData(billingData);
+    } else {
+      const fyData = getFinOpsDataForFY(activeFY);
+      setLocalBillingData(fyData?.billingData || []);
+    }
+  }, [billingData, activeFY]);
+
+  const fyMonths = useMemo(() => get12MonthKeysForFY(activeFY), [activeFY]);
+
+  useEffect(() => {
+    if (fyMonths.length > 0 && !entryMonth) {
+      setEntryMonth(fyMonths[0].key);
+    }
+  }, [fyMonths, entryMonth]);
+
+  const handleCreateNewBillingEntry = () => {
+    const firstMonth = fyMonths[0]?.key || "Apr";
+    setEntryMonth(firstMonth);
+    setEntryGcpPaid("0");
+    setEntryGcpOpen("0");
+    setEntryAwsPaid("0");
+    setEntryAwsOpen("0");
+    setIsAddBillingModalOpen(true);
+  };
+
+  const handleEditBillingMonth = (item: MonthlyBillingItem) => {
+    setEntryMonth(item.month);
+    setEntryGcpPaid(String(item.gcpPaid));
+    setEntryGcpOpen(String(item.gcpOpen));
+    setEntryAwsPaid(String(item.awsPaid));
+    setEntryAwsOpen(String(item.awsOpen));
+    setIsAddBillingModalOpen(true);
+  };
+
+  const handleDeleteBillingMonth = (monthKey: string) => {
+    if (!window.confirm(`Are you sure you want to delete the billing entry for ${monthKey}?`)) return;
+    const updatedList = localBillingData.filter(
+      (b) => b.month.toLowerCase() !== monthKey.toLowerCase()
+    );
+    setLocalBillingData(updatedList);
+    saveFinOpsDataForFY(activeFY, { billingData: updatedList });
+
+    const rawRows = [
+      ["Month", "GCP Paid", "GCP Open", "AWS Paid", "AWS Open"],
+      ...updatedList.map((b) => [b.month, b.gcpPaid, b.gcpOpen, b.awsPaid, b.awsOpen]),
+    ];
+    window.dispatchEvent(new CustomEvent("finops:ingest-billing", { detail: { rawRows } }));
+    window.dispatchEvent(new CustomEvent("finops:billing-updated"));
+  };
+
+  const handleSaveBillingEntry = () => {
+    const targetMonth = entryMonth.trim() || (fyMonths[0]?.key ?? "Apr");
+    const gcpPaidNum = parseFloat(entryGcpPaid) || 0;
+    const gcpOpenNum = parseFloat(entryGcpOpen) || 0;
+    const awsPaidNum = parseFloat(entryAwsPaid) || 0;
+    const awsOpenNum = parseFloat(entryAwsOpen) || 0;
+
+    let updatedList = [...localBillingData];
+    const existingIdx = updatedList.findIndex(
+      (b) => b.month.toLowerCase() === targetMonth.toLowerCase()
+    );
+
+    const newRecord: MonthlyBillingItem = {
+      month: targetMonth,
+      gcpPaid: gcpPaidNum,
+      gcpOpen: gcpOpenNum,
+      awsPaid: awsPaidNum,
+      awsOpen: awsOpenNum,
+    };
+
+    if (existingIdx >= 0) {
+      updatedList[existingIdx] = newRecord;
+    } else {
+      updatedList.push(newRecord);
+    }
+
+    setLocalBillingData(updatedList);
+    saveFinOpsDataForFY(activeFY, { billingData: updatedList });
+
+    const rawRows = [
+      ["Month", "GCP Paid", "GCP Open", "AWS Paid", "AWS Open"],
+      ...updatedList.map((b) => [b.month, b.gcpPaid, b.gcpOpen, b.awsPaid, b.awsOpen]),
+    ];
+    window.dispatchEvent(new CustomEvent("finops:ingest-billing", { detail: { rawRows } }));
+    window.dispatchEvent(new CustomEvent("finops:billing-updated"));
+    setIsAddBillingModalOpen(false);
+  };
+
+  const handleInitializeFullFY = () => {
+    const initialized: MonthlyBillingItem[] = fyMonths.map((m) => ({
+      month: m.key,
+      gcpPaid: 0,
+      gcpOpen: 0,
+      awsPaid: 0,
+      awsOpen: 0,
+    }));
+
+    setLocalBillingData(initialized);
+    saveFinOpsDataForFY(activeFY, { billingData: initialized });
+    const rawRows = [
+      ["Month", "GCP Paid", "GCP Open", "AWS Paid", "AWS Open"],
+      ...initialized.map((b) => [b.month, b.gcpPaid, b.gcpOpen, b.awsPaid, b.awsOpen]),
+    ];
+    window.dispatchEvent(new CustomEvent("finops:ingest-billing", { detail: { rawRows } }));
+    window.dispatchEvent(new CustomEvent("finops:billing-updated"));
+    setIsAddBillingModalOpen(false);
+  };
+
   const [chartMode, setChartMode] = useState<"provider" | "category">("provider");
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("All");
   const [invoiceProviderFilter, setInvoiceProviderFilter] = useState("All");
 
-  // richyrik: Filtered monthly billing data respecting global date filter
+  // Filtered monthly billing data respecting global date filter
   const filteredBillingData = useMemo(() => {
-    const list = billingData.filter((d) => isMonthSelected(d.month));
-    return list.length > 0 ? list : billingData;
-  }, [billingData, dateFilter.selectedMonths]);
+    const list = localBillingData.filter((d) => isMonthSelected(d.month));
+    return list.length > 0 ? list : localBillingData;
+  }, [localBillingData, dateFilter.selectedMonths]);
 
   const filteredCategoryData = useMemo(() => {
-    const list = CATEGORY_MONTHLY_DATA.filter((d) => isMonthSelected(d.month));
-    return list.length > 0 ? list : CATEGORY_MONTHLY_DATA;
-  }, [dateFilter.selectedMonths]);
+    return filteredBillingData.map((d) => ({
+      month: d.month,
+      cdn: (d.gcpPaid + d.awsPaid) * 0.45,
+      video: (d.gcpPaid + d.awsPaid) * 0.25,
+      crossCharge: (d.gcpOpen + d.awsOpen) * 0.15,
+      otherCompute: (d.gcpPaid + d.awsPaid) * 0.15,
+    }));
+  }, [filteredBillingData]);
 
-  // richyrik: Aggregated metrics accurately matching active filtered months (Consistency Guard)
+  // Aggregated metrics accurately matching active filtered months
   const totalGcpPaid = useMemo(() => filteredBillingData.reduce((s, d) => s + d.gcpPaid, 0), [filteredBillingData]);
   const totalGcpOpen = useMemo(() => filteredBillingData.reduce((s, d) => s + d.gcpOpen, 0), [filteredBillingData]);
   const totalAwsPaid = useMemo(() => filteredBillingData.reduce((s, d) => s + d.awsPaid, 0), [filteredBillingData]);
@@ -264,9 +255,14 @@ export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> =
   const aopPercentage = Math.round((aopActual / aopPlanned) * 100);
   const remainingHeadroom = aopPlanned - aopActual;
 
-  // richyrik: Filtered invoice list aligned with date filters
+  const rawInvoices: BillingInvoiceRecord[] = useMemo(() => {
+    const fyData = getFinOpsDataForFY(activeFY);
+    return (fyData?.billingInvoices || []) as BillingInvoiceRecord[];
+  }, [activeFY]);
+
+  // Filtered invoice list aligned with date filters
   const filteredInvoices = useMemo(() => {
-    return SAMPLE_INVOICES.filter((inv) => {
+    return rawInvoices.filter((inv) => {
       // Month filter alignment
       const invMonthPrefix = inv.month.split(" ")[0];
       if (!isMonthSelected(invMonthPrefix)) return false;
@@ -346,50 +342,43 @@ export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> =
           </p>
         </div>
 
-        <button
-          onClick={handleExportInvoices}
-          className="flex items-center gap-2 px-3.5 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white text-xs font-semibold rounded-xl border border-white/[0.08] transition-all self-start sm:self-auto"
-        >
-          <Download className="w-3.5 h-3.5 text-slate-400" />
-          Export Invoices
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => {
+              setEntryGcpPaid("0");
+              setEntryGcpOpen("0");
+              setEntryAwsPaid("0");
+              setEntryAwsOpen("0");
+              setIsAddBillingModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg transition-all cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add Month Entry
+          </button>
+          <button
+            onClick={handleExportInvoices}
+            className="flex items-center gap-2 px-3.5 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white text-xs font-semibold rounded-xl border border-white/[0.08] transition-all self-start sm:self-auto cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-400" />
+            Export Invoices
+          </button>
+        </div>
       </div>
 
-      {/* richyrik: Clean Empty State Dropzone when no billing datasets have been uploaded */}
-      {billingData.length === 0 && (
-        <div className="border-2 border-dashed border-emerald-500/30 rounded-2xl p-10 text-center bg-emerald-500/[0.02]">
-          <div className="w-16 h-16 mx-auto rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-4 shadow-lg shadow-emerald-950/20">
-            <Receipt size={32} />
-          </div>
-          <h3 className="text-lg font-bold text-white mb-1">
-            Ready for your Billing Observability Excel upload
-          </h3>
-          <p className="text-slate-400 text-xs max-w-lg mx-auto mb-6">
-            Upload your multi-cloud billing spreadsheet to visualize monthly GCP/AWS spend, reconcile outstanding invoices, and detect anomalies. All data is automatically stored in Airtel Cloud Ops Security MongoDB (<code className="text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded">xtelify_db.finops_datasets</code>).
-          </p>
-          <div className="flex items-center justify-center flex-wrap gap-3">
-            <label className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 text-xs font-bold rounded-xl shadow-lg hover:from-emerald-400 hover:to-teal-400 cursor-pointer">
-              <span>Select Excel File</span>
-              <input
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) parseWorkbookFile(file);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-            <button
-              onClick={() => setIsDatasetManagerOpen(true)}
-              className="px-5 py-2.5 bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 text-xs font-semibold rounded-xl border border-white/[0.08] cursor-pointer"
-            >
-              View Datasets ({datasets.length})
-            </button>
-          </div>
+      {/* Empty State when no billing datasets recorded for this FY */}
+      {localBillingData.length === 0 ? (
+        <div className="relative">
+          <FinOpsEmptyStateCard
+            sectionName="Billing Observability"
+            fiscalYear={activeFY}
+            onCreateNew={handleCreateNewBillingEntry}
+            onUploadExcel={parseWorkbookFile}
+            onClonePrevious={handleInitializeFullFY}
+          />
         </div>
-      )}
+      ) : (
+        <>
 
       {/* ── 1. EXECUTIVE SUMMARY & AOP PACING HEADER (// richyrik) ── */}
       <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl p-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] relative overflow-hidden">
@@ -516,40 +505,48 @@ export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> =
           </div>
         </div>
 
-        {/* Card 3: CDN vs Video Share */}
+        {/* Card 3: Cloud Spend Rate */}
         <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl p-4 shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] hover:border-cyan-500/30 transition-all group">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              CDN vs Video Share
+              Cloud Spend Rate
             </span>
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-              68% CDN • 32% Video
+              Monthly Velocity
             </span>
           </div>
           <div className="text-2xl font-black text-cyan-300 font-mono">
-            ₹7.13M <span className="text-xs text-slate-400 font-sans font-normal">Media Run-rate</span>
+            {fmt(filteredBillingData.length > 0 ? totalCloudPaid / filteredBillingData.length : 0)}{" "}
+            <span className="text-xs text-slate-400 font-sans font-normal">Monthly Spend Rate</span>
           </div>
           <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden flex mt-2">
-            <div className="bg-cyan-400 h-full w-[68%]" />
-            <div className="bg-violet-400 h-full w-[32%]" />
+            <div
+              className="bg-cyan-400 h-full"
+              style={{ width: `${totalCloudPaid > 0 ? Math.round((totalGcpPaid / totalCloudPaid) * 100) : 50}%` }}
+            />
+            <div
+              className="bg-amber-400 h-full"
+              style={{ width: `${totalCloudPaid > 0 ? Math.round((totalAwsPaid / totalCloudPaid) * 100) : 50}%` }}
+            />
           </div>
         </div>
 
-        {/* Card 4: Approved NFA Coverage */}
+        {/* Card 4: Invoices Recorded */}
         <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl p-4 shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] hover:border-purple-500/30 transition-all group">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Approved NFA Coverage
+              Invoices Recorded
             </span>
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30">
-              88% Backed
+              {filteredInvoices.length} Invoices
             </span>
           </div>
           <div className="text-2xl font-black text-purple-300 font-mono">
-            ₹12.02M <span className="text-xs text-slate-400 font-sans font-normal">Formal Sign-off</span>
+            {fmt(filteredInvoices.reduce((acc, inv) => acc + inv.amount, 0))}{" "}
+            <span className="text-xs text-slate-400 font-sans font-normal">Total Invoiced</span>
           </div>
           <div className="text-xs text-slate-400 mt-2">
-            12 of 14 commitments aligned with active NFAs
+            {filteredInvoices.filter((i) => i.status === "Paid").length} Paid • {filteredInvoices.filter((i) => i.status !== "Paid").length} Pending
           </div>
         </div>
 
@@ -560,7 +557,7 @@ export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> =
               GCP Net Paid & Outstanding
             </span>
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30">
-              90.1% Settled
+              {totalGcpPaid + totalGcpOpen > 0 ? `${((totalGcpPaid / (totalGcpPaid + totalGcpOpen)) * 100).toFixed(1)}% Settled` : "0.0% Settled"}
             </span>
           </div>
           <div className="flex items-baseline gap-2 font-mono">
@@ -568,7 +565,10 @@ export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> =
             <span className="text-xs text-amber-400 font-medium">({fmt(totalGcpOpen)} Open)</span>
           </div>
           <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-2">
-            <div className="bg-blue-500 h-full w-[90.1%]" />
+            <div
+              className="bg-blue-500 h-full"
+              style={{ width: `${totalGcpPaid + totalGcpOpen > 0 ? (totalGcpPaid / (totalGcpPaid + totalGcpOpen)) * 100 : 0}%` }}
+            />
           </div>
         </div>
 
@@ -579,7 +579,7 @@ export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> =
               AWS Net Paid & Outstanding
             </span>
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-300 border border-orange-500/30">
-              89.2% Settled
+              {totalAwsPaid + totalAwsOpen > 0 ? `${((totalAwsPaid / (totalAwsPaid + totalAwsOpen)) * 100).toFixed(1)}% Settled` : "0.0% Settled"}
             </span>
           </div>
           <div className="flex items-baseline gap-2 font-mono">
@@ -587,7 +587,10 @@ export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> =
             <span className="text-xs text-rose-400 font-medium">({fmt(totalAwsOpen)} Open)</span>
           </div>
           <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-2">
-            <div className="bg-orange-500 h-full w-[89.2%]" />
+            <div
+              className="bg-orange-500 h-full"
+              style={{ width: `${totalAwsPaid + totalAwsOpen > 0 ? (totalAwsPaid / (totalAwsPaid + totalAwsOpen)) * 100 : 0}%` }}
+            />
           </div>
         </div>
       </div>
@@ -644,7 +647,7 @@ export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> =
               <YAxis tickFormatter={(v) => formatCurrency(v, true)} stroke="#64748b" fontSize={11} />
               <RechartsTooltip
                 contentStyle={{ backgroundColor: "#0B0F19", border: "1px solid #1e293b", borderRadius: 10 }}
-                formatter={(v: any, n: string) => [formatCurrency(v, false), n]}
+                formatter={(v: any, n: any) => [formatCurrency(v, false), String(n ?? "")]}
               />
               <Legend wrapperStyle={{ paddingTop: 10 }} />
               {/* Airtel Palette: Paid in vibrant Brand Colors, Outstanding in Alert Red/Amber */}
@@ -661,7 +664,7 @@ export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> =
               <YAxis tickFormatter={(v) => formatCurrency(v, true)} stroke="#64748b" fontSize={11} />
               <RechartsTooltip
                 contentStyle={{ backgroundColor: "#0B0F19", border: "1px solid #1e293b", borderRadius: 10 }}
-                formatter={(v: any, n: string) => [formatCurrency(v, false), n]}
+                formatter={(v: any, n: any) => [formatCurrency(v, false), String(n ?? "")]}
               />
               <Legend wrapperStyle={{ paddingTop: 10 }} />
               <Bar isAnimationActive={true} animationDuration={1000} dataKey="cdn" name="CDN (Media / CloudFront)" stackId="cat" fill="#06B6D4" radius={[0, 0, 0, 0]} />
@@ -671,6 +674,125 @@ export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> =
             </BarChart>
           )}
         </ResponsiveContainer>
+      </div>
+
+      {/* ── 3.5. MONTH-BY-MONTH MULTI-CLOUD SPEND RECORDS ── */}
+      <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] rounded-2xl p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-emerald-400" />
+              <span>Month-by-Month Multi-Cloud Records</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                {localBillingData.length} Months
+              </span>
+            </h3>
+            <p className="text-slate-400 text-xs mt-0.5">
+              Configured monthly settlement entries for {activeFY} across Google Cloud and AWS.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setEntryGcpPaid("0");
+                setEntryGcpOpen("0");
+                setEntryAwsPaid("0");
+                setEntryAwsOpen("0");
+                setIsAddBillingModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Month Entry</span>
+            </button>
+            <button
+              onClick={handleInitializeFullFY}
+              className="px-3 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.08] text-xs font-semibold rounded-xl transition-all cursor-pointer"
+            >
+              Generate 12M Structure
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-slate-800 bg-[#07090E]/90 text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">
+                <th className="py-3 px-4">Billing Month</th>
+                <th className="py-3 px-4 text-right text-blue-300">GCP Paid</th>
+                <th className="py-3 px-4 text-right text-rose-300">GCP Outstanding</th>
+                <th className="py-3 px-4 text-right text-amber-300">AWS Paid</th>
+                <th className="py-3 px-4 text-right text-amber-400">AWS Outstanding</th>
+                <th className="py-3 px-4 text-right text-white">Net Cloud Spend</th>
+                <th className="py-3 px-3 text-center w-24">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 font-mono">
+              {localBillingData.map((b) => {
+                const totalMonthSpend = b.gcpPaid + b.awsPaid;
+                const totalMonthOpen = b.gcpOpen + b.awsOpen;
+
+                return (
+                  <tr key={b.month} className="hover:bg-white/[0.02] transition-colors group">
+                    <td className="py-3 px-4 whitespace-nowrap font-sans font-semibold text-white">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{b.month}</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 text-right text-blue-400 whitespace-nowrap">
+                      {formatCurrency(b.gcpPaid, false)}
+                    </td>
+                    <td className="py-3 px-4 text-right whitespace-nowrap text-slate-400">
+                      {b.gcpOpen > 0 ? (
+                        <span className="text-rose-400 font-bold">{formatCurrency(b.gcpOpen, false)}</span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-right text-amber-400 whitespace-nowrap">
+                      {formatCurrency(b.awsPaid, false)}
+                    </td>
+                    <td className="py-3 px-4 text-right whitespace-nowrap text-slate-400">
+                      {b.awsOpen > 0 ? (
+                        <span className="text-amber-300 font-bold">{formatCurrency(b.awsOpen, false)}</span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-right font-bold text-white whitespace-nowrap font-mono">
+                      {formatCurrency(totalMonthSpend, false)}
+                      {totalMonthOpen > 0 && (
+                        <span className="block text-[10px] text-amber-400 font-sans font-normal">
+                          + {formatCurrency(totalMonthOpen, false)} open
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-3 text-center whitespace-nowrap font-sans">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => handleEditBillingMonth(b)}
+                          className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white transition-all cursor-pointer"
+                          title="Edit Month Entry"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteBillingMonth(b.month)}
+                          className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-all cursor-pointer"
+                          title="Delete Month Entry"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* ── 4. BILLING ANOMALY & RECENT INVOICE AUDIT TABLE (// richyrik) ── */}
@@ -799,6 +921,145 @@ export const BillingObservabilityView: React.FC<BillingObservabilityViewProps> =
           </table>
         </div>
       </div>
+        </>
+      )}
+
+      {/* Add / Edit Billing Month Entry Modal */}
+      <AnimatePresence>
+        {isAddBillingModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#0B0F19] border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl p-6 text-xs text-slate-300 space-y-4"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-300 flex items-center justify-center font-bold">
+                    <Receipt className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Add / Update Billing Month Entry</h3>
+                    <p className="text-[11px] text-slate-400">Targeting {activeFY} multi-cloud spend</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsAddBillingModalOpen(false)}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                    Select Billing Month ({activeFY}) *
+                  </label>
+                  <select
+                    value={entryMonth}
+                    onChange={(e) => setEntryMonth(e.target.value)}
+                    className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-emerald-500"
+                  >
+                    {fyMonths.map((m) => (
+                      <option key={m.key} value={m.key}>
+                        {m.key} ({m.quarter})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                      GCP Paid Amount
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={entryGcpPaid}
+                      onChange={(e) => setEntryGcpPaid(e.target.value)}
+                      placeholder="e.g. 1500000"
+                      className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                      GCP Open / Outstanding
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={entryGcpOpen}
+                      onChange={(e) => setEntryGcpOpen(e.target.value)}
+                      placeholder="e.g. 0"
+                      className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                      AWS Paid Amount
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={entryAwsPaid}
+                      onChange={(e) => setEntryAwsPaid(e.target.value)}
+                      placeholder="e.g. 1200000"
+                      className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                      AWS Open / Outstanding
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={entryAwsOpen}
+                      onChange={(e) => setEntryAwsOpen(e.target.value)}
+                      placeholder="e.g. 0"
+                      className="w-full bg-[#07090E] border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] flex items-center justify-between">
+                  <span className="text-[11px] text-slate-400">Need full year structure right away?</span>
+                  <button
+                    type="button"
+                    onClick={handleInitializeFullFY}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold transition-all cursor-pointer"
+                  >
+                    Generate All 12 Months (Apr–Mar)
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsAddBillingModalOpen(false)}
+                  className="px-4 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 rounded-xl font-medium cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveBillingEntry}
+                  className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold rounded-xl shadow-lg shadow-emerald-950/40 cursor-pointer"
+                >
+                  Save Month Entry
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

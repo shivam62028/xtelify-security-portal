@@ -31,6 +31,7 @@ import { MultiSheetIngestionModal } from "./components/MultiSheetIngestionModal"
 import { CurrencyMismatchDialog } from "./components/CurrencyMismatchDialog";
 import { ExchangeRateModal } from "./components/ExchangeRateModal";
 import { FinOpsDatasetManagerModal } from "./components/FinOpsDatasetManagerModal";
+import { getFinOpsDataForFY, hasDataForSection, saveFinOpsDataForFY } from "./components/finopsMultiYearStorage";
 import {
   Shield,
   AlertTriangle,
@@ -68,6 +69,8 @@ import {
   AlertCircle,
   Zap,
   Tv,
+  Radio,
+  Home,
   Calendar,
   ChevronLeft,
   ChevronRight,
@@ -80,7 +83,6 @@ import {
   Share2,
   CheckCircle,
   // richyrik: Icons for LandingPage + FinOps dashboard navigation
-  Home,
   DollarSign,
   BarChart3,
   ArrowLeft,
@@ -190,6 +192,7 @@ interface CardProps {
   val: number | string;
   Icon: React.ElementType;
   bg: string;
+  color?: string;
 }
 
 interface SecurityAgentProps {
@@ -778,7 +781,7 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
               <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tickFormatter={(v) => `${v}%`} stroke="#7c3aed" fontSize={11} />
               <RechartsTooltip
                 contentStyle={{ backgroundColor: 'rgba(10,14,25,0.92)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px' }}
-                formatter={(value: any, name: string) => name === 'ClosurePct' ? [`${value}%`, 'Closure %'] : [value, name]}
+                formatter={(value: any, name: any) => name === 'ClosurePct' ? [`${value}%`, 'Closure %'] : [value, name]}
               />
               <Legend />
               <Area yAxisId="left" type="monotone" dataKey="Unresolved" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.6} />
@@ -946,7 +949,7 @@ const LandingPage: React.FC<{ onNavigate: (m: 'cloudops' | 'finops') => void }> 
   // richyrik: Stagger variant
   const itemVariant = {
     hidden: { opacity: 0, y: 15 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } }
+    visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" as const } }
   };
 
   const viewVariants = {
@@ -1386,10 +1389,41 @@ const FinOpsDashboardContent: React.FC<{ onNavigateHome: () => void }> = ({ onNa
     setIsDatasetManagerOpen,
     mongoStatus,
     parseWorkbookFile,
+    dateFilter,
   } = useFinOpsCurrency();
+  const activeFY = dateFilter?.fiscalYear || 'FY 2026-27';
+
+  const [fyDataTick, setFyDataTick] = useState(0);
+  useEffect(() => {
+    const handleFyUpdate = () => setFyDataTick((t) => t + 1);
+    window.addEventListener("finops:fy-data-updated", handleFyUpdate);
+    window.addEventListener("finops:fiscal-years-updated", handleFyUpdate);
+    return () => {
+      window.removeEventListener("finops:fy-data-updated", handleFyUpdate);
+      window.removeEventListener("finops:fiscal-years-updated", handleFyUpdate);
+    };
+  }, []);
+
+  const currentFYData = useMemo(() => getFinOpsDataForFY(activeFY), [activeFY, fyDataTick]);
+  const hasAopData = hasDataForSection(activeFY, 'aop');
+  const hasCreditsData = hasDataForSection(activeFY, 'credits');
+  const hasBillingData = hasDataForSection(activeFY, 'billing');
+
+  const { liveAopPlanned, liveAopActual } = useMemo(() => {
+    if (!hasAopData || !currentFYData?.aopCategories || currentFYData.aopCategories.length === 0) {
+      return { liveAopPlanned: 0, liveAopActual: 0 };
+    }
+    const plannedCr = currentFYData.aopCategories.reduce((s, c) => s + (c.allocatedBudgetCr || 0), 0);
+    const actualCr = currentFYData.aopCategories.reduce((s, c) => s + (c.totalSpentCr || 0), 0);
+    return {
+      liveAopPlanned: plannedCr * 10000000,
+      liveAopActual: actualCr * 10000000,
+    };
+  }, [currentFYData, hasAopData]);
+
   const [activeSection, setActiveSection] = useState<'billing' | 'credits' | 'approvals' | 'aop'>('billing');
-  // richyrik: AOP Subtype selection state (IPTV vs XSTREAM / XSTRM)
-  const [activeAopSubtype, setActiveAopSubtype] = useState<'IPTV' | 'XSTREAM'>('IPTV');
+  // richyrik: AOP LOB selection state (All LOBs, IPTV, Xstream, DTH, HT)
+  const [activeAopSubtype, setActiveAopSubtype] = useState<'ALL' | 'IPTV' | 'XSTREAM' | 'DTH' | 'HT'>('ALL');
   const [darkMode] = useState(true);
   
   // richyrik: Mount state for animations
@@ -1436,10 +1470,24 @@ const FinOpsDashboardContent: React.FC<{ onNavigateHome: () => void }> = ({ onNa
           gcpOpen: Number(r[2]) || 0,
           awsPaid: Number(r[3]) || 0,
           awsOpen: Number(r[4]) || 0,
-        })).filter((b: any) => b.gcpPaid > 0 || b.awsPaid > 0 || b.gcpOpen > 0 || b.awsOpen > 0);
-        if (newBilling.length > 0) setBillingData(newBilling);
+        })).filter((b: any) => Boolean(b.month && b.month.trim()));
+        if (newBilling.length > 0) {
+          setBillingData(newBilling);
+          saveFinOpsDataForFY(activeFY, { billingData: newBilling });
+        }
       }
     };
+
+    const handleBillingUpdated = () => {
+      const fyData = getFinOpsDataForFY(activeFY);
+      if (fyData?.billingData && Array.isArray(fyData.billingData)) {
+        setBillingData(fyData.billingData);
+      } else {
+        setBillingData([]);
+      }
+    };
+
+    handleBillingUpdated();
 
     const handleIngestAop = (e: any) => {
       if (e.detail?.items && Array.isArray(e.detail.items)) {
@@ -1460,13 +1508,15 @@ const FinOpsDashboardContent: React.FC<{ onNavigateHome: () => void }> = ({ onNa
 
     window.addEventListener('finops:dataset-deleted', handleDatasetDeleted);
     window.addEventListener('finops:ingest-billing', handleIngestBilling);
+    window.addEventListener('finops:billing-updated', handleBillingUpdated);
     window.addEventListener('finops:ingest-aop', handleIngestAop);
     return () => {
       window.removeEventListener('finops:dataset-deleted', handleDatasetDeleted);
       window.removeEventListener('finops:ingest-billing', handleIngestBilling);
+      window.removeEventListener('finops:billing-updated', handleBillingUpdated);
       window.removeEventListener('finops:ingest-aop', handleIngestAop);
     };
-  }, []);
+  }, [activeFY]);
 
   const [isManageDataOpen, setIsManageDataOpen] = useState(false);
 
@@ -1590,57 +1640,61 @@ const FinOpsDashboardContent: React.FC<{ onNavigateHome: () => void }> = ({ onNa
               >
                 {n.icon} {n.label}
               </button>
-              {/* richyrik: When user clicks AOP Dashboard, show two options: IPTV and XSTRM */}
+              {/* richyrik: When user clicks AOP Dashboard, show all LOB options: All LOBs, IPTV, Xstream, DTH, HT */}
               {n.id === 'aop' && activeSection === 'aop' && (
                 <div className="ml-4 pl-2.5 border-l-2 border-emerald-500/30 my-1 flex flex-col gap-1 py-0.5">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveAopSubtype('IPTV');
-                    }}
-                    className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all text-left cursor-pointer ${
-                      activeAopSubtype === 'IPTV'
-                        ? 'bg-emerald-500/25 text-emerald-300 ring-1 ring-emerald-500/40 shadow-sm'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                    }`}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <Tv size={13} className={activeAopSubtype === 'IPTV' ? 'text-emerald-400' : 'text-slate-400'} />
-                      <span>IPTV</span>
-                    </span>
-                    {activeAopSubtype === 'IPTV' && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    )}
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveAopSubtype('XSTREAM');
-                    }}
-                    className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all text-left cursor-pointer ${
-                      activeAopSubtype === 'XSTREAM'
-                        ? 'bg-cyan-500/25 text-cyan-300 ring-1 ring-cyan-500/40 shadow-sm'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                    }`}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <Zap size={13} className={activeAopSubtype === 'XSTREAM' ? 'text-cyan-400' : 'text-slate-400'} />
-                      <span>XSTRM</span>
-                    </span>
-                    {activeAopSubtype === 'XSTREAM' && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                    )}
-                  </button>
+                  {[
+                    { id: 'ALL', label: 'All LOBs', icon: <Layers size={13} className={activeAopSubtype === 'ALL' ? 'text-emerald-400' : 'text-slate-400'} /> },
+                    { id: 'IPTV', label: 'IPTV', icon: <Tv size={13} className={activeAopSubtype === 'IPTV' ? 'text-emerald-400' : 'text-slate-400'} /> },
+                    { id: 'XSTREAM', label: 'Xstream', icon: <Zap size={13} className={activeAopSubtype === 'XSTREAM' ? 'text-cyan-400' : 'text-slate-400'} /> },
+                    { id: 'DTH', label: 'DTH', icon: <Radio size={13} className={activeAopSubtype === 'DTH' ? 'text-amber-400' : 'text-slate-400'} /> },
+                    { id: 'HT', label: 'HT', icon: <Home size={13} className={activeAopSubtype === 'HT' ? 'text-purple-400' : 'text-slate-400'} /> },
+                  ].map((lobItem) => (
+                    <button
+                      key={lobItem.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveAopSubtype(lobItem.id as any);
+                      }}
+                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all text-left cursor-pointer ${
+                        activeAopSubtype === lobItem.id
+                          ? 'bg-emerald-500/25 text-emerald-300 ring-1 ring-emerald-500/40 shadow-sm'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        {lobItem.icon}
+                        <span>{lobItem.label}</span>
+                      </span>
+                      {activeAopSubtype === lobItem.id && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      )}
+                    </button>
+                  ))}
                 </div>
               )}
             </React.Fragment>
           ))}
-          {/* richyrik: KPI summary sidebar cards formatted with dynamic currency */}
           <div className="mt-6 space-y-3">
             {[
-              { label: 'YTD Cloud Spend', value: aopActual > 0 ? fmt(aopActual) : '—', sub: aopPlanned > 0 ? `vs ${fmt(aopPlanned)} planned` : 'Ready for upload', color: aopActual > aopPlanned && aopPlanned > 0 ? 'text-red-400' : 'text-emerald-400' },
-              { label: 'Total Credits Left', value: creditPools.length > 0 ? fmt(creditPools.reduce((s, c) => s + (c.allocated - c.consumed), 0)) : '—', sub: creditPools.length > 0 ? 'across all pools' : 'Ready for upload', color: 'text-blue-400' },
-              { label: 'Open Invoices', value: billingData.length > 0 ? formatCurrency(billingData.reduce((s, d) => s + d.gcpOpen + d.awsOpen, 0), true) : '—', sub: billingData.length > 0 ? 'outstanding this year' : 'Ready for upload', color: 'text-amber-400' },
+              {
+                label: 'YTD Cloud Spend',
+                value: !hasAopData ? '₹0.00 Cr' : (liveAopActual > 0 ? fmt(liveAopActual) : '₹0.00 Cr'),
+                sub: !hasAopData ? `No ${activeFY} data` : (liveAopPlanned > 0 ? `vs ${fmt(liveAopPlanned)} planned` : 'Ready for upload'),
+                color: !hasAopData ? 'text-slate-500' : (liveAopActual > liveAopPlanned && liveAopPlanned > 0 ? 'text-red-400' : 'text-emerald-400'),
+              },
+              {
+                label: 'Total Credits Left',
+                value: !hasCreditsData ? '₹0.00 Cr' : (creditPools.length > 0 ? fmt(creditPools.reduce((s, c) => s + (c.allocated - c.consumed), 0)) : '₹0.00 Cr'),
+                sub: !hasCreditsData ? `No ${activeFY} data` : (creditPools.length > 0 ? 'across all pools' : 'Ready for upload'),
+                color: !hasCreditsData ? 'text-slate-500' : 'text-blue-400',
+              },
+              {
+                label: 'Open Invoices',
+                value: !hasBillingData ? '₹0.00 Cr' : (billingData.length > 0 ? formatCurrency(billingData.reduce((s, d) => s + d.gcpOpen + d.awsOpen, 0), true) : '₹0.00 Cr'),
+                sub: !hasBillingData ? `No ${activeFY} data` : (billingData.length > 0 ? 'outstanding this year' : 'Ready for upload'),
+                color: !hasBillingData ? 'text-slate-500' : 'text-amber-400',
+              },
             ].map((kpi) => (
               <div key={kpi.label} className="bg-white/[0.05] backdrop-blur-md rounded-lg p-3 border border-white/[0.08]">
                 <div className={`text-base font-bold ${kpi.color}`}>{kpi.value}</div>
@@ -1678,7 +1732,7 @@ const FinOpsDashboardContent: React.FC<{ onNavigateHome: () => void }> = ({ onNa
           {activeSection === 'aop' && (
             <AOPDashboardView
               initialSubtype={activeAopSubtype}
-              onSubtypeChange={setActiveAopSubtype}
+              onSubtypeChange={(st) => setActiveAopSubtype(st as any)}
             />
           )}
         </main>
@@ -2725,6 +2779,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
     web_outlook_url?: string;
     download_url?: string;
     record_count: number;
+    recipients?: string[];
     resolved: number;
     unresolved: number;
     subject: string;
@@ -9309,7 +9364,7 @@ interface QuarterlyReportModalProps {
   activeModule?: string;
   filteredIssues?: any[];
   managerReportData?: any[];
-  managerSummary?: { shared: number; closed: number; pct: string };
+  managerSummary?: { shared: number; closed: number; pct: string } | Record<string, any>;
   topClusters?: any[];
 }
 
@@ -10860,7 +10915,7 @@ const CyberTextReveal = ({ text, className, delay = 0, isGradient = false }: { t
       opacity: 1,
       y: 0,
       filter: "blur(0px)",
-      transition: { type: "spring", damping: 14, stiffness: 100 }
+      transition: { type: "spring" as const, damping: 14, stiffness: 100 }
     }
   };
 

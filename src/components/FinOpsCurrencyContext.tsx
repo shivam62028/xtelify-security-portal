@@ -1,6 +1,9 @@
 // richyrik: Multi-Worksheet FinOps Ingestion & Currency Control Engine Context
 import React, { createContext, useContext, useState, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
+// richyrik: Multi-sheet AOP Parser
+import { parseAOPMultiSheetWorkbook } from "./aopMultiSheetData";
+import { saveFinOpsDataForFY } from "./finopsMultiYearStorage";
 
 export type CurrencyCode = "INR" | "USD" | "EUR" | "GBP";
 
@@ -497,6 +500,15 @@ export const FinOpsCurrencyProvider: React.FC<{ children: React.ReactNode }> = (
     const sName = sheetName.toLowerCase().trim();
     const hStr = headers.join(" ").toLowerCase();
 
+    // richyrik: Multi-sheet IPTV & Xstream AOP (2027-2028) worksheets routing
+    if (/iptv|xstream|xstrm|dth.*aop|ht.*aop|leadership\s*summary|video-platform|common\s*xstrm|base\s*cost/i.test(sName)) {
+      let lobTag = "IPTV";
+      if (/xstream|xstrm/i.test(sName)) lobTag = "Xstream";
+      else if (/dth/i.test(sName)) lobTag = "DTH";
+      else if (/\bht\b/i.test(sName)) lobTag = "HT";
+      return { target: "aop", label: `AOP Dashboard (${lobTag} LOB)` };
+    }
+
     // 1. By Sheet Name Heuristics (e.g. "New Components", "AOP 2027", "Cloud Cost")
     if (/aop|operating\s*plan|budget\s*202|aop\s*202/i.test(sName)) {
       return { target: "aop", label: "AOP Dashboard" };
@@ -515,7 +527,7 @@ export const FinOpsCurrencyProvider: React.FC<{ children: React.ReactNode }> = (
     if (/cost\s*component|usecase|capex\s*\/\s*opex|payment\s*mode|lob/i.test(hStr)) {
       return { target: "aop", label: "AOP Dashboard" };
     }
-    if (/committed\s*use|actual|projected|pool|run-rate|apr-\d|may-\d/i.test(hStr)) {
+    if (/committed\s*use|actual|projected|pool|spend[- ]?rate|run-rate|apr-\d|may-\d/i.test(hStr)) {
       return { target: "credits", label: "Credit Tracker / Cloud Cost" };
     }
     if (/nfa\s*number|gbpa|annual\s*cost|email\s*thread|approval\s*thread/i.test(hStr)) {
@@ -586,6 +598,26 @@ export const FinOpsCurrencyProvider: React.FC<{ children: React.ReactNode }> = (
         throw new Error("No worksheets found in this workbook.");
       }
 
+      // richyrik: Multi-sheet AOP workbook auto-parse if AOP worksheets detected
+      const isAopWorkbook = workbook.SheetNames.some((sn) =>
+        /iptv|xstream|xstrm|dth.*aop|ht.*aop|leadership\s*summary/i.test(sn)
+      );
+      if (isAopWorkbook) {
+        try {
+          const aopRes = parseAOPMultiSheetWorkbook(workbook);
+          localStorage.setItem("xtelify_aop_categories_v3", JSON.stringify(aopRes.categoryGroups));
+          localStorage.setItem("xtelify_aop_categories_v2", JSON.stringify(aopRes.categoryGroups));
+          localStorage.setItem("xtelify_aop_leadership_summaries_v3", JSON.stringify(aopRes.leadershipSummaries));
+          localStorage.setItem("xtelify_aop_leadership_summaries_v2", JSON.stringify(aopRes.leadershipSummaries));
+          saveFinOpsDataForFY(dateFilter.fiscalYear || "FY 2026-27", {
+            aopCategories: aopRes.categoryGroups,
+            aopLeadershipSummaries: aopRes.leadershipSummaries,
+          });
+        } catch (e) {
+          console.warn("[FinOps] Multi-sheet AOP auto-parse warning:", e);
+        }
+      }
+
       const parsedSheets: DetectedSheetInfo[] = [];
       let firstMismatch: CurrencyMismatchInfo | null = null;
 
@@ -650,7 +682,7 @@ export const FinOpsCurrencyProvider: React.FC<{ children: React.ReactNode }> = (
 
       // If currency mismatch detected, show permission dialog
       if (firstMismatch) {
-        firstMismatch.pendingSheets = parsedSheets;
+        (firstMismatch as CurrencyMismatchInfo).pendingSheets = parsedSheets;
         setMismatchInfo(firstMismatch);
         setIsMismatchDialogOpen(true);
       } else {
@@ -764,9 +796,12 @@ export const FinOpsCurrencyProvider: React.FC<{ children: React.ReactNode }> = (
               capexOpex = String(row[6] || "Opex").trim();
             }
 
-            // Classify subtype into IPTV or XSTREAM
-            const combinedText = `${sheet.name} ${project} ${costComponent} ${usecase} ${lob}`.toLowerCase();
-            const subtype: "IPTV" | "XSTREAM" = combinedText.includes("iptv") ? "IPTV" : "XSTREAM";
+            // richyrik: Classify LOB into IPTV, XSTREAM, DTH, or HT
+            const combinedText = `${sheet.sheetName || ""} ${project} ${costComponent} ${usecase} ${lob}`.toLowerCase();
+            let subtype: "IPTV" | "XSTREAM" | "DTH" | "HT" = "XSTREAM";
+            if (combinedText.includes("iptv")) subtype = "IPTV";
+            else if (combinedText.includes("dth")) subtype = "DTH";
+            else if (/\bht\b|home terminal|broadband/i.test(combinedText)) subtype = "HT";
 
             parsedLineItems.push({
               id: `aop-ingest-${Date.now()}-${idx}`,

@@ -34,6 +34,8 @@ import * as XLSX from "xlsx";
 import { motion, AnimatePresence } from "framer-motion";
 // richyrik: FinOps currency & global date filter context
 import { useFinOpsCurrency } from "./FinOpsCurrencyContext";
+import { FinOpsEmptyStateCard } from "./FinOpsEmptyStateCard";
+import { saveFinOpsDataForFY } from "./finopsMultiYearStorage";
 
 export interface NFAGBPARecord {
   id: string;
@@ -54,129 +56,23 @@ export interface NFAGBPARecord {
 
 const STORAGE_KEY = "xtelify_nfa_gbpa_records_v1";
 
-const INITIAL_NFA_GBPA_RECORDS: NFAGBPARecord[] = [
-  {
-    id: "nfa-rec-001",
-    project: "Wynk Music Infra Scale-up",
-    nfaNumber: "NFA-2024-001",
-    status: "Approved",
-    comment: "Approved by Finance Head; CUD discount active for 3 years with 38% gross savings",
-    aop: "Yes",
-    capexOpex: "Opex",
-    costComponent: "GCP Committed Use Discount (CUD)",
-    usecase: "High-throughput music streaming, CDN cache nodes, and transcoding compute clusters",
-    owner: "Shubham Kumar",
-    vendor: "Google Cloud",
-    quantityDuration: "36 Months (N2D Compute Instances)",
-    annualCostCr: 1.82,
-    emailThread: "Approval Thread: NFA-2024-001 [Wynk Music GCP CUD]",
-  },
-  {
-    id: "nfa-rec-002",
-    project: "AWS Reserved Instances Q2-Q4",
-    nfaNumber: "GBPA-2024-007",
-    status: "Approved",
-    comment: "Corporate GBPA contract signed; 34% cost savings vs on-demand compute baseline",
-    aop: "Yes",
-    capexOpex: "Opex",
-    costComponent: "AWS EC2 Reserved Instances",
-    usecase: "Core microservices cluster, RDS Aurora databases, and Kafka message streaming",
-    owner: "Ananya Verma",
-    vendor: "Amazon Web Services",
-    quantityDuration: "12 Months Term (250 Instances)",
-    annualCostCr: 0.8,
-    emailThread: "Approval Thread: GBPA-2024-007 [AWS RI FinOps Signoff]",
-  },
-  {
-    id: "nfa-rec-003",
-    project: "DR Infrastructure Scale-Up GCP",
-    nfaNumber: "NFA-2024-012",
-    status: "Pending Finance",
-    comment: "Pending Group CFO approval for secondary DR region failover compute capacity",
-    aop: "No",
-    capexOpex: "Capex",
-    costComponent: "Cross-Region Disaster Recovery",
-    usecase: "Active-passive multi-region backup for telecommunications regulatory compliance",
-    owner: "Rahul Saxena",
-    vendor: "Google Cloud",
-    quantityDuration: "24 Months (Multi-Region Mumbai/Delhi)",
-    annualCostCr: 0.6,
-    emailThread: "Approval Thread: NFA-2024-012 [DR Scale-up GCP Review]",
-  },
-  {
-    id: "nfa-rec-004",
-    project: "Multi-Cloud CDN Cost Optimization",
-    nfaNumber: "GBPA-2024-009",
-    status: "Approved",
-    comment: "Bandwidth tier commit with Cloudflare edge caching, WAF rules & bot protection",
-    aop: "Yes",
-    capexOpex: "Opex",
-    costComponent: "Enterprise Edge CDN & DDoS Protection",
-    usecase: "Global media delivery, zero-trust gateway endpoints, and bot mitigation",
-    owner: "Priya Sharma",
-    vendor: "Cloudflare",
-    quantityDuration: "36 Months Enterprise Agreement",
-    annualCostCr: 0.35,
-    emailThread: "Approval Thread: GBPA-2024-009 [CDN Bandwidth Agreement]",
-  },
-  {
-    id: "nfa-rec-005",
-    project: "SAST/DAST Tooling — Security Budget",
-    nfaNumber: "NFA-2024-015",
-    status: "Under Review",
-    comment: "Security team evaluating Prisma Cloud vs Wiz vs Snyk annual license tiers",
-    aop: "Yes",
-    capexOpex: "Opex",
-    costComponent: "AppSec & Container Scanner License",
-    usecase: "DevSecOps CI/CD pipeline integration and real-time repo monitoring across 400+ services",
-    owner: "Vikram Malhotra",
-    vendor: "Wiz / Palo Alto Networks",
-    quantityDuration: "1 Year Enterprise (5,000 developer seats)",
-    annualCostCr: 0.45,
-    emailThread: "Approval Thread: NFA-2024-015 [DevSecOps Scanner Quote]",
-  },
-  {
-    id: "nfa-rec-006",
-    project: "Data Lakehouse BigQuery Migration",
-    nfaNumber: "NFA-2024-019",
-    status: "Approved",
-    comment: "Migration phase 1 completed; formal sign-off from Enterprise Architecture & CISO",
-    aop: "Yes",
-    capexOpex: "Capex",
-    costComponent: "Cloud BigQuery & Dataproc Compute",
-    usecase: "Consolidated subscriber analytics and marketing data lake migration from on-prem Hadoop",
-    owner: "Rohan Gupta",
-    vendor: "Google Cloud",
-    quantityDuration: "3 Years Enterprise Migration",
-    annualCostCr: 2.4,
-    emailThread: "Approval Thread: NFA-2024-019 [BigQuery Lakehouse Phase 1]",
-  },
-  {
-    id: "nfa-rec-007",
-    project: "Enterprise GenAI Gateway & Vertex AI",
-    nfaNumber: "GBPA-2024-014",
-    status: "Pending CTO",
-    comment: "Awaiting benchmark metrics on Gemini 1.5 Flash token throughput and PII safety filters",
-    aop: "No",
-    capexOpex: "Opex",
-    costComponent: "LLM API Quota & GPU Reserved Nodes",
-    usecase: "Internal conversational search, code assistance, and customer service automated triage",
-    owner: "Kavita Nambiar",
-    vendor: "Google Cloud / OpenAI",
-    quantityDuration: "12 Months Consumption Commitment",
-    annualCostCr: 1.15,
-    emailThread: "Approval Thread: GBPA-2024-014 [GenAI Model Hub Quota]",
-  },
-];
+const INITIAL_NFA_GBPA_RECORDS: NFAGBPARecord[] = [];
+
+
+// Clean out legacy scrap records that start with nfa-rec-00
+const sanitizeRecords = (arr: any[]): NFAGBPARecord[] => {
+  if (!Array.isArray(arr)) return [];
+  return arr.filter((r) => r && r.id && !String(r.id).startsWith("nfa-rec-00"));
+};
 
 export const NFAGBPATrackerView: React.FC = () => {
-  // richyrik: Purged test data, initialized clean for real user Excel uploads
+  // Purged test data, initialized clean for real user Excel uploads & database
   const [records, setRecords] = useState<NFAGBPARecord[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        const cleaned = sanitizeRecords(JSON.parse(saved));
+        if (cleaned.length > 0) return cleaned;
       }
     } catch {
       // ignore
@@ -184,7 +80,7 @@ export const NFAGBPATrackerView: React.FC = () => {
     return [];
   });
 
-  // richyrik: Connect to FinOps Currency, Datasets & MongoDB Context
+  // Connect to FinOps Currency, Datasets & MongoDB Context
   const {
     currency,
     currencySymbol,
@@ -196,14 +92,34 @@ export const NFAGBPATrackerView: React.FC = () => {
     setIsDatasetManagerOpen,
   } = useFinOpsCurrency();
 
-  // richyrik: Ingestion & Dataset Deletion event listeners
+  const activeFY = dateFilter?.fiscalYear || "FY 2026-27";
+  const getStorageKeyForFY = (fy: string) => `${STORAGE_KEY}_${fy.replace(/\s+/g, "_")}`;
+
+  // Load isolated records when activeFY changes
+  useEffect(() => {
+    try {
+      const fyKey = getStorageKeyForFY(activeFY);
+      const saved = localStorage.getItem(fyKey);
+      if (saved) {
+        const cleaned = sanitizeRecords(JSON.parse(saved));
+        setRecords(cleaned);
+        return;
+      }
+      setRecords([]);
+    } catch {
+      setRecords([]);
+    }
+  }, [activeFY]);
+
+  // Ingestion & Dataset Deletion event listeners
   useEffect(() => {
     const handleIngest = () => {
       try {
-        const saved = localStorage.getItem(STORAGE_KEY);
+        const fyKey = getStorageKeyForFY(activeFY);
+        const saved = localStorage.getItem(fyKey) || localStorage.getItem(STORAGE_KEY);
         if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) setRecords(parsed);
+          const cleaned = sanitizeRecords(JSON.parse(saved));
+          setRecords(cleaned);
         }
       } catch {
         // ignore
@@ -212,7 +128,8 @@ export const NFAGBPATrackerView: React.FC = () => {
 
     const handleDatasetDeleted = () => {
       try {
-        const saved = localStorage.getItem(STORAGE_KEY);
+        const fyKey = getStorageKeyForFY(activeFY);
+        const saved = localStorage.getItem(fyKey);
         if (saved) {
           const parsed = JSON.parse(saved);
           setRecords(Array.isArray(parsed) ? parsed : []);
@@ -230,7 +147,7 @@ export const NFAGBPATrackerView: React.FC = () => {
       window.removeEventListener("finops:ingest-approvals", handleIngest);
       window.removeEventListener("finops:dataset-deleted", handleDatasetDeleted);
     };
-  }, []);
+  }, [activeFY]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -250,16 +167,16 @@ export const NFAGBPATrackerView: React.FC = () => {
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const dragDropInputRef = useRef<HTMLInputElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      const fyKey = getStorageKeyForFY(activeFY);
+      localStorage.setItem(fyKey, JSON.stringify(records));
+      saveFinOpsDataForFY(activeFY, { approvalRecords: records });
     } catch {
       // ignore
     }
-  }, [records]);
+  }, [records, activeFY]);
 
   // Executive KPI calculations
   const kpiMetrics = useMemo(() => {
@@ -518,13 +435,6 @@ export const NFAGBPATrackerView: React.FC = () => {
     if (e.target) e.target.value = "";
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) parseExcelFile(file);
-  };
-
   // Export to Excel with the exact 13 headers from Images 1 & 2
   const handleExportExcel = () => {
     const exportData = records.map((r) => ({
@@ -567,24 +477,41 @@ export const NFAGBPATrackerView: React.FC = () => {
 
   const handleSaveEdit = (updated: NFAGBPARecord) => {
     setRecords((prev) => {
+      let copy: NFAGBPARecord[];
       const idx = prev.findIndex((item) => item.id === updated.id);
       if (idx >= 0) {
-        const copy = [...prev];
+        copy = [...prev];
         copy[idx] = updated;
-        return copy;
+      } else {
+        copy = [updated, ...prev];
       }
-      return [updated, ...prev];
+      const fyKey = getStorageKeyForFY(activeFY);
+      localStorage.setItem(fyKey, JSON.stringify(copy));
+      saveFinOpsDataForFY(activeFY, { approvalRecords: copy });
+      window.dispatchEvent(new CustomEvent("finops:fy-data-updated", { detail: { fy: activeFY } }));
+      return copy;
     });
     setIsEditModalOpen(false);
     setEditingRecord(null);
   };
 
   const handleDeleteRecord = (id: string) => {
-    setRecords((prev) => prev.filter((r) => r.id !== id));
+    if (!window.confirm("Are you sure you want to delete this approval record?")) return;
+    setRecords((prev) => {
+      const copy = prev.filter((r) => r.id !== id);
+      const fyKey = getStorageKeyForFY(activeFY);
+      localStorage.setItem(fyKey, JSON.stringify(copy));
+      saveFinOpsDataForFY(activeFY, { approvalRecords: copy });
+      window.dispatchEvent(new CustomEvent("finops:fy-data-updated", { detail: { fy: activeFY } }));
+      return copy;
+    });
   };
 
   const handleResetSampleData = () => {
     setRecords(INITIAL_NFA_GBPA_RECORDS);
+    const fyKey = getStorageKeyForFY(activeFY);
+    localStorage.setItem(fyKey, JSON.stringify(INITIAL_NFA_GBPA_RECORDS));
+    saveFinOpsDataForFY(activeFY, { approvalRecords: INITIAL_NFA_GBPA_RECORDS });
     setUploadFeedback({ type: "info", message: "Reset to default sample NFA/GBPA tracker records." });
   };
 
@@ -646,10 +573,11 @@ export const NFAGBPATrackerView: React.FC = () => {
 
           <button
             onClick={() => {
+              const startYr = activeFY.match(/\d{4}/)?.[0] || String(new Date().getFullYear());
               setEditingRecord({
                 id: `nfa-new-${Date.now()}`,
                 project: "",
-                nfaNumber: "NFA-2024-",
+                nfaNumber: `NFA-${startYr}-${String(records.length + 1).padStart(3, "0")}`,
                 status: "Pending Finance",
                 comment: "",
                 aop: "Yes",
@@ -664,7 +592,7 @@ export const NFAGBPATrackerView: React.FC = () => {
               });
               setIsEditModalOpen(true);
             }}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white text-xs font-semibold rounded-xl border border-white/[0.08] transition-all"
+            className="flex items-center gap-1.5 px-3 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white text-xs font-semibold rounded-xl border border-white/[0.08] transition-all cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 text-violet-400" />
             Add Note
@@ -901,56 +829,55 @@ export const NFAGBPATrackerView: React.FC = () => {
         </div>
       </div>
 
-      {/* ── DRAG & DROP EMPTY STATE (WHEN NO RECORDS) ── */}
+      {/* ── EMPTY STATE ── */}
       {records.length === 0 ? (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all bg-white/[0.01] ${isDragging
-            ? "border-violet-500 bg-violet-500/10 scale-[1.01]"
-            : "border-slate-700/80 hover:border-slate-600"
-            }`}
-        >
-          <input
-            type="file"
-            ref={dragDropInputRef}
-            onChange={handleFileUpload}
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
+        <div className="relative">
+          <FinOpsEmptyStateCard
+            sectionName="NFA / GBPA"
+            fiscalYear={activeFY}
+            onCreateNew={() => {
+              const startYr = activeFY.match(/\d{4}/)?.[0] || String(new Date().getFullYear());
+              const draftRecord: NFAGBPARecord = {
+                id: `nfa-${Date.now()}`,
+                project: `Cloud Approval Note (${activeFY})`,
+                nfaNumber: `NFA-${startYr}-${String(records.length + 1).padStart(3, "0")}`,
+                status: "Pending",
+                comment: `Initial financial approval note for ${activeFY}`,
+                aop: "Yes",
+                capexOpex: "Opex",
+                costComponent: "Core Cloud Infrastructure",
+                usecase: "Production Compute & Storage",
+                owner: "FinOps Lead",
+                vendor: "Amazon Web Services",
+                quantityDuration: "12 Months",
+                annualCostCr: 0,
+                emailThread: `Approval Reference: ${activeFY}`,
+              };
+              setEditingRecord(draftRecord);
+              setIsEditModalOpen(true);
+            }}
+            onUploadExcel={parseExcelFile}
+            onClonePrevious={() => {
+              let srcRecords: NFAGBPARecord[] = [];
+              try {
+                const savedPrev =
+                  localStorage.getItem(getStorageKeyForFY("FY 2026-27")) ||
+                  localStorage.getItem(STORAGE_KEY);
+                if (savedPrev) srcRecords = JSON.parse(savedPrev);
+              } catch {}
+              if (srcRecords.length === 0) srcRecords = INITIAL_NFA_GBPA_RECORDS;
+              const cloned = srcRecords.map((r, idx) => ({
+                ...r,
+                id: `nfa-${Date.now()}-${idx}`,
+                annualCostCr: 0,
+                status: "Draft",
+              }));
+              setRecords(cloned);
+              const fyKey = getStorageKeyForFY(activeFY);
+              localStorage.setItem(fyKey, JSON.stringify(cloned));
+              saveFinOpsDataForFY(activeFY, { approvalRecords: cloned });
+            }}
           />
-          <div className="w-16 h-16 mx-auto rounded-2xl bg-violet-500/10 border border-violet-500/30 flex items-center justify-center text-violet-400 mb-4 shadow-lg shadow-violet-900/20">
-            <Upload className="w-8 h-8" />
-          </div>
-          <h3 className="text-lg font-bold text-white mb-1">
-            Ready for your NFA / GBPA Approvals Excel upload
-          </h3>
-          <p className="text-slate-400 text-xs max-w-lg mx-auto mb-6">
-            Upload your company approvals sheet (.xlsx, .xls, .csv) with the 13 standard columns. All uploaded sheets are automatically stored in Airtel Cloud Ops Security MongoDB (<code className="text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded">xtelify_db.finops_datasets</code>).
-          </p>
-          <div className="flex items-center justify-center flex-wrap gap-3">
-            <button
-              onClick={() => dragDropInputRef.current?.click()}
-              className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 text-xs font-bold rounded-xl shadow-lg transition-all cursor-pointer"
-            >
-              Select Excel File
-            </button>
-            <button
-              onClick={() => setIsDatasetManagerOpen(true)}
-              className="px-5 py-2.5 bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 hover:text-white text-xs font-semibold rounded-xl border border-white/[0.08] transition-all cursor-pointer"
-            >
-              View Datasets ({datasets.length})
-            </button>
-            <button
-              onClick={handleResetSampleData}
-              className="px-4 py-2.5 bg-slate-800/60 hover:bg-slate-800 text-slate-400 text-xs rounded-xl border border-slate-700/60 transition-all cursor-pointer"
-            >
-              Load Sample Template
-            </button>
-          </div>
         </div>
       ) : filteredRecords.length === 0 ? (
         <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-10 text-center">
