@@ -6468,35 +6468,18 @@ async def delete_aop_snapshot(snapshot_id: str):
 
     return {"success": True, "id": snapshot_id, "deleted_from_mongo": deleted_mongo}
 
-_FINOPS_CUSTOM_CATALOG_FALLBACK_FILE = os.path.join(os.path.dirname(__file__), "finops_custom_catalog.json")
-
-def _read_finops_custom_catalog_fallback() -> dict:
-    if os.path.exists(_FINOPS_CUSTOM_CATALOG_FALLBACK_FILE):
-        try:
-            with open(_FINOPS_CUSTOM_CATALOG_FALLBACK_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"[FinOps Catalog] Error reading fallback file: {e}")
-    return {"lobs": [], "subtypes": [], "categories": []}
-
-def _write_finops_custom_catalog_fallback(data: dict):
-    try:
-        with open(_FINOPS_CUSTOM_CATALOG_FALLBACK_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, default=str)
-    except Exception as e:
-        print(f"[FinOps Catalog] Error writing fallback file: {e}")
-
 @app.get("/api/finops/catalog")
 async def get_finops_custom_catalog():
-    fallback = _read_finops_custom_catalog_fallback()
+    empty_catalog = {"lobs": [], "subtypes": [], "categories": []}
     if _is_mongo_available():
         try:
             doc = finops_custom_catalog_collection.find_one({"catalog_key": "finops_main_catalog"}, {"_id": 0})
             if doc and "catalog" in doc:
                 return {"success": True, "catalog": doc["catalog"], "source": "mongodb"}
+            return {"success": True, "catalog": empty_catalog, "source": "mongodb"}
         except Exception as e:
             print(f"[FinOps Catalog] MongoDB read error: {e}")
-    return {"success": True, "catalog": fallback, "source": "local_cache"}
+    return {"success": True, "catalog": empty_catalog, "source": "empty"}
 
 @app.post("/api/finops/catalog")
 async def save_finops_custom_catalog(request: Request):
@@ -6519,25 +6502,23 @@ async def save_finops_custom_catalog(request: Request):
         except Exception as e:
             print(f"[FinOps Catalog] MongoDB write error: {e}")
             
-    _write_finops_custom_catalog_fallback(catalog_data)
-    return {"success": True, "saved_to_mongo": saved_mongo, "message": "FinOps custom catalog saved successfully."}
+    return {"success": True, "saved_to_mongo": saved_mongo, "message": "FinOps custom catalog saved successfully to database."}
 
 @app.delete("/api/finops/catalog/{item_id}")
 async def delete_finops_custom_catalog_item(item_id: str):
     deleted_mongo = False
-    fallback = _read_finops_custom_catalog_fallback()
-    
-    fallback["lobs"] = [x for x in fallback.get("lobs", []) if x.get("id") != item_id]
-    fallback["subtypes"] = [x for x in fallback.get("subtypes", []) if x.get("id") != item_id and x.get("name") != item_id]
-    fallback["categories"] = [x for x in fallback.get("categories", []) if x.get("code") != item_id]
-    _write_finops_custom_catalog_fallback(fallback)
-    
     if _is_mongo_available():
         try:
+            doc = finops_custom_catalog_collection.find_one({"catalog_key": "finops_main_catalog"}, {"_id": 0})
+            catalog = doc.get("catalog", {}) if doc else {}
+            catalog["lobs"] = [x for x in catalog.get("lobs", []) if x.get("id") != item_id]
+            catalog["subtypes"] = [x for x in catalog.get("subtypes", []) if x.get("id") != item_id and x.get("name") != item_id]
+            catalog["categories"] = [x for x in catalog.get("categories", []) if x.get("code") != item_id]
+            
             finops_custom_catalog_collection.update_one(
                 {"catalog_key": "finops_main_catalog"},
                 {"$set": {
-                    "catalog": fallback,
+                    "catalog": catalog,
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 }},
                 upsert=True
