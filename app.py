@@ -3820,7 +3820,9 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
     import asyncio
     t_start = time.time()
     try:
-        dsn = datasetName
+        dsn = datasetName.strip() if datasetName else ""
+        if not dsn:
+            dsn = f"Upload - {datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}"
 
         if upload_batch_exists(dsn):
             return JSONResponse(status_code=400, content={"error": "Duplicate: Dataset already exists."})
@@ -3873,14 +3875,17 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                                     excel_row_counter += 1
                                     continue
                                 if sheet_format == "VAPT":
-                                    rec = process_vapt_row_new(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
+                                    rec = process_vapt_row_new(row, idx, dsn, rc_lower_sheet)
                                 elif sheet_format == "SAST_DAST":
-                                    rec = process_vapt_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
+                                    rec = process_vapt_row(row, idx, dsn, rc_lower_sheet)
                                 elif sheet_format == "CSPM":
-                                    rec = process_cspm_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
+                                    rec = process_cspm_row(row, idx, dsn, rc_lower_sheet)
                                 else:
-                                    rec = process_container_row(row, idx, f"{dsn} [{sheet_name}]", rc_lower_sheet)
+                                    rec = process_container_row(row, idx, dsn, rc_lower_sheet)
                                 if rec:
+                                    rec["UploadBatch"] = dsn
+                                    rec["upload_batch"] = dsn
+                                    rec["Batch"] = dsn
                                     rec["SourceSheet"] = sheet_name
                                     rec["ExcelRowIndex"] = excel_row_counter  # richyrik: 1-based row# for dup tracking
                                     sheet_records.append(rec)
@@ -3893,8 +3898,12 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                         except Exception as sheet_err:
                             sheet_summary.append({"name": sheet_name, "format": "ERROR", "rows": 0, "status": str(sheet_err)})
                     if all_records:
+                        for r in all_records:
+                            r["UploadBatch"] = dsn
+                            r["upload_batch"] = dsn
+                            r["Batch"] = dsn
                         attach_file_hash(all_records, file_hash)
-                        insert_records(all_records, skip_existing_check=True)
+                        stats = insert_records(all_records, skip_existing_check=True)
                         formats_used = list(set([s["format"] for s in sheet_summary if s["status"] == "processed"]))
                         fmt_to_log = formats_used[0] if len(formats_used) == 1 else "MULTIPLE"
                         log_upload_history(dsn, fn, fmt_to_log, len(all_records))
@@ -3904,6 +3913,10 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                             "processed_rows": len(all_records),
                             "sheets_processed": len([s for s in sheet_summary if s["status"] == "processed"]),
                             "sheet_summary": sheet_summary,
+                            "dataset_name": dsn,
+                            "format": fmt_to_log,
+                            "new_findings": stats.get("new", 0) if isinstance(stats, dict) else 0,
+                            "resolved_existing": stats.get("resolved_existing", 0) if isinstance(stats, dict) else 0,
                             "message": f"Processed {len(all_records)} records from {len(all_sheet_names)} worksheets"
                         }
                     else:
@@ -3946,7 +3959,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                 attach_file_hash(ni, file_hash)
                 stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "VAPT", len(ni))
-                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT", "dataset_name": dsn, "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
             elif file_format == "SAST_DAST":
                 ni = []
@@ -3963,7 +3976,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                 attach_file_hash(ni, file_hash)
                 stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "SAST_DAST", len(ni))
-                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST", "dataset_name": dsn, "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
             elif file_format == "CSPM":
                 ni = []
@@ -3980,7 +3993,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
                 attach_file_hash(ni, file_hash)
                 stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "CSPM", len(ni))
-                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM", "dataset_name": dsn, "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
             def find_col(patterns):
                 for p in patterns:
@@ -4137,7 +4150,7 @@ async def pu(file: UploadFile = File(...), datasetName: str = Form(...), allowDu
             stats = insert_records(ni, skip_existing_check=True)
             print(f"Total upload time: {time.time() - t_start:.2f} sec | Rows: {len(ni)}")
             log_upload_history(dsn, fn, "CONTAINER", len(ni))
-            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
+            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER", "dataset_name": dsn, "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
         mexwf = await asyncio.to_thread(_process)
         if isinstance(mexwf, dict) and "_error" in mexwf:
@@ -4160,7 +4173,9 @@ async def pu_with_sheet(
     import asyncio
     t_start = time.time()
     try:
-        dsn = datasetName
+        dsn = datasetName.strip() if datasetName else ""
+        if not dsn:
+            dsn = f"Upload - {datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}"
 
         if upload_batch_exists(dsn):
             return JSONResponse(status_code=400, content={"error": "Duplicate: Dataset already exists."})
@@ -4207,7 +4222,7 @@ async def pu_with_sheet(
                 attach_file_hash(ni, file_hash)
                 stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "VAPT", len(ni))
-                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "VAPT", "dataset_name": dsn, "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
             elif file_format == "SAST_DAST":
                 ni = []
@@ -4224,7 +4239,7 @@ async def pu_with_sheet(
                 attach_file_hash(ni, file_hash)
                 stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "SAST_DAST", len(ni))
-                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "SAST_DAST", "dataset_name": dsn, "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
             elif file_format == "CSPM":
                 ni = []
@@ -4241,7 +4256,7 @@ async def pu_with_sheet(
                 attach_file_hash(ni, file_hash)
                 stats = insert_records(ni, skip_existing_check=True)
                 log_upload_history(dsn, fn, "CSPM", len(ni))
-                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
+                return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CSPM", "dataset_name": dsn, "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
             def find_col(patterns):
                 for p in patterns:
@@ -4395,7 +4410,7 @@ async def pu_with_sheet(
             stats = insert_records(ni, skip_existing_check=True)
             log_upload_history(dsn, fn, "CONTAINER", len(ni))
             print(f"Processed {len(ni)} rows from sheet '{sheetName}' in {time.time() - t_start:.2f} sec")
-            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER", "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
+            return {"duplicate": False, "status": "success", "processed_rows": len(ni), "format": "CONTAINER", "dataset_name": dsn, "new_findings": stats["new"], "resolved_existing": stats["resolved_existing"]}
 
         mexwf = await asyncio.to_thread(_process_sheet)
         if isinstance(mexwf, dict) and "_error" in mexwf:

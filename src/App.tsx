@@ -916,7 +916,10 @@ const HistoricalAnalyticsModule: React.FC<{ darkMode: boolean; selectedDate: Dat
                 </td>
                 <td className="p-3 font-semibold">
                   <div className="flex items-center gap-2">
-                    {d.FileName || d.UploadBatch}
+                    <span>{d.UploadBatch || d.FileName}</span>
+                    {d.FileName && d.FileName !== d.UploadBatch && (
+                      <span className="text-[11px] text-slate-400 font-normal">({d.FileName})</span>
+                    )}
                     {d.DeletedAt && (
                       <span
                         className="px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] rounded font-bold border border-red-200"
@@ -2799,6 +2802,7 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [datasetName, setDatasetName] = useState<string>("");
+  const [initialDatasetName, setInitialDatasetName] = useState<string>("");
   const [saveToDevice, setSaveToDevice] = useState<boolean>(false);
   const [availableSheets, setAvailableSheets] = useState<string[]>([]);
   const [sheetInfo, setSheetInfo] = useState<Array<{ name: string; rows: number; columns: number; format: string; is_pivot: boolean }>>([]);
@@ -5240,8 +5244,10 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const initialName = `Upload - ${new Date().toLocaleString()}`;
       setSelectedFile(file);
-      setDatasetName(`Upload - ${new Date().toLocaleString()}`);
+      setInitialDatasetName(initialName);
+      setDatasetName("");
       setSaveToDevice(false);
       setAvailableSheets([]);
       setSheetInfo([]);
@@ -5264,9 +5270,9 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
 
     try {
       const finalBatchName =
-        datasetName.trim() === ""
-          ? `Upload - ${new Date().toLocaleString()}`
-          : datasetName.trim();
+        datasetName && datasetName.trim() !== ""
+          ? datasetName.trim()
+          : (initialDatasetName || `Upload - ${new Date().toLocaleString()}`);
 
       const formData = new FormData();
       formData.append("file", selectedFile);
@@ -6612,14 +6618,14 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                                 ) : (
                                   <Square size={16} className="text-slate-300" />
                                 )}
-                                {/* richyrik: prepend "VUL - " to every dataset name in the dropdown */}
+                                {/* Display custom datasheet name as given by user; default auto-generated uploads display as initial */}
                                 <span
                                   className={`text-xs flex-1 ${selectedBatches.includes(batch)
                                     ? "font-bold text-slate-900"
                                     : "text-slate-600"
                                     }`}
                                 >
-                                  {`VUL - ${batch}`}
+                                  {batch}
                                 </span>
                                 <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${format === "SAST_DAST" ? "bg-purple-100 text-purple-700" :
                                   format === "CSPM" ? "bg-green-100 text-green-700" :
@@ -8651,6 +8657,8 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     setDuplicatePromptMessage("");
                     setDuplicateUploadApproved(false);
                     setUploadStats(null); // richyrik
+                    setDatasetName("");
+                    setInitialDatasetName("");
                   }
                 }}
                 className="text-blue-200 hover:text-white transition-colors disabled:opacity-50"
@@ -8667,7 +8675,9 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                   <CheckCircle size={32} />
                 </div>
                 <h3 className="text-xl font-black text-slate-800">Upload Successful</h3>
-                <p className="text-sm text-slate-500 mb-4">Dataset has been processed and merged into the database.</p>
+                <p className="text-sm text-slate-500 mb-4">
+                  Dataset <span className="font-bold text-slate-800">{uploadStats.dataset_name || uploadStats.datasetName || uploadStats.UploadBatch || datasetName || initialDatasetName}</span> has been processed and merged into the database.
+                </p>
                 
                 <div className="w-full grid grid-cols-2 gap-3 mb-2">
                   <div className="bg-slate-50 border border-slate-200 rounded p-3 flex flex-col items-center">
@@ -8697,6 +8707,8 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     setDuplicatePromptMessage("");
                     setDuplicateUploadApproved(false);
                     setUploadStats(null);
+                    setDatasetName("");
+                    setInitialDatasetName("");
                   }}
                   className="w-full py-2 bg-blue-600 text-white rounded text-sm font-bold hover:bg-blue-700 transition-colors"
                 >
@@ -8719,22 +8731,31 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
               className="p-6 flex flex-col gap-4"
             >
               <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                   Selected File
                 </label>
-                <div className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded text-sm text-slate-600 font-medium truncate">
+                <div
+                  style={{ color: "#1e293b", backgroundColor: "#f8fafc" }}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded text-sm text-slate-800 font-medium truncate"
+                >
                   {selectedFile?.name || "No file selected"}
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase mb-1">
-                  Dataset Name
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700 uppercase">
+                    Dataset Name
+                  </label>
+                  <span className="text-[11px] text-slate-500 font-normal">
+                    (optional: customize name or leave blank)
+                  </span>
+                </div>
                 <input
                   type="text"
-                  placeholder="e.g., May 2026 Audit"
-                  className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm mb-2"
+                  placeholder={initialDatasetName || (selectedFile?.name ? `e.g., ${selectedFile.name.replace(/\.[^/.]+$/, "")} (or leave blank)` : "e.g., May 2026 Audit (or leave blank)")}
+                  style={{ color: "#000000", backgroundColor: "#ffffff" }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm mb-2 text-black bg-white placeholder:text-slate-400 font-medium"
                   value={datasetName}
                   onChange={(e) => setDatasetName(e.target.value)}
                   disabled={isProcessing}
@@ -8886,6 +8907,8 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     setDuplicatePromptMessage("");
                     setDuplicateUploadApproved(false);
                     setUploadStats(null); // richyrik
+                    setDatasetName("");
+                    setInitialDatasetName("");
                   }}
                   disabled={isProcessing}
                   className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors disabled:opacity-50"
@@ -8932,7 +8955,8 @@ const AppContent: React.FC<{ onNavigateHome?: () => void }> = ({ onNavigateHome 
                     <input
                       type="text"
                       placeholder="Search columns..."
-                      className="bg-transparent border-none outline-none text-sm w-full"
+                      style={{ color: "#000000" }}
+                      className="bg-transparent border-none outline-none text-sm w-full text-slate-900 placeholder:text-slate-400"
                       value={searchExportCol}
                       onChange={e => setSearchExportCol(e.target.value)}
                     />

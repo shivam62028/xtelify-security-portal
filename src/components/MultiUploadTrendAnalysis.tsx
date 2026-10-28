@@ -264,7 +264,7 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
         const dateStr = rawDate
           ? new Date(rawDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
           : `Upload ${idx + 1}`;
-        const fName = item.fileName || item.batch || `upload_${idx + 1}.xlsx`;
+        const fName = item.batch || item.fileName || `Upload ${idx + 1}`;
         const matchingLocalIssues = (allIssues || []).filter((i: any) =>
           (i.UploadBatch === item.batch || i.FileName === item.fileName)
         );
@@ -392,11 +392,11 @@ export const MultiUploadTrendAnalysis: React.FC<MultiUploadTrendAnalysisProps> =
           ? new Date(rawDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
           : `Upload ${idx + 1}`;
 
-        const fName = firstIssue.FileName || (batchId.endsWith(".xlsx") ? batchId : `${batchId}.xlsx`);
+        const fName = batchId || firstIssue.UploadBatch || firstIssue.FileName || `Upload ${idx + 1}`;
 
         return {
           id: batchId,
-          label: `${dateStr} (${fName.slice(0, 18)})`,
+          label: `${dateStr} (${fName.length > 20 ? fName.slice(0, 18) + '...' : fName})`,
           fileName: fName,
           uploadedAt: rawDate || new Date(parsedTimestamp).toISOString(),
           timestamp: parsedTimestamp,
